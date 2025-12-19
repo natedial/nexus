@@ -36,7 +36,7 @@ python src/main.py
 Schedule with cron (runs daily at 9 AM):
 ```bash
 crontab -e
-# Add: 0 9 * * * cd /Users/ndial/dev/research-dispatch && /path/to/venv/bin/python src/main.py
+# Add: 0 9 * * * cd ~/dev/research-dispatch && /path/to/venv/bin/python src/main.py
 ```
 
 ## Project Structure
