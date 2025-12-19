@@ -1,0 +1,49 @@
+TITLE:
+  - font_size: 32
+    font_color: '#ff2a6d'
+    space_after: 30
+
+TITLE_BACKGROUND:
+  - color: '#133e7c'
+    space_after: 30
+    space_before: 30
+
+H1_HEADING:
+  - font_size: 24
+    font_color: '#d1f7ff'
+    space_after: 30
+
+H2_HEADING:
+  - font_size: 18
+    font_color: '#333333'
+    space_after: 12
+    space_before: 12
+
+H1_BACKGROUND:
+  - color: '#005678'
+    space_after: 12
+    space_before: 12
+
+H2_BACKGROUND:
+  - color: '#e0e0e0'
+    space_after: 12
+    space_before: 12
+
+NORMAL_TEXT:
+  - font_size: 12
+    font_color: '#000000'
+    space_after: 12
+    space_before: 12
+
+ITALIC_TEXT:
+  - font_size: 12
+    font_color: '#000000'
+    font_style: italic
+    space_after: 12
+    space_before: 12
+
+MINIMALIST_TEXT:
+  - font_size: 9
+    font_color: '#666666'
+    space_after: 6
+    space_before: 0
