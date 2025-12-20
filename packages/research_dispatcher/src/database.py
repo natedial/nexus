@@ -1,6 +1,6 @@
 from supabase import create_client, Client
 from config import Config
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 
 class DatabaseClient:
@@ -56,6 +56,61 @@ class DatabaseClient:
         except Exception as e:
             print(f"Error marking documents as synthesized: {e}")
             return False
+
+    def _get_upcoming_week_range(self):
+        """Get the Monday-Friday date range for the upcoming week."""
+        today = date.today()
+        # Find next Monday
+        days_until_monday = (7 - today.weekday()) % 7
+        if days_until_monday == 0:
+            days_until_monday = 7  # If today is Monday, get next Monday
+
+        next_monday = today + timedelta(days=days_until_monday)
+        next_friday = next_monday + timedelta(days=4)
+
+        return next_monday, next_friday
+
+    def query_economic_events(self):
+        """
+        Query US economic events for the upcoming week (Monday-Friday).
+
+        Returns events with: event_date, time_ny, event_name, consensus
+        """
+        monday, friday = self._get_upcoming_week_range()
+
+        response = (
+            self.client.table('economic_events')
+            .select('event_date, time_ny, event_name, consensus, importance_indicator')
+            .eq('country', 'US')
+            .gte('event_date', monday.isoformat())
+            .lte('event_date', friday.isoformat())
+            .order('event_date')
+            .order('time_ny')
+            .execute()
+        )
+
+        return response.data
+
+    def query_supply_events(self):
+        """
+        Query US supply events for the upcoming week (Monday-Friday).
+
+        Returns events with: event_date, time_ny, description, size_bn
+        """
+        monday, friday = self._get_upcoming_week_range()
+
+        response = (
+            self.client.table('supply_events')
+            .select('event_date, time_ny, description, size_bn, maturity')
+            .eq('country', 'US')
+            .gte('event_date', monday.isoformat())
+            .lte('event_date', friday.isoformat())
+            .order('event_date')
+            .order('time_ny')
+            .execute()
+        )
+
+        return response.data
 
     def query_all_recent(self):
         """

@@ -2,7 +2,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib import colors
 from typing import Dict, Any
 import os
@@ -218,40 +218,151 @@ class PDFGenerator:
 
             story.append(Spacer(1, 0.2 * inch))
 
-        # Details section
+        # Economic Calendar section
+        economic_calendar = report_data.get('economic_calendar', {})
+        if economic_calendar:
+            story.append(Paragraph('Economic Calendar (Upcoming Week)', self.styles['SectionHeader']))
+
+            for day, events in economic_calendar.items():
+                # Day header
+                day_header = Paragraph(f"<b>{day}</b>", self.styles['Normal'])
+                story.append(day_header)
+
+                # Create table for this day
+                table_data = [['Time NY', 'Event', 'Consensus']]  # Headers
+                for event in events:
+                    table_data.append([
+                        event['time'],
+                        event['event'],
+                        event['consensus']
+                    ])
+
+                table = Table(table_data, colWidths=[1.0*inch, 4.0*inch, 1.5*inch])
+
+                # Create alternating row colors
+                table_style = [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#005678')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ]
+
+                # Add alternating row colors
+                for i in range(1, len(table_data)):
+                    if i % 2 == 1:
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#05d9e8')))
+                    else:
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#d1f7ff')))
+
+                table.setStyle(TableStyle(table_style))
+                story.append(table)
+                story.append(Spacer(1, 0.1 * inch))
+
+            story.append(Spacer(1, 0.2 * inch))
+
+        # Supply Calendar section
+        supply_calendar = report_data.get('supply_calendar', {})
+        if supply_calendar:
+            story.append(Paragraph('Treasury Supply Calendar (Upcoming Week)', self.styles['SectionHeader']))
+
+            for day, events in supply_calendar.items():
+                # Day header
+                day_header = Paragraph(f"<b>{day}</b>", self.styles['Normal'])
+                story.append(day_header)
+
+                # Create table for this day
+                table_data = [['Time NY', 'Description', 'Size (bn)']]  # Headers
+                for event in events:
+                    table_data.append([
+                        event['time'],
+                        event['description'],
+                        event['size']
+                    ])
+
+                table = Table(table_data, colWidths=[1.0*inch, 4.0*inch, 1.5*inch])
+
+                # Create alternating row colors
+                table_style = [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#005678')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ]
+
+                # Add alternating row colors
+                for i in range(1, len(table_data)):
+                    if i % 2 == 1:
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#05d9e8')))
+                    else:
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#d1f7ff')))
+
+                table.setStyle(TableStyle(table_style))
+                story.append(table)
+                story.append(Spacer(1, 0.1 * inch))
+
+            story.append(Spacer(1, 0.2 * inch))
+
+        # Details section (start on new page)
         details = report_data.get('details', [])
         if details:
+            story.append(PageBreak())
             story.append(Paragraph('Detailed Records', self.styles['SectionHeader']))
 
-            # Create table from details
+            # Create table from details with smaller font and adjusted columns
             table_data = []
             if details:
                 # Header row
                 headers = list(details[0].keys())
                 table_data.append([h.replace('_', ' ').title() for h in headers])
 
-                # Data rows
+                # Data rows - truncate long text to fit
                 for record in details:
-                    row = [str(record.get(h, '')) for h in headers]
+                    row = []
+                    for h in headers:
+                        value = str(record.get(h, ''))
+                        # Truncate document_name if too long
+                        if h == 'document_name' and len(value) > 40:
+                            value = value[:40] + '...'
+                        row.append(value)
                     table_data.append(row)
 
+                # Auto-calculate column widths based on available space
                 table = Table(table_data)
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+
+                # Create alternating row colors
+                table_style = [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#005678')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                    ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ]))
+                    ('FONTSIZE', (0, 0), (-1, 0), 8),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                    ('FONTSIZE', (0, 1), (-1, -1), 7),
+                ]
+
+                # Add alternating row colors
+                for i in range(1, len(table_data)):
+                    if i % 2 == 1:
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#05d9e8')))
+                    else:
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#d1f7ff')))
+
+                table.setStyle(TableStyle(table_style))
                 story.append(table)
 
         story.append(Spacer(1, 0.3 * inch))
 
-        # Summary section (moved to bottom)
+        # Summary section (start on new page)
+        story.append(PageBreak())
         story.append(Paragraph('Summary', self.styles['SectionHeader']))
         summary = report_data.get('summary', {})
 

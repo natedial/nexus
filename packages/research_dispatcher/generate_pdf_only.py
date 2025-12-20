@@ -19,11 +19,22 @@ try:
     print("Querying database...")
     db = DatabaseClient()
     data = db.query_analysis()
-    print(f"Retrieved {len(data)} records")
+    print(f"Retrieved {len(data)} research records")
+
+    # Query calendar data
+    economic_events = db.query_economic_events()
+    print(f"Retrieved {len(economic_events)} economic events")
+
+    supply_events = db.query_supply_events()
+    print(f"Retrieved {len(supply_events)} supply events")
 
     print("Formatting report...")
     formatter = ReportFormatter()
     report_data = formatter.format_report(data)
+
+    # Add calendar data to report
+    report_data['economic_calendar'] = formatter.format_economic_calendar(economic_events)
+    report_data['supply_calendar'] = formatter.format_supply_calendar(supply_events)
 
     print("Generating PDF...")
     pdf_generator = PDFGenerator()

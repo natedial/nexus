@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 
 class ReportFormatter:
@@ -211,3 +212,61 @@ class ReportFormatter:
                 })
 
         return all_through_lines
+
+    def format_economic_calendar(self, events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Format economic events grouped by day of week.
+
+        Returns dict with day names as keys and list of events as values.
+        """
+        grouped = defaultdict(list)
+
+        for event in events:
+            event_date = event.get('event_date')
+            if not event_date:
+                continue
+
+            # Parse date and get day of week
+            date_obj = datetime.fromisoformat(event_date).date()
+            day_name = date_obj.strftime('%A')  # e.g., "Monday"
+
+            grouped[day_name].append({
+                'time': event.get('time_ny', 'N/A'),
+                'event': event.get('event_name', 'N/A'),
+                'consensus': event.get('consensus', '—')
+            })
+
+        # Sort by weekday order
+        weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        sorted_grouped = {day: grouped[day] for day in weekday_order if day in grouped}
+
+        return sorted_grouped
+
+    def format_supply_calendar(self, events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Format supply events grouped by day of week.
+
+        Returns dict with day names as keys and list of events as values.
+        """
+        grouped = defaultdict(list)
+
+        for event in events:
+            event_date = event.get('event_date')
+            if not event_date:
+                continue
+
+            # Parse date and get day of week
+            date_obj = datetime.fromisoformat(event_date).date()
+            day_name = date_obj.strftime('%A')  # e.g., "Monday"
+
+            grouped[day_name].append({
+                'time': event.get('time_ny', 'N/A'),
+                'description': event.get('description', 'N/A'),
+                'size': event.get('size_bn', '—')
+            })
+
+        # Sort by weekday order
+        weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        sorted_grouped = {day: grouped[day] for day in weekday_order if day in grouped}
+
+        return sorted_grouped
