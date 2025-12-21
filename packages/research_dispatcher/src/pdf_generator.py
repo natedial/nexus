@@ -3,6 +3,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
 from typing import Dict, Any
 import os
@@ -21,11 +22,19 @@ class PDFGenerator:
     def _load_format_rules(self, path: str) -> Dict[str, Any]:
         """Load formatting rules from YAML file."""
         try:
+            # Try the provided path first
             with open(path, 'r') as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            print(f"Warning: {path} not found, using default colors")
-            return {}
+            # Try relative to the script's directory
+            try:
+                script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                full_path = os.path.join(script_dir, path)
+                with open(full_path, 'r') as f:
+                    return yaml.safe_load(f)
+            except FileNotFoundError:
+                print(f"Warning: {path} not found, using default colors")
+                return {}
 
     def _setup_custom_styles(self):
         """Create custom paragraph styles dynamically from format_rules.yaml."""
@@ -41,55 +50,58 @@ class PDFGenerator:
 
         minimalist_config = self.format_rules.get('MINIMALIST_TEXT', [{}])[0]
 
-        # Title style
+        # Title style - bold, large, black on white
         self.styles.add(ParagraphStyle(
             name='CustomTitle',
             parent=self.styles['Heading1'],
-            fontSize=title_config.get('font_size', 32),
-            textColor=colors.HexColor(title_config.get('font_color', '#ff2a6d')),
-            backColor=colors.HexColor(title_bg_config.get('color', '#133e7c')),
-            spaceAfter=title_config.get('space_after', 30),
-            spaceBefore=title_config.get('space_before', 30),
+            fontSize=title_config.get('font_size', 48),
+            textColor=colors.HexColor(title_config.get('font_color', '#000000')),
+            spaceAfter=title_config.get('space_after', 40),
+            spaceBefore=title_config.get('space_before', 20),
             alignment=TA_CENTER,
-            leftIndent=6,
-            rightIndent=6,
-            borderPadding=(8, 4, 24, 4)  # top, right, bottom, left padding
+            fontName='Helvetica-Bold'
         ))
 
-        # H1 Section Header (main sections)
+        # H1 Section Header - clean, bold, black text
         self.styles.add(ParagraphStyle(
             name='SectionHeader',
             parent=self.styles['Heading2'],
-            fontSize=h1_config.get('font_size', 24),
-            textColor=colors.HexColor(h1_config.get('font_color', '#d1f7ff')),
-            backColor=colors.HexColor(h1_bg_config.get('color', '#005678')),
-            spaceAfter=h1_config.get('space_after', 12),
-            spaceBefore=h1_config.get('space_before', 12),
-            leftIndent=6,
-            rightIndent=6,
-            borderPadding=(8, 4, 12, 4)  # top, right, bottom, left padding
+            fontSize=h1_config.get('font_size', 28),
+            textColor=colors.HexColor(h1_config.get('font_color', '#000000')),
+            spaceAfter=h1_config.get('space_after', 20),
+            spaceBefore=h1_config.get('space_before', 30),
+            fontName='Helvetica-Bold'
         ))
 
         # H2 Subsection Header
         self.styles.add(ParagraphStyle(
             name='SubsectionHeader',
             parent=self.styles['Heading2'],
-            fontSize=h2_config.get('font_size', 18),
-            textColor=colors.HexColor(h2_config.get('font_color', '#333333')),
-            backColor=colors.HexColor(h2_bg_config.get('color', '#e0e0e0')),
-            spaceAfter=h2_config.get('space_after', 12),
-            spaceBefore=h2_config.get('space_before', 12),
-            leftIndent=6,
-            rightIndent=6,
-            borderPadding=(6, 4, 8, 4)  # top, right, bottom, left padding
+            fontSize=h2_config.get('font_size', 20),
+            textColor=colors.HexColor(h2_config.get('font_color', '#000000')),
+            spaceAfter=h2_config.get('space_after', 16),
+            spaceBefore=h2_config.get('space_before', 16),
+            fontName='Helvetica-Bold'
+        ))
+
+        # Accent style for small labels (coral red)
+        accent_config = self.format_rules.get('ACCENT_TEXT', [{}])[0]
+        self.styles.add(ParagraphStyle(
+            name='Accent',
+            parent=self.styles['Normal'],
+            fontSize=accent_config.get('font_size', 9),
+            textColor=colors.HexColor(accent_config.get('font_color', '#FF4458')),
+            spaceAfter=accent_config.get('space_after', 6),
+            spaceBefore=accent_config.get('space_before', 0),
+            fontName='Helvetica-Bold'
         ))
 
         # Minimalist style for timestamps and metadata
         self.styles.add(ParagraphStyle(
             name='Minimalist',
             parent=self.styles['Normal'],
-            fontSize=minimalist_config.get('font_size', 9),
-            textColor=colors.HexColor(minimalist_config.get('font_color', '#666666')),
+            fontSize=minimalist_config.get('font_size', 8),
+            textColor=colors.HexColor(minimalist_config.get('font_color', '#999999')),
             spaceAfter=minimalist_config.get('space_after', 6),
             spaceBefore=minimalist_config.get('space_before', 0)
         ))
@@ -113,15 +125,20 @@ class PDFGenerator:
         title = Paragraph(report_data['title'], self.styles['CustomTitle'])
         story.append(title)
 
+        # Accent label (coral red)
+        accent_label = Paragraph("Weekly Synthesis", self.styles['Accent'])
+        story.append(accent_label)
+
         # Generation timestamp
         timestamp = Paragraph(f"Generated: {report_data['generated_at']}", self.styles['Minimalist'])
         story.append(timestamp)
-        story.append(Spacer(1, 0.3 * inch))
+        story.append(Spacer(1, 0.5 * inch))
 
         # Through Lines section
         through_lines = report_data.get('through_lines', [])
         if through_lines:
             story.append(Paragraph('Through Lines', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for tl in through_lines:
                 # Lead
@@ -155,6 +172,7 @@ class PDFGenerator:
         themes_analysis = report_data.get('themes_analysis', [])
         if themes_analysis:
             story.append(Paragraph('Top Themes Analysis', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for theme in themes_analysis:
                 # Theme label (with count only if >= 2)
@@ -192,6 +210,7 @@ class PDFGenerator:
         trades = report_data.get('trades', [])
         if trades:
             story.append(Paragraph('Trades', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for trade in trades:
                 # Trade text and metadata
@@ -221,7 +240,8 @@ class PDFGenerator:
         # Economic Calendar section
         economic_calendar = report_data.get('economic_calendar', {})
         if economic_calendar:
-            story.append(Paragraph('Economic Calendar (Upcoming Week)', self.styles['SectionHeader']))
+            story.append(Paragraph('Economic Calendar', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for day, events in economic_calendar.items():
                 # Day header
@@ -241,7 +261,7 @@ class PDFGenerator:
 
                 # Create alternating row colors
                 table_style = [
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#005678')),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000000')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -251,12 +271,12 @@ class PDFGenerator:
                     ('FONTSIZE', (0, 1), (-1, -1), 8),
                 ]
 
-                # Add alternating row colors
+                # Add alternating row colors (white and light gray)
                 for i in range(1, len(table_data)):
                     if i % 2 == 1:
-                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#05d9e8')))
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#FFFFFF')))
                     else:
-                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#d1f7ff')))
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#F8F8F8')))
 
                 table.setStyle(TableStyle(table_style))
                 story.append(table)
@@ -267,7 +287,8 @@ class PDFGenerator:
         # Supply Calendar section
         supply_calendar = report_data.get('supply_calendar', {})
         if supply_calendar:
-            story.append(Paragraph('Treasury Supply Calendar (Upcoming Week)', self.styles['SectionHeader']))
+            story.append(Paragraph('Treasury Supply Calendar', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for day, events in supply_calendar.items():
                 # Day header
@@ -287,7 +308,7 @@ class PDFGenerator:
 
                 # Create alternating row colors
                 table_style = [
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#005678')),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000000')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -297,12 +318,12 @@ class PDFGenerator:
                     ('FONTSIZE', (0, 1), (-1, -1), 8),
                 ]
 
-                # Add alternating row colors
+                # Add alternating row colors (white and light gray)
                 for i in range(1, len(table_data)):
                     if i % 2 == 1:
-                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#05d9e8')))
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#FFFFFF')))
                     else:
-                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#d1f7ff')))
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#F8F8F8')))
 
                 table.setStyle(TableStyle(table_style))
                 story.append(table)
@@ -315,6 +336,7 @@ class PDFGenerator:
         if details:
             story.append(PageBreak())
             story.append(Paragraph('Detailed Records', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             # Create table from details with smaller font and adjusted columns
             table_data = []
@@ -339,7 +361,7 @@ class PDFGenerator:
 
                 # Create alternating row colors
                 table_style = [
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#005678')),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000000')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -349,12 +371,12 @@ class PDFGenerator:
                     ('FONTSIZE', (0, 1), (-1, -1), 7),
                 ]
 
-                # Add alternating row colors
+                # Add alternating row colors (white and light gray)
                 for i in range(1, len(table_data)):
                     if i % 2 == 1:
-                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#05d9e8')))
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#FFFFFF')))
                     else:
-                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#d1f7ff')))
+                        table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#F8F8F8')))
 
                 table.setStyle(TableStyle(table_style))
                 story.append(table)
@@ -364,6 +386,7 @@ class PDFGenerator:
         # Summary section (start on new page)
         story.append(PageBreak())
         story.append(Paragraph('Summary', self.styles['SectionHeader']))
+        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
         summary = report_data.get('summary', {})
 
         for key, value in summary.items():

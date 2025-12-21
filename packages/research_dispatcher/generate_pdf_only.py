@@ -37,7 +37,8 @@ try:
     report_data['supply_calendar'] = formatter.format_supply_calendar(supply_events)
 
     print("Generating PDF...")
-    pdf_generator = PDFGenerator()
+    # Pass the format_rules.yaml path relative to script location
+    pdf_generator = PDFGenerator(format_rules_path='format_rules.yaml')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     pdf_filename = f"research_report_{timestamp}.pdf"
     pdf_path = pdf_generator.generate(report_data, pdf_filename)

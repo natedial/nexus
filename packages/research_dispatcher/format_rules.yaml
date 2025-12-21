@@ -1,49 +1,67 @@
+# Design Genome Project inspired color scheme
+# Colors: Coral Red, Black, White, Light Gray
+
 TITLE:
-  - font_size: 32
-    font_color: '#ff2a6d'
-    space_after: 30
+  - font_size: 48
+    font_color: '#000000'
+    space_after: 40
+    font_weight: bold
 
 TITLE_BACKGROUND:
-  - color: '#133e7c'
-    space_after: 30
-    space_before: 30
+  - color: '#FFFFFF'
+    space_after: 20
+    space_before: 20
 
 H1_HEADING:
-  - font_size: 24
-    font_color: '#d1f7ff'
-    space_after: 30
+  - font_size: 28
+    font_color: '#FF4458'
+    space_after: 20
+    font_weight: bold
 
 H2_HEADING:
-  - font_size: 18
-    font_color: '#333333'
-    space_after: 12
-    space_before: 12
+  - font_size: 20
+    font_color: '#000000'
+    space_after: 16
+    space_before: 16
+    font_weight: bold
 
 H1_BACKGROUND:
-  - color: '#005678'
+  - color: '#FFFFFF'
     space_after: 12
     space_before: 12
 
 H2_BACKGROUND:
-  - color: '#e0e0e0'
+  - color: '#F5F5F5'
     space_after: 12
     space_before: 12
+
+ACCENT_COLOR:
+  - color: '#FF4458'
+
+TABLE_HEADER_BG:
+  - color: '#000000'
+
+TABLE_ROW_EVEN:
+  - color: '#FFFFFF'
+
+TABLE_ROW_ODD:
+  - color: '#F8F8F8'
 
 NORMAL_TEXT:
-  - font_size: 12
+  - font_size: 11
     font_color: '#000000'
-    space_after: 12
-    space_before: 12
+    space_after: 10
+    space_before: 10
 
-ITALIC_TEXT:
-  - font_size: 12
-    font_color: '#000000'
-    font_style: italic
-    space_after: 12
-    space_before: 12
+ACCENT_TEXT:
+  - font_size: 9
+    font_color: '#FF4458'
+    space_after: 6
+    space_before: 0
+    font_weight: bold
 
 MINIMALIST_TEXT:
-  - font_size: 9
-    font_color: '#666666'
+  - font_size: 8
+    font_color: '#999999'
     space_after: 6
     space_before: 0
