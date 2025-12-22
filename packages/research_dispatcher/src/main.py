@@ -83,8 +83,8 @@ def main():
         # Send email
         print("Sending email...")
         email_sender = EmailSender()
-        email_sender.send_report(pdf_path)
-        print(f"Email sent to {Config.EMAIL_TO}")
+        recipient_list = email_sender.send_report(pdf_path)
+        print(f"Email sent to {len(recipient_list)} recipient(s): {', '.join(recipient_list)}")
 
         # Mark documents as synthesized if in production mode
         if Config.MODE in ['production', 'prod', 'active']:

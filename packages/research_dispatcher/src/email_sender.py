@@ -16,24 +16,27 @@ class EmailSender:
         self.password = Config.SMTP_PASSWORD
         self.from_email = Config.EMAIL_FROM
 
-    def send_report(self, pdf_path: str, recipient: str = None, subject: str = None, body: str = None):
+    def send_report(self, pdf_path: str, recipients: str = None, subject: str = None, body: str = None):
         """
         Send email with PDF attachment.
 
         Args:
             pdf_path: Path to PDF file to attach
-            recipient: Email recipient (defaults to config)
+            recipients: Email recipients, comma-separated (defaults to config)
             subject: Email subject line
             body: Email body text
         """
-        recipient = recipient or Config.EMAIL_TO
+        recipients = recipients or Config.EMAIL_TO
         subject = subject or f"{Config.REPORT_TITLE} - {self._get_date()}"
         body = body or f"Please find attached the {Config.REPORT_TITLE}."
+
+        # Parse recipients (comma-separated, with optional spaces)
+        recipient_list = [r.strip() for r in recipients.split(',')]
 
         # Create message
         msg = MIMEMultipart()
         msg['From'] = self.from_email
-        msg['To'] = recipient
+        msg['To'] = ', '.join(recipient_list)
         msg['Subject'] = subject
 
         # Add body
@@ -49,11 +52,13 @@ class EmailSender:
             )
             msg.attach(pdf_attachment)
 
-        # Send email
+        # Send email to all recipients
         with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
             server.starttls()
             server.login(self.username, self.password)
             server.send_message(msg)
+
+        return recipient_list
 
     @staticmethod
     def _get_date():
