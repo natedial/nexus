@@ -106,6 +106,87 @@ class PDFGenerator:
             spaceBefore=minimalist_config.get('space_before', 0)
         ))
 
+        # Callout quote style - italic, slightly larger
+        self.styles.add(ParagraphStyle(
+            name='CalloutQuote',
+            parent=self.styles['Normal'],
+            fontSize=12,
+            textColor=colors.HexColor('#333333'),
+            fontName='Helvetica-Oblique',
+            leading=16,
+            spaceAfter=4
+        ))
+
+        # Callout attribution style
+        self.styles.add(ParagraphStyle(
+            name='CalloutAttribution',
+            parent=self.styles['Normal'],
+            fontSize=9,
+            textColor=colors.HexColor('#666666'),
+            fontName='Helvetica',
+            alignment=2  # Right align
+        ))
+
+    def _create_callout_box(self, callout: Dict[str, Any]) -> list:
+        """
+        Create a styled callout box with coral red left border.
+
+        Args:
+            callout: Dictionary with 'text' and 'source' keys
+
+        Returns:
+            List of flowables for the callout box
+        """
+        elements = []
+
+        # Build the quote with quotation marks
+        quote_text = f'"{callout["text"]}"'
+        quote_para = Paragraph(quote_text, self.styles['CalloutQuote'])
+
+        # Attribution line
+        attribution = f"— {callout['source']}"
+        attr_para = Paragraph(attribution, self.styles['CalloutAttribution'])
+
+        # Create a table with the coral red left border effect
+        # Using nested table: outer for border, inner for content
+        content_table = Table(
+            [[quote_para], [attr_para]],
+            colWidths=[5.5 * inch]
+        )
+        content_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+
+        # Outer table with coral red left border
+        border_cell = Table([['']], colWidths=[4], rowHeights=[None])
+        border_cell.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#FF4458')),
+        ]))
+
+        # Combine border and content
+        callout_table = Table(
+            [[border_cell, content_table]],
+            colWidths=[4, 5.5 * inch]
+        )
+        callout_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#F8F8F8')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ]))
+
+        elements.append(Spacer(1, 0.2 * inch))
+        elements.append(callout_table)
+        elements.append(Spacer(1, 0.2 * inch))
+
+        return elements
+
     def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
         """
         Generate PDF from report data.
@@ -121,6 +202,20 @@ class PDFGenerator:
         doc = SimpleDocTemplate(filepath, pagesize=letter)
         story = []
 
+        # Get callouts and index by source_through_line for positioning
+        callouts = report_data.get('callouts', [])
+        callouts_by_through_line = {}
+        for callout in callouts:
+            source_tl = callout.get('source_through_line', '')
+            if source_tl:
+                callouts_by_through_line[source_tl] = callout
+
+        def get_callout_for_through_line(lead):
+            """Get callout elements if one exists for this through-line."""
+            if lead in callouts_by_through_line:
+                return self._create_callout_box(callouts_by_through_line[lead])
+            return []
+
         # Title
         title = Paragraph(report_data['title'], self.styles['CustomTitle'])
         story.append(title)
@@ -132,6 +227,23 @@ class PDFGenerator:
         # Generation timestamp
         timestamp = Paragraph(f"Generated: {report_data['generated_at']}", self.styles['Minimalist'])
         story.append(timestamp)
+
+        # Active filters banner (if any filters are set)
+        active_filters = report_data.get('active_filters', {})
+        if active_filters:
+            filter_parts = []
+            if active_filters.get('region'):
+                filter_parts.append(f"Region: {active_filters['region']}")
+            if active_filters.get('asset_focus'):
+                filter_parts.append(f"Asset: {active_filters['asset_focus']}")
+            if active_filters.get('sources'):
+                filter_parts.append(f"Sources: {active_filters['sources']}")
+            if active_filters.get('date_range_days'):
+                filter_parts.append(f"Date Range: {active_filters['date_range_days']} days")
+            if filter_parts:
+                filter_text = " | ".join(filter_parts)
+                story.append(Paragraph(f"Filters: {filter_text}", self.styles['Minimalist']))
+
         story.append(Spacer(1, 0.5 * inch))
 
         # Through Lines section
@@ -166,12 +278,16 @@ class PDFGenerator:
 
                 story.append(Spacer(1, 0.15 * inch))
 
+                # Insert callout if one is associated with this through-line
+                if tl.get('lead'):
+                    story.extend(get_callout_for_through_line(tl['lead']))
+
             story.append(Spacer(1, 0.2 * inch))
 
         # Themes Analysis section (moved to top)
         themes_analysis = report_data.get('themes_analysis', [])
         if themes_analysis:
-            story.append(Paragraph('Top Themes Analysis', self.styles['SectionHeader']))
+            story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for theme in themes_analysis:
@@ -206,10 +322,11 @@ class PDFGenerator:
 
             story.append(Spacer(1, 0.2 * inch))
 
+
         # Trades section
         trades = report_data.get('trades', [])
         if trades:
-            story.append(Paragraph('Trades', self.styles['SectionHeader']))
+            story.append(Paragraph('Trade Recommendations', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for trade in trades:
@@ -236,6 +353,7 @@ class PDFGenerator:
                 story.append(Spacer(1, 0.15 * inch))
 
             story.append(Spacer(1, 0.2 * inch))
+
 
         # Economic Calendar section
         economic_calendar = report_data.get('economic_calendar', {})
@@ -284,6 +402,7 @@ class PDFGenerator:
 
             story.append(Spacer(1, 0.2 * inch))
 
+
         # Supply Calendar section
         supply_calendar = report_data.get('supply_calendar', {})
         if supply_calendar:
@@ -330,6 +449,7 @@ class PDFGenerator:
                 story.append(Spacer(1, 0.1 * inch))
 
             story.append(Spacer(1, 0.2 * inch))
+
 
         # Details section (start on new page)
         details = report_data.get('details', [])

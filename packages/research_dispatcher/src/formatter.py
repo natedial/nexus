@@ -6,12 +6,13 @@ from collections import defaultdict
 class ReportFormatter:
     """Formats query results into structured report data for parsed_research."""
 
-    def format_report(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def format_report(self, data: List[Dict[str, Any]], active_filters: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Format raw database results into a structured report.
 
         Args:
             data: List of records from database query
+            active_filters: Optional dict of active filters for display in report
 
         Returns:
             Dictionary containing formatted report sections
@@ -19,11 +20,13 @@ class ReportFormatter:
         return {
             'title': 'Research Dispatch',
             'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'active_filters': active_filters or {},
             'summary': self._create_summary(data),
             'details': self._format_details(data),
             'themes_analysis': self._aggregate_themes(data),
             'trades': self._aggregate_trades(data),
-            'through_lines': self._aggregate_through_lines(data)
+            'through_lines': self._aggregate_through_lines(data),
+            'callouts': self._aggregate_callouts(data)
         }
 
     def _create_summary(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -212,6 +215,43 @@ class ReportFormatter:
                 })
 
         return all_through_lines
+
+    def _aggregate_callouts(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Aggregate callouts across all documents.
+        Returns all callouts with source attribution.
+        Handles missing or empty callouts gracefully.
+        """
+        all_callouts = []
+
+        for record in data:
+            parsed_data = record.get('parsed_data', {})
+            if not parsed_data:
+                continue
+
+            callouts = parsed_data.get('callouts', [])
+            if not callouts or not isinstance(callouts, list):
+                continue
+
+            source = record.get('source', 'Unknown Source')
+            doc_name = record.get('document_name', 'Unknown Document')
+
+            for callout in callouts:
+                if not isinstance(callout, dict):
+                    continue
+
+                text = callout.get('text', '').strip()
+                if not text:
+                    continue
+
+                all_callouts.append({
+                    'text': text,
+                    'source_through_line': callout.get('source_through_line', ''),
+                    'source': source,
+                    'document': doc_name
+                })
+
+        return all_callouts
 
     def format_economic_calendar(self, events: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """

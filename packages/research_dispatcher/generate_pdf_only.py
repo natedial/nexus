@@ -30,7 +30,19 @@ try:
 
     print("Formatting report...")
     formatter = ReportFormatter()
-    report_data = formatter.format_report(data)
+
+    # Build active filters for display in report
+    active_filters = {}
+    if Config.FILTER_REGION:
+        active_filters['region'] = Config.FILTER_REGION
+    if Config.FILTER_ASSET_FOCUS:
+        active_filters['asset_focus'] = Config.FILTER_ASSET_FOCUS
+    if Config.FILTER_SOURCES:
+        active_filters['sources'] = Config.FILTER_SOURCES
+    if Config.DATE_RANGE_DAYS != 7:  # Only show if not default
+        active_filters['date_range_days'] = Config.DATE_RANGE_DAYS
+
+    report_data = formatter.format_report(data, active_filters=active_filters)
 
     # Add calendar data to report
     report_data['economic_calendar'] = formatter.format_economic_calendar(economic_events)

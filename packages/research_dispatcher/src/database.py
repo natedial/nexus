@@ -11,24 +11,44 @@ class DatabaseClient:
 
     def query_analysis(self):
         """
-        Query parsed_research documents from the last 7 days.
+        Query parsed_research documents based on configured filters.
 
         Returns documents with full parsed_data JSONB:
         - themes, trades, through_lines from parsed_data
         - publisher from parsed_data->metadata
         - synthesis status and metadata
-        """
-        # Calculate date 7 days ago
-        seven_days_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
 
-        # Query all fields - formatter will extract JSONB fields as needed
-        response = (
+        Filters applied:
+        - Date range: Config.DATE_RANGE_DAYS
+        - Sources: Config.FILTER_SOURCES (comma-separated, empty = all)
+        - Region: Config.FILTER_REGION (from parsed_data->metadata->region)
+        - Asset focus: Config.FILTER_ASSET_FOCUS (from parsed_data->metadata->asset_focus)
+        """
+        # Calculate date range based on config
+        date_threshold = (datetime.now() - timedelta(days=Config.DATE_RANGE_DAYS)).strftime('%Y-%m-%d')
+
+        # Build query
+        query = (
             self.client.table('parsed_research')
             .select('*')
-            .gte('source_date', seven_days_ago)
-            .order('source_date', desc=True)
-            .execute()
+            .gte('source_date', date_threshold)
         )
+
+        # Apply source filter if configured
+        if Config.FILTER_SOURCES:
+            sources = [s.strip() for s in Config.FILTER_SOURCES.split(',')]
+            query = query.in_('source', sources)
+
+        # Apply region filter if configured (filters on JSONB metadata)
+        if Config.FILTER_REGION:
+            query = query.eq('parsed_data->metadata->>region', Config.FILTER_REGION)
+
+        # Apply asset focus filter if configured (filters on JSONB metadata)
+        if Config.FILTER_ASSET_FOCUS:
+            query = query.eq('parsed_data->metadata->>asset_focus', Config.FILTER_ASSET_FOCUS)
+
+        # Execute query
+        response = query.order('source_date', desc=True).execute()
 
         return response.data
 
@@ -72,16 +92,19 @@ class DatabaseClient:
 
     def query_economic_events(self):
         """
-        Query US economic events for the upcoming week (Monday-Friday).
+        Query economic events for the upcoming week (Monday-Friday).
 
         Returns events with: event_date, time_ny, event_name, consensus
+
+        Filters applied:
+        - Country: Config.CALENDAR_COUNTRY
         """
         monday, friday = self._get_upcoming_week_range()
 
         response = (
             self.client.table('economic_events')
             .select('event_date, time_ny, event_name, consensus, importance_indicator')
-            .eq('country', 'US')
+            .eq('country', Config.CALENDAR_COUNTRY)
             .gte('event_date', monday.isoformat())
             .lte('event_date', friday.isoformat())
             .order('event_date')
@@ -93,16 +116,19 @@ class DatabaseClient:
 
     def query_supply_events(self):
         """
-        Query US supply events for the upcoming week (Monday-Friday).
+        Query supply events for the upcoming week (Monday-Friday).
 
         Returns events with: event_date, time_ny, description, size_bn
+
+        Filters applied:
+        - Country: Config.CALENDAR_COUNTRY
         """
         monday, friday = self._get_upcoming_week_range()
 
         response = (
             self.client.table('supply_events')
             .select('event_date, time_ny, description, size_bn, maturity')
-            .eq('country', 'US')
+            .eq('country', Config.CALENDAR_COUNTRY)
             .gte('event_date', monday.isoformat())
             .lte('event_date', friday.isoformat())
             .order('event_date')
