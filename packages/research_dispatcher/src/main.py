@@ -35,7 +35,14 @@ def main():
         db_client = DatabaseClient()
         print("Querying documents...")
         data = db_client.query_analysis()
-        print(f"Retrieved {len(data)} records")
+        print(f"Retrieved {len(data)} research records")
+
+        # Query calendar data
+        economic_events = db_client.query_economic_events()
+        print(f"Retrieved {len(economic_events)} economic events")
+
+        supply_events = db_client.query_supply_events()
+        print(f"Retrieved {len(supply_events)} supply events")
 
         if not data:
             print("No documents to process.")
@@ -47,11 +54,27 @@ def main():
         # Format data
         print("Formatting report...")
         formatter = ReportFormatter()
-        report_data = formatter.format_report(data)
+
+        # Build active filters for display in report
+        active_filters = {}
+        if Config.FILTER_REGION:
+            active_filters['region'] = Config.FILTER_REGION
+        if Config.FILTER_ASSET_FOCUS:
+            active_filters['asset_focus'] = Config.FILTER_ASSET_FOCUS
+        if Config.FILTER_SOURCES:
+            active_filters['sources'] = Config.FILTER_SOURCES
+        if Config.DATE_RANGE_DAYS != 7:  # Only show if not default
+            active_filters['date_range_days'] = Config.DATE_RANGE_DAYS
+
+        report_data = formatter.format_report(data, active_filters=active_filters)
+
+        # Add calendar data to report
+        report_data['economic_calendar'] = formatter.format_economic_calendar(economic_events)
+        report_data['supply_calendar'] = formatter.format_supply_calendar(supply_events)
 
         # Generate PDF
         print("Generating PDF...")
-        pdf_generator = PDFGenerator()
+        pdf_generator = PDFGenerator(format_rules_path='format_rules.yaml')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         pdf_filename = f"research_report_{timestamp}.pdf"
         pdf_path = pdf_generator.generate(report_data, pdf_filename)
