@@ -5,9 +5,11 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import os
 import yaml
+
+from config import Config
 
 
 class PDFGenerator:
@@ -187,17 +189,44 @@ class PDFGenerator:
 
         return elements
 
-    def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
+    def _create_interactive_links(self, doc_id: str, item_id: str, record_id: str) -> Optional[Paragraph]:
+        """
+        Create interactive links for feedback.
+
+        Args:
+            doc_id: Report generation timestamp
+            item_id: Hash of through-line lead text
+            record_id: Database record UUID (reserved for future document viewer)
+
+        Returns:
+            Paragraph with clickable links, or None if feedback is disabled
+        """
+        if not Config.FEEDBACK_ENABLED:
+            return None
+
+        base = Config.SUPABASE_URL + '/functions/v1'
+        links = (
+            f'<a href="{base}/feedback?doc={doc_id}&amp;item={item_id}&amp;action=useful" color="#999999">[Useful]</a>  '
+            f'<a href="{base}/feedback?doc={doc_id}&amp;item={item_id}&amp;action=flag" color="#999999">[Flag]</a>  '
+            f'<a href="https://x7skxo2acase5mxxqfn4d5herm0xzqly.lambda-url.us-east-1.on.aws/?id={record_id}" color="#999999">[View Full Text]</a>'
+        )
+        return Paragraph(links, self.styles['Minimalist'])
+
+    def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf', doc_id: str = None) -> str:
         """
         Generate PDF from report data.
 
         Args:
             report_data: Formatted report data dictionary
             filename: Output filename
+            doc_id: Document ID for interactive links (defaults to generated_at timestamp)
 
         Returns:
             Full path to generated PDF file
         """
+        # Use provided doc_id or extract from report timestamp
+        if doc_id is None:
+            doc_id = report_data.get('generated_at', '').replace(' ', '_').replace(':', '').replace('-', '')
         filepath = os.path.join(self.output_dir, filename)
         doc = SimpleDocTemplate(filepath, pagesize=letter)
         story = []
@@ -275,6 +304,12 @@ class PDFGenerator:
                 # Source document
                 source_info = f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Source: {tl['source']} - {tl['document'][:80]}{'...' if len(tl['document']) > 80 else ''}</i>"
                 story.append(Paragraph(source_info, self.styles['Normal']))
+
+                # Interactive links (View Full Text, Useful, Flag)
+                if tl.get('item_id') and tl.get('record_id'):
+                    interactive_links = self._create_interactive_links(doc_id, tl['item_id'], tl['record_id'])
+                    if interactive_links:
+                        story.append(interactive_links)
 
                 story.append(Spacer(1, 0.15 * inch))
 

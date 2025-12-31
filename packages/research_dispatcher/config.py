@@ -32,6 +32,9 @@ class Config:
     FILTER_ASSET_FOCUS = os.getenv('FILTER_ASSET_FOCUS', '')  # Filter by asset: rates, credit, FX, equities, commodities, multi-asset (empty = all)
     CALENDAR_COUNTRY = os.getenv('CALENDAR_COUNTRY', 'US')  # Country for calendar events
 
+    # Interactive links (feedback and document viewer)
+    FEEDBACK_ENABLED = os.getenv('FEEDBACK_ENABLED', 'false').lower() == 'true'
+
     @classmethod
     def validate(cls):
         """Validate that all required configuration is present."""

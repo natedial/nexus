@@ -12,3 +12,4 @@ build/
 *.pdf
 venv/
 .venv/
+CLAUDE.md

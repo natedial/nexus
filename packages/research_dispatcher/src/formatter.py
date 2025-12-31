@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from collections import defaultdict
+import hashlib
 
 
 class ReportFormatter:
@@ -205,13 +206,16 @@ class ReportFormatter:
                 if not isinstance(tl, dict):
                     continue
 
+                lead = tl.get('lead', '')
                 all_through_lines.append({
-                    'lead': tl.get('lead', ''),
+                    'lead': lead,
                     'key_insight': tl.get('key_insight', ''),
                     'supporting_themes': tl.get('supporting_themes', []),
                     'supporting_trades': tl.get('supporting_trades', []),
                     'document': doc_name,
-                    'source': source
+                    'source': source,
+                    'item_id': hashlib.md5(lead.encode()).hexdigest()[:8],
+                    'record_id': record.get('id')
                 })
 
         return all_through_lines
