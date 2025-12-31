@@ -1,0 +1,42 @@
+# Model Configuration for Research Dispatcher
+# =============================================
+# Change models on the fly by editing this file.
+
+synthesis:
+  # Cross-document synthesis - needs deep reasoning
+  # Recommended: Best model with extended thinking
+  provider: anthropic
+  model: claude-opus-4-5-20251101
+  max_tokens: 16000
+  temperature: 0
+  extended_thinking:
+    enabled: true
+    budget_tokens: 10000
+
+
+# Available Models Reference
+# ==========================
+
+available_models:
+  anthropic:
+    - id: claude-opus-4-5-20251101
+      description: "Most capable, deep reasoning, highest quality"
+      supports_thinking: true
+
+    - id: claude-sonnet-4-20250514
+      description: "Balanced capability and speed"
+      supports_thinking: true
+
+    - id: claude-3-5-haiku-20241022
+      description: "Fast, efficient, good for simple tasks"
+      supports_thinking: false
+
+  openai:
+    - id: gpt-4o
+      description: "Most capable GPT model"
+
+    - id: o1
+      description: "Reasoning model with chain-of-thought"
+
+    - id: o1-mini
+      description: "Faster reasoning model"

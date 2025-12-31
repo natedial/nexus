@@ -11,6 +11,13 @@ class Config:
     SUPABASE_URL = os.getenv('SUPABASE_URL')
     SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
+    # LLM API Keys (for cross-document synthesis)
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')  # Optional
+
+    # Synthesis toggle
+    ENABLE_SYNTHESIS = os.getenv('ENABLE_SYNTHESIS', 'true').lower() in ('true', '1', 'yes')
+
     # Email
     SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
     SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
