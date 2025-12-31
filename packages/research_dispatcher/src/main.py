@@ -18,6 +18,7 @@ from src.database import DatabaseClient
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
 from src.email_sender import EmailSender
+from src.synthesizer import Synthesizer
 
 
 def main():
@@ -51,6 +52,24 @@ def main():
         # Extract document IDs for later update
         document_ids = [record['id'] for record in data]
 
+        # Run cross-document synthesis
+        synthesis_result = None
+        if Config.ENABLE_SYNTHESIS and Config.ANTHROPIC_API_KEY:
+            print("Running cross-document synthesis...")
+            synthesizer = Synthesizer(
+                anthropic_api_key=Config.ANTHROPIC_API_KEY,
+                openai_api_key=Config.OPENAI_API_KEY,
+            )
+            synthesis_result = synthesizer.synthesize(data)
+            if synthesis_result:
+                print(f"✓ Synthesis complete: {synthesis_result.title}")
+            else:
+                print("⚠ Synthesis failed or returned no results")
+        elif not Config.ENABLE_SYNTHESIS:
+            print("Synthesis disabled (ENABLE_SYNTHESIS=false)")
+        else:
+            print("Synthesis skipped (no ANTHROPIC_API_KEY)")
+
         # Format data
         print("Formatting report...")
         formatter = ReportFormatter()
@@ -67,6 +86,12 @@ def main():
             active_filters['date_range_days'] = Config.DATE_RANGE_DAYS
 
         report_data = formatter.format_report(data, active_filters=active_filters)
+
+        # Add cross-document synthesis to report (replaces per-document through_lines)
+        if synthesis_result:
+            report_data['synthesis'] = synthesis_result.to_dict()
+            report_data['through_lines'] = synthesis_result.through_lines  # Override aggregated
+            report_data['callouts'] = synthesis_result.callouts  # Override aggregated
 
         # Add calendar data to report
         report_data['economic_calendar'] = formatter.format_economic_calendar(economic_events)
