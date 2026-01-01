@@ -6,7 +6,7 @@ For each theme, provide:
 
 1. **label**: A concise 3-6 word label
 
-2. **excerpts**: 1-2 VERBATIM quotes (max 60 words each) copied exactly from the document. Do not paraphrase or alter wording.
+2. **excerpts**: 1-2 VERBATIM quotes (max 40 words each) copied exactly from the document. Do not paraphrase or alter wording.
 
 3. **relevance**: Array of applicable categories. Choose from: Macro, Rates, Credit, Equities, FX, Commodities, Geopolitics, Sentiment, Flows, Technical
 
@@ -22,17 +22,17 @@ For each theme, provide:
    - Secondary = Discussed substantively (3+ sentences) but no explicit recommendation
    - Peripheral = Single or passing mention
 
-7. **directionality**: Sentiment tags with occurrence counts, or null if not applicable. Use standard finance terminology:
+7. **directionality**: Sentiment tags with counts, or null. Use:
    - Policy: hawkish, dovish, accommodative, restrictive
    - Markets: bullish, bearish, constructive, cautious, risk-on, risk-off
    - Positioning: long, short, overweight, underweight
 
 8. **confidence**:
-   - High = 3+ mentions with clear intent
-   - Medium = 2-3 mentions or somewhat ambiguous
-   - Low = Single mention or very ambiguous
+   - High = strength=Primary AND mention_count>=3
+   - Medium = strength=Secondary OR mention_count=2–3
+   - Low = strength=Peripheral OR mention_count=1
 
-9. **context**: 1-2 sentences capturing how this theme relates to or connects with other topics in the document. What precedes or follows it? What causal or conditional relationships does the author draw?
+9. **context**: context: 1 sentence describing explicit relationships stated by the author, or null if none are explicitly stated. If the relationship is not explicitly stated, return null.
 
 OUTPUT FORMAT (valid JSON only, no explanations):
 [
