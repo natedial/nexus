@@ -52,13 +52,15 @@ class ModelConfig:
 
 @dataclass
 class ExtractionConfig:
-    """Configuration for all extraction steps."""
+    """Configuration for all extraction steps.
+
+    Note: Synthesis is performed downstream by research_dispatcher.
+    """
 
     boilerplate: ModelConfig
     metadata: ModelConfig
     themes: ModelConfig
     trades: ModelConfig
-    synthesis: ModelConfig
 
     @classmethod
     def from_dict(cls, data: dict) -> "ExtractionConfig":
@@ -68,7 +70,6 @@ class ExtractionConfig:
             metadata=ModelConfig.from_dict(data["metadata"]),
             themes=ModelConfig.from_dict(data["themes"]),
             trades=ModelConfig.from_dict(data["trades"]),
-            synthesis=ModelConfig.from_dict(data["synthesis"]),
         )
 
 

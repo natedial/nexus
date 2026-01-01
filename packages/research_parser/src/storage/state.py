@@ -26,7 +26,10 @@ class ProcessingStatus(str, Enum):
 
 @dataclass
 class FileState:
-    """State of a processed file."""
+    """State of a processed file.
+
+    Note: Synthesis is now performed downstream by research_dispatcher.
+    """
 
     file_id: str
     file_name: str
@@ -38,7 +41,6 @@ class FileState:
     metadata_ok: bool | None = None
     themes_ok: bool | None = None
     trades_ok: bool | None = None
-    synthesis_ok: bool | None = None
     storage_ok: bool | None = None
     error_message: str | None = None
 
@@ -67,7 +69,6 @@ class StateStore:
                     metadata_ok INTEGER,
                     themes_ok INTEGER,
                     trades_ok INTEGER,
-                    synthesis_ok INTEGER,
                     storage_ok INTEGER,
                     error_message TEXT
                 )
@@ -118,7 +119,6 @@ class StateStore:
                 metadata_ok=bool(row["metadata_ok"]) if row["metadata_ok"] is not None else None,
                 themes_ok=bool(row["themes_ok"]) if row["themes_ok"] is not None else None,
                 trades_ok=bool(row["trades_ok"]) if row["trades_ok"] is not None else None,
-                synthesis_ok=bool(row["synthesis_ok"]) if row["synthesis_ok"] is not None else None,
                 storage_ok=bool(row["storage_ok"]) if row["storage_ok"] is not None else None,
                 error_message=row["error_message"],
             )

@@ -8,7 +8,6 @@ from src.extraction import (
     extract_themes,
     extract_trades,
     strip_boilerplate,
-    synthesize_throughlines,
 )
 from src.llm import LLMClient, load_model_config
 from src.parser import LlamaIndexParser
@@ -55,7 +54,6 @@ def main():
     print(f"  Metadata:    {model_config.metadata.provider}/{model_config.metadata.model}")
     print(f"  Themes:      {model_config.themes.provider}/{model_config.themes.model} (thinking={model_config.themes.extended_thinking.enabled if model_config.themes.extended_thinking else False})")
     print(f"  Trades:      {model_config.trades.provider}/{model_config.trades.model}")
-    print(f"  Synthesis:   {model_config.synthesis.provider}/{model_config.synthesis.model} (thinking={model_config.synthesis.extended_thinking.enabled if model_config.synthesis.extended_thinking else False})")
 
     # Strip boilerplate
     print(f"\n[3a] Stripping boilerplate ({model_config.boilerplate.provider}/{model_config.boilerplate.model})...")
@@ -85,19 +83,6 @@ def main():
     for t in trades:
         print(f"    - {t.text[:80]}..." if len(t.text) > 80 else f"    - {t.text}")
         print(f"      Conviction: {t.conviction}, Timeframe: {t.timeframe}")
-
-    # Synthesize through-lines
-    thinking_info = f" + thinking={model_config.synthesis.extended_thinking.budget_tokens}" if model_config.synthesis.extended_thinking and model_config.synthesis.extended_thinking.enabled else ""
-    print(f"\n[3e] Synthesizing through-lines ({model_config.synthesis.provider}/{model_config.synthesis.model}{thinking_info})...")
-    synthesis = synthesize_throughlines(client, themes, trades, config=model_config.synthesis)
-    if synthesis:
-        print(f"  Title: {synthesis.title}")
-        print(f"  Through-lines: {len(synthesis.through_lines)}")
-        for tl in synthesis.through_lines:
-            print(f"    - {tl.lead}")
-        print(f"  Callouts: {len(synthesis.callouts)}")
-        for c in synthesis.callouts:
-            print(f"    - \"{c.text[:60]}...\"" if len(c.text) > 60 else f"    - \"{c.text}\"")
 
     # Cleanup
     file_path.unlink()

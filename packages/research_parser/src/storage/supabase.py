@@ -37,33 +37,19 @@ class SupabaseClient:
         - document_name: original file name
         """
         # Build the parsed_data JSON structure
+        # Note: through_lines and callouts are now synthesized downstream
         parsed_data = {
             "metadata": result.metadata.model_dump(),
             "themes": [t.model_dump() for t in result.themes],
             "trades": [t.model_dump() for t in result.trades],
-            "through_lines": (
-                [tl.model_dump() for tl in result.synthesis.through_lines]
-                if result.synthesis
-                else []
-            ),
-            "callouts": (
-                [c.model_dump() for c in result.synthesis.callouts]
-                if result.synthesis
-                else []
-            ),
             "full_text": result.full_text,
             "extraction_stats": {
                 "num_themes": len(result.themes),
                 "num_trades": len(result.trades),
-                "num_through_lines": (
-                    len(result.synthesis.through_lines) if result.synthesis else 0
-                ),
-                "num_callouts": len(result.synthesis.callouts) if result.synthesis else 0,
                 "extraction_method": "LLM-based extraction",
                 "metadata_ok": result.metadata_ok,
                 "themes_ok": result.themes_ok,
                 "trades_ok": result.trades_ok,
-                "synthesis_ok": result.synthesis_ok,
             },
         }
 
@@ -73,11 +59,8 @@ class SupabaseClient:
             source_date = datetime.utcnow().strftime("%Y-%m-%d")
 
         # Build document title
-        document_title = (
-            result.synthesis.title
-            if result.synthesis
-            else f"Analysis of {result.metadata.source}"
-        )
+        # Note: title synthesis now happens downstream
+        document_title = f"Analysis of {result.metadata.source}"
 
         # Insert into database
         record = {
