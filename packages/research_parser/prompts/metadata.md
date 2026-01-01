@@ -1,0 +1,21 @@
+Extract metadata from this financial research document.
+
+Return a JSON object with these fields:
+{
+  "source": "Name of the research firm or publication",
+  "source_date": "Publication date in YYYY-MM-DD format, or null if not found",
+  "area": "Classify the primary geographic/market focus as: USD, EUR, Japan, or Other",
+  "region": "Primary region: US, EU, UK, Japan, China, EM, Global",
+  "asset_focus": "Primary asset class: rates, credit, FX, equities, commodities, multi-asset",
+  "publisher": "The company responsible for producing the document",
+  "number_pages": "The number of pages in the document",
+  "keywords": "Recurring words relevant to financial markets with a recurrence threshold of > 3 references within 2 neighboring paragraphs"
+}
+
+Base the area classification on:
+- USD: Focus on US markets, Federal Reserve, US equities/bonds, dollar
+- EUR: Focus on European markets, ECB, European equities/bonds, euro
+- Japan: Focus on Japanese markets, BOJ, Japanese equities/bonds, yen
+- Other: All other regions, multi-regional analysis, or asset classes
+
+Return only valid JSON. No explanations.

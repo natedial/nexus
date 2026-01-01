@@ -1,0 +1,156 @@
+# Model Configuration for Research Parser
+# ==========================================
+# Change models on the fly by editing this file.
+# No code changes required.
+
+# Extraction Pipeline Steps
+# Each step can use a different provider/model combination.
+
+extraction:
+  # Step 1: Strip boilerplate text (legal disclaimers, disclosures)
+  # Recommended: Fast model, no reasoning needed
+  boilerplate:
+    provider: anthropic
+    model: claude-3-5-haiku-20241022
+    max_tokens: 8192
+    temperature: 0
+    extended_thinking:
+      enabled: false
+
+  # Step 2: Extract document metadata (source, date, region, etc.)
+  # Recommended: Fast model, structured extraction
+  metadata:
+    provider: anthropic
+    model: claude-3-5-haiku-20241022
+    max_tokens: 4096
+    temperature: 0
+    extended_thinking:
+      enabled: false
+
+  # Step 3: Extract key themes from document
+  # Recommended: Smart model with reasoning for nuanced analysis
+  themes:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    max_tokens: 16000
+    temperature: 0
+    extended_thinking:
+      enabled: true
+      budget_tokens: 8000
+
+  # Step 4: Extract trade ideas and positions
+  # Recommended: Smart model for identifying financial positions
+  trades:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    max_tokens: 4096
+    temperature: 0
+    extended_thinking:
+      enabled: false
+
+# Note: Synthesis (through-lines) is performed downstream by research_dispatcher,
+# which aggregates themes/trades across multiple documents before synthesizing.
+
+
+# Available Models Reference
+# ==========================
+# Use these model IDs in the configuration above.
+
+available_models:
+  anthropic:
+    # Opus - Most capable, best for complex reasoning
+    - id: claude-opus-4-5-20251101
+      description: "Most capable, deep reasoning, highest quality"
+      supports_thinking: true
+      max_output_tokens: 32000
+
+    # Sonnet - Balanced performance and speed
+    - id: claude-sonnet-4-20250514
+      description: "Balanced capability and speed"
+      supports_thinking: true
+      max_output_tokens: 64000
+
+    # Haiku - Fast and efficient
+    - id: claude-3-5-haiku-20241022
+      description: "Fast, efficient, good for simple tasks"
+      supports_thinking: false
+      max_output_tokens: 8192
+
+  openai:
+    # GPT-4o - Most capable general model
+    - id: gpt-4o
+      description: "Most capable GPT model"
+      supports_reasoning: false
+      max_output_tokens: 16384
+
+    # GPT-4o-mini - Fast and cheap
+    - id: gpt-4o-mini
+      description: "Fast, efficient, lower cost"
+      supports_reasoning: false
+      max_output_tokens: 16384
+
+    # o1 - Reasoning model (chain of thought)
+    - id: o1
+      description: "Reasoning model with chain-of-thought"
+      supports_reasoning: true
+      max_output_tokens: 100000
+
+    # o1-mini - Faster reasoning model
+    - id: o1-mini
+      description: "Faster reasoning model"
+      supports_reasoning: true
+      max_output_tokens: 65536
+
+
+# Example Configurations
+# ======================
+# Copy these to the extraction section above to try different setups.
+
+examples:
+  # All OpenAI setup
+  openai_full:
+    boilerplate:
+      provider: openai
+      model: gpt-4o-mini
+      max_tokens: 8192
+      temperature: 0
+    metadata:
+      provider: openai
+      model: gpt-4o-mini
+      max_tokens: 4096
+      temperature: 0
+    themes:
+      provider: openai
+      model: o1
+      max_tokens: 16000
+      # Note: o1 models use reasoning tokens automatically
+    trades:
+      provider: openai
+      model: gpt-4o
+      max_tokens: 4096
+      temperature: 0
+
+  # Hybrid: OpenAI for fast tasks, Anthropic for reasoning
+  hybrid:
+    boilerplate:
+      provider: openai
+      model: gpt-4o-mini
+      max_tokens: 8192
+      temperature: 0
+    metadata:
+      provider: openai
+      model: gpt-4o-mini
+      max_tokens: 4096
+      temperature: 0
+    themes:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      max_tokens: 16000
+      extended_thinking:
+        enabled: true
+        budget_tokens: 8000
+    trades:
+      provider: openai
+      model: gpt-4o
+      max_tokens: 4096
+      temperature: 0
