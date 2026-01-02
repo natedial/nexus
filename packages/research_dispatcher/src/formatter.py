@@ -1,10 +1,16 @@
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, date
 from collections import defaultdict
+import hashlib
 
 
 class ReportFormatter:
     """Formats query results into structured report data for parsed_research."""
+
+    @staticmethod
+    def _generate_item_id(text: str) -> str:
+        """Generate a short hash ID for an item (theme/through-line)."""
+        return hashlib.sha256(text.encode()).hexdigest()[:8]
 
     def format_report(self, data: List[Dict[str, Any]], active_filters: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -138,12 +144,14 @@ class ReportFormatter:
                 continue
 
             doc_name = record.get('document_name', 'Unknown Document')
+            doc_id = record.get('id', '')
 
             for theme in themes:
                 if not isinstance(theme, dict):
                     continue
 
                 label = theme.get('label', 'Unlabeled')
+                context = theme.get('context', '')
 
                 # Count occurrences
                 if label not in theme_counts:
@@ -156,7 +164,9 @@ class ReportFormatter:
                 if len(theme_examples[label]) < 3:
                     theme_examples[label].append({
                         'document': doc_name,
-                        'context': theme.get('context', ''),  # Full context, no truncation
+                        'doc_id': doc_id,
+                        'item_id': self._generate_item_id(f"{doc_id}:{label}:{context[:50]}"),
+                        'context': context,  # Full context, no truncation
                         'show_document': doc_name not in seen_documents  # Only show if not seen before
                     })
                     seen_documents.add(doc_name)
@@ -223,18 +233,22 @@ class ReportFormatter:
                 continue
 
             doc_name = record.get('document_name', 'Unknown Document')
+            doc_id = record.get('id', '')
             source = record.get('source', 'Unknown Source')
 
             for tl in through_lines:
                 if not isinstance(tl, dict):
                     continue
 
+                lead = tl.get('lead', '')
                 all_through_lines.append({
-                    'lead': tl.get('lead', ''),
+                    'lead': lead,
                     'key_insight': tl.get('key_insight', ''),
                     'supporting_themes': tl.get('supporting_themes', []),
                     'supporting_trades': tl.get('supporting_trades', []),
                     'document': doc_name,
+                    'doc_id': doc_id,
+                    'item_id': self._generate_item_id(f"{doc_id}:{lead[:50]}"),
                     'source': source
                 })
 

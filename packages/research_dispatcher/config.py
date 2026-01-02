@@ -32,6 +32,9 @@ class Config:
     # Mode: debug (doesn't update synthesized) or production (updates synthesized)
     MODE = os.getenv('MODE', 'debug').lower()
 
+    # Feedback links (Supabase Edge Function)
+    FEEDBACK_BASE_URL = 'https://qeyhmsqepsenhvtkryjh.supabase.co/functions/v1/feedback'
+
     # Filters
     DATE_RANGE_DAYS = int(os.getenv('DATE_RANGE_DAYS', 3))  # Number of days to look back
     FILTER_SOURCES = os.getenv('FILTER_SOURCES', '')  # Comma-separated list of sources (empty = all)

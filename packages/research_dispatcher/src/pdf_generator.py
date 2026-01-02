@@ -6,9 +6,14 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
 from typing import Dict, Any
+from urllib.parse import urlencode
 import os
 import yaml
 from datetime import datetime
+
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import Config
 
 
 class PDFGenerator:
@@ -128,6 +133,16 @@ class PDFGenerator:
             alignment=2  # Right align
         ))
 
+        # Feedback links style
+        self.styles.add(ParagraphStyle(
+            name='FeedbackLinks',
+            parent=self.styles['Normal'],
+            fontSize=8,
+            textColor=colors.HexColor('#666666'),
+            spaceAfter=8,
+            spaceBefore=2
+        ))
+
     def _format_date_range(self, start: str, end: str) -> str:
         """Format YYYY-MM-DD date range into '22Dec to 29Dec'."""
         try:
@@ -143,6 +158,32 @@ class PDFGenerator:
         if start_dt.date() == end_dt.date():
             return _fmt(start_dt)
         return f"{_fmt(start_dt)} to {_fmt(end_dt)}"
+
+    def _create_feedback_links(self, doc_id: str, item_id: str) -> str:
+        """
+        Create feedback links HTML for a theme or through-line.
+
+        Args:
+            doc_id: Document ID from parsed_research
+            item_id: Unique item identifier (hash)
+
+        Returns:
+            HTML string with clickable links: [Useful] [Flag] [View Full Text]
+        """
+        base_url = Config.FEEDBACK_BASE_URL
+        if not base_url or not doc_id:
+            return ""
+
+        useful_url = f"{base_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'useful'})}"
+        flag_url = f"{base_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'flag'})}"
+        view_url = f"{base_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'view'})}"
+
+        return (
+            f'&nbsp;&nbsp;&nbsp;&nbsp;'
+            f'[<a href="{useful_url}" color="#0066cc">Useful</a>] '
+            f'[<a href="{flag_url}" color="#0066cc">Flag</a>] '
+            f'[<a href="{view_url}" color="#0066cc">View Full Text</a>]'
+        )
 
     def _create_callout_box(self, callout: Dict[str, Any]) -> list:
         """
@@ -322,6 +363,14 @@ class PDFGenerator:
                         )
                     )
 
+                # Add feedback links for through-lines
+                doc_id = tl.get('doc_id', '')
+                item_id = tl.get('item_id', '')
+                if doc_id and item_id:
+                    feedback_links = self._create_feedback_links(doc_id, item_id)
+                    if feedback_links:
+                        story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
+
                 story.append(Spacer(1, 0.15 * inch))
 
                 # Insert callout if one is associated with this through-line
@@ -363,6 +412,14 @@ class PDFGenerator:
                                 f"&nbsp;&nbsp;&nbsp;&nbsp;{context}",
                                 self.styles['Normal']
                             ))
+
+                        # Add feedback links
+                        doc_id = example.get('doc_id', '')
+                        item_id = example.get('item_id', '')
+                        if doc_id and item_id:
+                            feedback_links = self._create_feedback_links(doc_id, item_id)
+                            if feedback_links:
+                                story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
 
                 story.append(Spacer(1, 0.15 * inch))
 
