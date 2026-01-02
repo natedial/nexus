@@ -5,8 +5,8 @@
 synthesis:
   # Cross-document synthesis - needs deep reasoning
   # Recommended: Best model with extended thinking
-  provider: anthropic
-  model: claude-opus-4-5-20251101
+  provider: openai
+  model: gpt-5.2
   max_tokens: 16000
   temperature: 0
   extended_thinking:
@@ -32,6 +32,9 @@ available_models:
       supports_thinking: false
 
   openai:
+    - id: gpt-5.2
+      description: "Latest flagship model"
+
     - id: gpt-4o
       description: "Most capable GPT model"
 

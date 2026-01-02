@@ -112,11 +112,15 @@ class Synthesizer:
 
         try:
             data = json.loads(cleaned)
+            through_lines = data.get("through_lines", [])
+            self._normalize_through_lines(through_lines)
+            callouts = data.get("callouts", [])
+            self._normalize_callouts(callouts, through_lines)
             result = SynthesisResult(
                 title=data.get("title", "Cross-Document Synthesis"),
                 document_count=data.get("document_count", len(documents)),
-                through_lines=data.get("through_lines", []),
-                callouts=data.get("callouts", []),
+                through_lines=through_lines,
+                callouts=callouts,
                 raw_response=raw_response,
             )
             print(f"Synthesis complete: {result.title}")
@@ -128,6 +132,82 @@ class Synthesizer:
             print(f"Failed to parse synthesis JSON: {e}")
             print(f"Raw response (first 500 chars): {raw_response[:500]}")
             return None
+
+    def _normalize_through_lines(self, through_lines: list[dict[str, Any]]) -> None:
+        """Ensure through-lines have displayable source metadata."""
+        for tl in through_lines:
+            if not isinstance(tl, dict):
+                continue
+            if tl.get("source") or tl.get("document"):
+                continue
+            supporting_sources = tl.get("supporting_sources")
+            if supporting_sources:
+                tl["source"] = self._format_sources(supporting_sources)
+                tl["document"] = "Cross-document synthesis"
+
+    def _normalize_callouts(
+        self,
+        callouts: list[dict[str, Any]],
+        through_lines: list[dict[str, Any]],
+    ) -> None:
+        """Ensure callouts have source attribution."""
+        lead_to_sources = {}
+        for tl in through_lines:
+            if not isinstance(tl, dict):
+                continue
+            lead = tl.get("lead")
+            sources = tl.get("supporting_sources")
+            if lead and sources:
+                lead_to_sources[lead] = sources
+
+        for callout in callouts:
+            if not isinstance(callout, dict):
+                continue
+            if callout.get("source"):
+                continue
+            lead = callout.get("source_through_line")
+            sources = lead_to_sources.get(lead)
+            if sources:
+                callout["source"] = self._format_sources(sources)
+            else:
+                callout["source"] = "Multiple"
+
+    def _format_sources(self, sources: list[str]) -> str:
+        """Format source names into short, readable labels."""
+        return ", ".join(self._abbreviate_source(name) for name in sources)
+
+    def _abbreviate_source(self, name: str) -> str:
+        """Create a short label for a source name (e.g., 'Goldman Sachs' -> 'GS')."""
+        cleaned = " ".join(name.strip().split())
+        if not cleaned:
+            return "Unknown"
+        overrides = {
+            "Goldman Sachs": "GS",
+            "JPMorgan": "JPM",
+            "JP Morgan": "JPM",
+            "JPMorgan Chase": "JPM",
+            "JPMorgan Chase Research": "JPM",
+            "Morgan Stanley": "MS",
+            "Bank of America": "BofA",
+            "Bank of America Merrill Lynch": "BofA",
+            "Barclays": "Barcs",
+            "Citigroup": "Citi",
+            "Wells Fargo": "Wells",
+            "Deutsche Bank": "DB",
+            "BNP Paribas": "BNP",
+            "UBS": "UBS",
+            "HSBC": "HS",
+            "Nomura": "Nomura",
+            "Societe Generale": "SG",
+            "Société Générale": "SG",
+            "RBC Capital Markets": "RBC",
+        }
+        if cleaned in overrides:
+            return overrides[cleaned]
+        parts = cleaned.replace("&", " ").split()
+        if len(parts) <= 1:
+            return cleaned
+        return "".join(part[0].upper() for part in parts if part)
 
     def _prepare_input(self, documents: list[dict[str, Any]]) -> dict:
         """

@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from collections import defaultdict
 
 
@@ -21,12 +21,36 @@ class ReportFormatter:
             'title': 'Research Dispatch',
             'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'active_filters': active_filters or {},
+            'source_date_range': self._source_date_range(data),
             'summary': self._create_summary(data),
             'details': self._format_details(data),
             'themes_analysis': self._aggregate_themes(data),
             'trades': self._aggregate_trades(data),
             'through_lines': self._aggregate_through_lines(data),
             'callouts': self._aggregate_callouts(data)
+        }
+
+    def _source_date_range(self, data: List[Dict[str, Any]]) -> Dict[str, str] | None:
+        """Get min/max source_date from included records."""
+        dates = []
+        for record in data:
+            source_date = record.get('source_date')
+            if isinstance(source_date, datetime):
+                dates.append(source_date.date())
+            elif isinstance(source_date, date):
+                dates.append(source_date)
+            elif isinstance(source_date, str) and source_date.strip():
+                try:
+                    parsed = datetime.fromisoformat(source_date.replace('Z', '+00:00'))
+                    dates.append(parsed.date())
+                except ValueError:
+                    continue
+        if not dates:
+            return None
+        dates_sorted = sorted(dates)
+        return {
+            'start': dates_sorted[0].isoformat(),
+            'end': dates_sorted[-1].isoformat(),
         }
 
     def _create_summary(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:

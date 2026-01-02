@@ -11,6 +11,7 @@ from config import Config
 from src.database import DatabaseClient
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
+from src.synthesizer import Synthesizer
 
 try:
     print("Validating configuration...")
@@ -28,6 +29,28 @@ try:
     supply_events = db.query_supply_events()
     print(f"Retrieved {len(supply_events)} supply events")
 
+    if not data:
+        print("No documents to process.")
+        sys.exit(0)
+
+    # Run cross-document synthesis
+    synthesis_result = None
+    if Config.ENABLE_SYNTHESIS and Config.ANTHROPIC_API_KEY:
+        print("Running cross-document synthesis...")
+        synthesizer = Synthesizer(
+            anthropic_api_key=Config.ANTHROPIC_API_KEY,
+            openai_api_key=Config.OPENAI_API_KEY,
+        )
+        synthesis_result = synthesizer.synthesize(data)
+        if synthesis_result:
+            print(f"✓ Synthesis complete: {synthesis_result.title}")
+        else:
+            print("⚠ Synthesis failed or returned no results")
+    elif not Config.ENABLE_SYNTHESIS:
+        print("Synthesis disabled (ENABLE_SYNTHESIS=false)")
+    else:
+        print("Synthesis skipped (no ANTHROPIC_API_KEY)")
+
     print("Formatting report...")
     formatter = ReportFormatter()
 
@@ -43,6 +66,12 @@ try:
         active_filters['date_range_days'] = Config.DATE_RANGE_DAYS
 
     report_data = formatter.format_report(data, active_filters=active_filters)
+
+    # Add cross-document synthesis to report (replaces per-document through_lines)
+    if synthesis_result:
+        report_data['synthesis'] = synthesis_result.to_dict()
+        report_data['through_lines'] = synthesis_result.through_lines
+        report_data['callouts'] = synthesis_result.callouts
 
     # Add calendar data to report
     report_data['economic_calendar'] = formatter.format_economic_calendar(economic_events)

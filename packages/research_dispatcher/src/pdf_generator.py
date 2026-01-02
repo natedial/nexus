@@ -8,6 +8,7 @@ from reportlab.lib import colors
 from typing import Dict, Any
 import os
 import yaml
+from datetime import datetime
 
 
 class PDFGenerator:
@@ -127,6 +128,22 @@ class PDFGenerator:
             alignment=2  # Right align
         ))
 
+    def _format_date_range(self, start: str, end: str) -> str:
+        """Format YYYY-MM-DD date range into '22Dec to 29Dec'."""
+        try:
+            start_dt = datetime.fromisoformat(start)
+            end_dt = datetime.fromisoformat(end)
+        except ValueError:
+            return f"{start} to {end}"
+
+        def _fmt(dt: datetime) -> str:
+            month = dt.strftime("%b")
+            return f"{dt.day}{month}"
+
+        if start_dt.date() == end_dt.date():
+            return _fmt(start_dt)
+        return f"{_fmt(start_dt)} to {_fmt(end_dt)}"
+
     def _create_callout_box(self, callout: Dict[str, Any]) -> list:
         """
         Create a styled callout box with coral red left border.
@@ -144,7 +161,11 @@ class PDFGenerator:
         quote_para = Paragraph(quote_text, self.styles['CalloutQuote'])
 
         # Attribution line
-        attribution = f"— {callout['source']}"
+        source_label = callout.get("source", "Multiple")
+        if "," in source_label or source_label == "Multiple":
+            attribution = f"— Sources: {source_label}"
+        else:
+            attribution = f"— {source_label}"
         attr_para = Paragraph(attribution, self.styles['CalloutAttribution'])
 
         # Create a table with the coral red left border effect
@@ -221,7 +242,14 @@ class PDFGenerator:
         story.append(title)
 
         # Accent label (coral red)
-        accent_label = Paragraph("Weekly Synthesis", self.styles['Accent'])
+        subtitle = "Weekly Synthesis - "
+        source_date_range = report_data.get("source_date_range")
+        if source_date_range:
+            start = source_date_range.get("start")
+            end = source_date_range.get("end")
+            if start and end:
+                subtitle = f"{subtitle} {self._format_date_range(start, end)}"
+        accent_label = Paragraph(subtitle, self.styles['Accent'])
         story.append(accent_label)
 
         # Generation timestamp
@@ -262,19 +290,37 @@ class PDFGenerator:
                 if tl.get('key_insight'):
                     story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;{tl['key_insight']}", self.styles['Normal']))
 
-                # Supporting themes
+                # Inline tags: Themes | Trades | Sources
+                tags = []
                 if tl.get('supporting_themes'):
                     themes_list = ', '.join(tl['supporting_themes'])
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Themes: {themes_list}</i>", self.styles['Normal']))
-
-                # Supporting trades
+                    tags.append(f"Themes: {themes_list}")
                 if tl.get('supporting_trades'):
                     trades_list = ', '.join(tl['supporting_trades'])
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Related trades: {trades_list}</i>", self.styles['Normal']))
+                    tags.append(f"Trades: {trades_list}")
 
-                # Source document
-                source_info = f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Source: {tl['source']} - {tl['document'][:80]}{'...' if len(tl['document']) > 80 else ''}</i>"
-                story.append(Paragraph(source_info, self.styles['Normal']))
+                source = tl.get("source")
+                document = tl.get("document")
+                supporting_sources = tl.get("supporting_sources")
+                if source:
+                    label = "Sources" if "," in source or source == "Multiple" else "Source"
+                    tags.append(f"{label}: {source}")
+                elif supporting_sources:
+                    sources_text = ", ".join(supporting_sources)
+                    tags.append(f"Sources: {sources_text}")
+
+                if document:
+                    doc_text = document[:80] + ("..." if len(document) > 80 else "")
+                    tags.append(f"Doc: {doc_text}")
+
+                if tags:
+                    tag_line = " | ".join(tags)
+                    story.append(
+                        Paragraph(
+                            f"&nbsp;&nbsp;&nbsp;&nbsp;<i>{tag_line}</i>",
+                            self.styles['Normal'],
+                        )
+                    )
 
                 story.append(Spacer(1, 0.15 * inch))
 
