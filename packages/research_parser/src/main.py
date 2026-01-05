@@ -10,6 +10,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from src.config import get_settings
 from src.pipeline import Pipeline
+from src.storage import warning_processor
 
 # Configure structured logging
 structlog.configure(
@@ -20,6 +21,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
+        warning_processor,  # Capture warnings to files
         structlog.processors.JSONRenderer(),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,

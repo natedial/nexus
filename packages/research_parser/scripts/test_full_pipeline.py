@@ -7,17 +7,37 @@ from src.pipeline import Pipeline
 
 def main():
     print("=" * 60)
-    print("FULL PIPELINE TEST")
+    print("FULL PIPELINE TEST (max 3 PDFs)")
     print("=" * 60)
 
     print("\nInitializing pipeline...")
     settings = get_settings()
     pipeline = Pipeline(settings)
 
-    print("\nRunning one processing cycle...")
-    print("(This will process the first unprocessed PDF)\n")
+    print("\nFinding new PDFs to process...")
+    all_files = pipeline.drive.list_pdfs()
+    new_files = [f for f in all_files if not pipeline.state.is_processed(f.id)]
 
-    processed = pipeline.run_once()
+    # Limit to 3 PDFs
+    files_to_process = new_files[:3]
+
+    if not files_to_process:
+        print("No new files to process.")
+        return
+
+    print(f"Found {len(new_files)} new file(s), processing {len(files_to_process)}:\n")
+    for f in files_to_process:
+        print(f"  - {f.name}")
+
+    print("\nProcessing files...\n")
+    processed = 0
+    for file in files_to_process:
+        try:
+            success = pipeline.process_file(file.id, file.name)
+            if success:
+                processed += 1
+        except Exception as e:
+            print(f"Error processing {file.name}: {e}")
 
     print("\n" + "=" * 60)
     print(f"RESULT: Processed {processed} file(s)")
@@ -33,7 +53,7 @@ def main():
     with sqlite3.connect(settings.state_db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT file_name, status, parse_ok, metadata_ok, themes_ok, trades_ok, synthesis_ok, storage_ok "
+            "SELECT file_name, status, parse_ok, metadata_ok, themes_ok, trades_ok, storage_ok "
             "FROM processed_files ORDER BY updated_at DESC LIMIT 5"
         ).fetchall()
 
@@ -42,7 +62,7 @@ def main():
             print(f"    Status: {row['status']}")
             print(f"    Steps: parse={row['parse_ok']} meta={row['metadata_ok']} "
                   f"themes={row['themes_ok']} trades={row['trades_ok']} "
-                  f"synth={row['synthesis_ok']} storage={row['storage_ok']}")
+                  f"storage={row['storage_ok']}")
 
 
 if __name__ == "__main__":

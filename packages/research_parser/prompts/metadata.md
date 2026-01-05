@@ -2,7 +2,7 @@ Extract metadata from this financial research document.
 
 Return a JSON object with these fields:
 {
-  "source": "Name of the research firm or publication",
+  "source": "Name of the research firm ("Goldman Sachs Global Rates Trader" -> "Goldman Sachs", "BofA Mark Cabana" -> "Bank of America")",
   "source_date": "Publication date in YYYY-MM-DD format, or null if not found",
   "area": "Classify the primary geographic/market focus as: USD, EUR, Japan, or Other",
   "region": "Primary region: US, EU, UK, Japan, China, EM, Global",
