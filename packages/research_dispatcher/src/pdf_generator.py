@@ -168,21 +168,24 @@ class PDFGenerator:
             item_id: Unique item identifier (hash)
 
         Returns:
-            HTML string with clickable links: [Useful] [Flag] [View Full Text]
+            HTML string with clickable links: [Useful] [Flag] [Full Text]
         """
-        base_url = Config.FEEDBACK_BASE_URL
-        if not base_url or not doc_id:
+        feedback_url = Config.FEEDBACK_BASE_URL
+        if not feedback_url or not doc_id:
             return ""
 
-        useful_url = f"{base_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'useful'})}"
-        flag_url = f"{base_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'flag'})}"
-        view_url = f"{base_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'view'})}"
+        # Static document viewer page (fetches JSON from Edge Function)
+        viewer_url = Config.DOCUMENT_VIEWER_URL
+
+        useful_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'useful'})}"
+        flag_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'flag'})}"
+        view_url = f"{viewer_url}?{urlencode({'id': doc_id})}"
 
         return (
             f'&nbsp;&nbsp;&nbsp;&nbsp;'
             f'[<a href="{useful_url}" color="#0066cc">Useful</a>] '
             f'[<a href="{flag_url}" color="#0066cc">Flag</a>] '
-            f'[<a href="{view_url}" color="#0066cc">View Full Text</a>]'
+            f'[<a href="{view_url}" color="#0066cc">Full Text</a>]'
         )
 
     def _create_callout_box(self, callout: Dict[str, Any]) -> list:
