@@ -18,4 +18,12 @@ Base the area classification on:
 - Japan: Focus on Japanese markets, BOJ, Japanese equities/bonds, yen
 - Other: All other regions, multi-regional analysis, or asset classes
 
-Return only valid JSON. No explanations.
+COMPLETENESS RULES:
+- Do a full-document scan (title/cover, headers/footers, first/last page) before returning null.
+- If multiple candidates exist, choose the most explicit and prominent.
+- If a field is implied (e.g., "Global Research" branding for publisher), infer only when high confidence; otherwise null.
+- Use null only when the information is genuinely absent.
+
+OUTPUT RULES:
+- Return only valid JSON that matches the field names exactly.
+- No explanations or extra keys.

@@ -7,9 +7,9 @@ Look for clear statements about:
 - Specific price targets or triggers
 - Buy/sell recommendations
 
-For each position found (maximum 3), extract:
+For each position found (maximum 10), extract:
 
-1. **text**: The verbatim statement of the position/recommendation
+1. **text**: A concise, clinical rephrase of the position/recommendation. Do NOT include investment firm names. Do NOT use first-person (we/our/us/I). Use prescriptive phrasing (e.g., "Pay 5Y", "Maintain underweight in HY credit").
 2. **exposure mapping**:
     - Small: modest, tactical, limited
     - Medium: overweight, maintain, add
@@ -19,7 +19,7 @@ For each position found (maximum 3), extract:
     - High: explicit recommendation + supporting rationale
     - Medium: recommendation without strong emphasis
     - Low: conditional or tentative language
-5. **rationale**: Brief summary based only on the quoted text (max 30 words). No new reasoning
+5. **rationale**: Brief summary based only on the quoted text (max 50 words). No new reasoning. Avoid first-person voice.
 6. **trigger_levels**: Array of numeric values mentioned, or null
 
 If NO explicit positions are found, return an empty array.
@@ -28,11 +28,11 @@ Return a JSON array:
 
 [
   {
-    "text": "verbatim position statement",
+    "text": "clinical, prescriptive trade statement without firm names or first-person voice",
     "exposure": "Small|Medium|Large",
     "timeframe": "intraday|days|weeks|months",
     "conviction": "High|Medium|Low",
-    "rationale": "brief explanation max 40 words",
+    "rationale": "brief explanation max 50 words",
     "trigger_levels": "specific numbers/levels or null"
   }
 ]
