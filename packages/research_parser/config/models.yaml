@@ -30,13 +30,10 @@ extraction:
   # Step 3: Extract key themes from document
   # Recommended: Smart model with reasoning for nuanced analysis
   themes:
-    provider: anthropic
-    model: claude-sonnet-4-5-20250929
+    provider: openai
+    model: gpt5.2
     max_tokens: 16000
     temperature: 0
-    extended_thinking:
-      enabled: true
-      budget_tokens: 8000
 
   # Step 4: Extract trade ideas and positions
   # Recommended: Smart model for identifying financial positions
@@ -77,6 +74,12 @@ available_models:
       max_output_tokens: 8192
 
   openai:
+    # GPT-5.2 - Next-gen model
+    - id: gpt5.2
+      description: "Next-gen GPT model"
+      supports_reasoning: true
+      max_output_tokens: 32000
+
     # GPT-4o - Most capable general model
     - id: gpt-4o
       description: "Most capable GPT model"
