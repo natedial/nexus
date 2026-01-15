@@ -35,20 +35,22 @@ def _clean_json_response(text: str) -> str:
 
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=5, max=60),
 )
 def extract_trades(
     client: LLMClient,
     text: str,
     config: ModelConfig,
+    log=None,
 ) -> list[Trade]:
     """
     Extract explicit trade ideas from a financial research document.
 
     Identifies positioning recommendations with conviction and timeframe.
     """
-    logger.info(
+    log = log or logger
+    log.info(
         "Extracting trades",
         text_length=len(text),
         provider=config.provider,
@@ -68,8 +70,8 @@ def extract_trades(
         if not isinstance(data, list):
             data = [data] if data else []
         trades = [Trade(**t) for t in data]
-        logger.info("Trades extracted", count=len(trades))
+        log.info("Trades extracted", count=len(trades))
         return trades
     except (json.JSONDecodeError, ValueError) as e:
-        logger.warning("Failed to parse trades JSON", error=str(e), raw=raw[:500])
-        return []
+        log.warning("Failed to parse trades JSON", error=str(e), raw=raw[:500])
+        raise

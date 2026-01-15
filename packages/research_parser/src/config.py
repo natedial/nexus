@@ -58,11 +58,22 @@ class Settings(BaseSettings):
         le=60,
         description="How often to poll Google Drive for new files",
     )
+    catchup_days: int = Field(
+        default=0,
+        ge=0,
+        description="Process files from the last N days on startup before scheduling",
+    )
 
     # Local state
     state_db_path: Path = Field(
         default=Path("/app/data/state.db"),
         description="Path to SQLite state database",
+    )
+
+    # Boilerplate settings
+    boilerplate_deterministic_only: bool = Field(
+        default=False,
+        description="Use only deterministic boilerplate stripping (no LLM fallback)",
     )
 
     # Retry settings

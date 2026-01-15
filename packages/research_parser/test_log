@@ -1,0 +1,146 @@
+============================================================
+FULL PIPELINE TEST (max 3 PDFs)
+============================================================
+
+Initializing pipeline...
+2026-01-11 20:59:24 [info     ] Loading model config           path=/Users/ndial/dev/research_parser/config/models.yaml
+2026-01-11 20:59:24 [info     ] Initialized Drive watcher      folder_id=1asNUccudJUidmP_Z_xpReJr0-xBouS__
+2026-01-11 20:59:24 [info     ] Initialized LlamaIndex parser
+2026-01-11 20:59:24 [info     ] Initialized Supabase client
+2026-01-11 20:59:24 [info     ] Pipeline initialized
+
+Finding new PDFs to process...
+2026-01-11 20:59:24 [debug    ] Found PDFs in folder           count=100
+Found 88 new file(s), processing 3:
+
+  - 2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf
+  - 2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf
+  - 2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf
+
+Processing files...
+
+2026-01-11 20:59:24 [info     ] Starting file processing       file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf
+2026-01-11 20:59:24 [info     ] Started processing             file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf
+2026-01-11 20:59:25 [debug    ] Download progress              file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf progress=100%
+2026-01-11 20:59:25 [info     ] Downloaded file                file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf path=/var/folders/3n/r8k5fbk537vfycjzfxnpy_780000gn/T/tmpxqjcuwub.pdf
+2026-01-11 20:59:25 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=parsing step=parse success=False
+2026-01-11 20:59:25 [info     ] Uploading PDF                  file_path=/var/folders/3n/r8k5fbk537vfycjzfxnpy_780000gn/T/tmpxqjcuwub.pdf
+2026-01-11 20:59:27 [info     ] Upload complete                job_id=b93bef05-f6b1-4caf-ae4b-66337af3bc95
+2026-01-11 20:59:27 [debug    ] Job status                     job_id=b93bef05-f6b1-4caf-ae4b-66337af3bc95 status=PENDING
+2026-01-11 20:59:27 [debug    ] Job still pending              attempt=1 job_id=b93bef05-f6b1-4caf-ae4b-66337af3bc95 max_attempts=60
+2026-01-11 20:59:32 [debug    ] Job status                     job_id=b93bef05-f6b1-4caf-ae4b-66337af3bc95 status=SUCCESS
+2026-01-11 20:59:33 [info     ] Retrieved markdown             job_id=b93bef05-f6b1-4caf-ae4b-66337af3bc95 length=58204
+2026-01-11 20:59:33 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=None step=parse success=True
+2026-01-11 20:59:33 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=extracting step=boilerplate success=False
+2026-01-11 20:59:33 [info     ] Stripping boilerplate          file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf model=claude-3-5-haiku-20241022 provider=anthropic text_length=58204
+2026-01-11 20:59:33 [debug    ] Calling Anthropic              max_tokens=8192 model=claude-3-5-haiku-20241022 thinking_enabled=False
+2026-01-11 20:59:55 [warning  ] Boilerplate result suspiciously short, using original file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf max_reduction=90% min_threshold=2000 original_length=58204 reduction=94.2% result_length=3353
+2026-01-11 20:59:55 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=None step=boilerplate success=True
+2026-01-11 20:59:55 [info     ] Extracting metadata            file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf model=claude-3-5-haiku-20241022 provider=anthropic text_length=58204
+2026-01-11 20:59:55 [debug    ] Calling Anthropic              max_tokens=4096 model=claude-3-5-haiku-20241022 thinking_enabled=False
+2026-01-11 21:00:01 [info     ] Metadata extracted             area=USD file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf source='Morgan Stanley'
+2026-01-11 21:00:01 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=None step=metadata success=True
+2026-01-11 21:00:01 [info     ] Extracting themes              file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf model=gpt-5.2 provider=openai text_length=58204 thinking_budget=None thinking_enabled=None
+2026-01-11 21:00:01 [debug    ] Calling OpenAI                 max_tokens=16000 model=gpt-5.2
+2026-01-11 21:00:41 [info     ] Themes extracted               count=7 file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf
+2026-01-11 21:00:41 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=None step=themes success=True
+2026-01-11 21:00:41 [info     ] Extracting trades              file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf model=claude-sonnet-4-20250514 provider=anthropic text_length=58204
+2026-01-11 21:00:41 [debug    ] Calling Anthropic              max_tokens=4096 model=claude-sonnet-4-20250514 thinking_enabled=False
+2026-01-11 21:00:54 [info     ] Trades extracted               count=5 file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO file_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf
+2026-01-11 21:00:54 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=None step=trades success=True
+2026-01-11 21:00:54 [info     ] Inserting research             document_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf source='Morgan Stanley' source_date=2026-01-10
+2026-01-11 21:00:56 [info     ] Research inserted              document_name=2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_20260110_0009.pdf
+2026-01-11 21:00:56 [info     ] Updated step                   file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO status=None step=storage success=True
+2026-01-11 21:00:56 [info     ] Completed processing           file_id=1Z-znS0YW7MsJjbYRM6F0Xe0OQDJuskJO
+2026-01-11 21:00:56 [info     ] Starting file processing       file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf
+2026-01-11 21:00:56 [info     ] Started processing             file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf
+2026-01-11 21:00:56 [debug    ] Download progress              file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf progress=100%
+2026-01-11 21:00:56 [info     ] Downloaded file                file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf path=/var/folders/3n/r8k5fbk537vfycjzfxnpy_780000gn/T/tmp7zyb54bu.pdf
+2026-01-11 21:00:56 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=parsing step=parse success=False
+2026-01-11 21:00:56 [info     ] Uploading PDF                  file_path=/var/folders/3n/r8k5fbk537vfycjzfxnpy_780000gn/T/tmp7zyb54bu.pdf
+2026-01-11 21:00:57 [info     ] Upload complete                job_id=f963de8f-2478-4ce9-bd20-f985a6818689
+2026-01-11 21:00:58 [debug    ] Job status                     job_id=f963de8f-2478-4ce9-bd20-f985a6818689 status=PENDING
+2026-01-11 21:00:58 [debug    ] Job still pending              attempt=1 job_id=f963de8f-2478-4ce9-bd20-f985a6818689 max_attempts=60
+2026-01-11 21:01:03 [debug    ] Job status                     job_id=f963de8f-2478-4ce9-bd20-f985a6818689 status=SUCCESS
+2026-01-11 21:01:03 [info     ] Retrieved markdown             job_id=f963de8f-2478-4ce9-bd20-f985a6818689 length=46076
+2026-01-11 21:01:03 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=None step=parse success=True
+2026-01-11 21:01:03 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=extracting step=boilerplate success=False
+2026-01-11 21:01:03 [info     ] Stripping boilerplate          file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf model=claude-3-5-haiku-20241022 provider=anthropic text_length=46076
+2026-01-11 21:01:03 [debug    ] Calling Anthropic              max_tokens=8192 model=claude-3-5-haiku-20241022 thinking_enabled=False
+2026-01-11 21:01:15 [warning  ] Boilerplate result suspiciously short, using original file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf max_reduction=90% min_threshold=2000 original_length=46076 reduction=96.2% result_length=1728
+2026-01-11 21:01:15 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=None step=boilerplate success=True
+2026-01-11 21:01:15 [info     ] Extracting metadata            file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf model=claude-3-5-haiku-20241022 provider=anthropic text_length=46076
+2026-01-11 21:01:15 [debug    ] Calling Anthropic              max_tokens=4096 model=claude-3-5-haiku-20241022 thinking_enabled=False
+2026-01-11 21:01:21 [info     ] Metadata extracted             area=USD file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf source='Morgan Stanley'
+2026-01-11 21:01:21 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=None step=metadata success=True
+2026-01-11 21:01:21 [info     ] Extracting themes              file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf model=gpt-5.2 provider=openai text_length=46076 thinking_budget=None thinking_enabled=None
+2026-01-11 21:01:21 [debug    ] Calling OpenAI                 max_tokens=16000 model=gpt-5.2
+2026-01-11 21:02:01 [info     ] Themes extracted               count=8 file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf
+2026-01-11 21:02:01 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=None step=themes success=True
+2026-01-11 21:02:01 [info     ] Extracting trades              file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf model=claude-sonnet-4-20250514 provider=anthropic text_length=46076
+2026-01-11 21:02:01 [debug    ] Calling Anthropic              max_tokens=4096 model=claude-sonnet-4-20250514 thinking_enabled=False
+2026-01-11 21:02:11 [info     ] Trades extracted               count=3 file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 file_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf
+2026-01-11 21:02:11 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=None step=trades success=True
+2026-01-11 21:02:11 [info     ] Inserting research             document_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf source='Morgan Stanley' source_date=2026-01-08
+2026-01-11 21:02:12 [info     ] Research inserted              document_name=2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_Storm_USRATES_20260108_1751.pdf
+2026-01-11 21:02:12 [info     ] Updated step                   file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6 status=None step=storage success=True
+2026-01-11 21:02:12 [info     ] Completed processing           file_id=1sy6hTqp3CO_ONwHqK_w1_l4yH4GrlYL6
+2026-01-11 21:02:12 [info     ] Starting file processing       file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf
+2026-01-11 21:02:12 [info     ] Started processing             file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf
+2026-01-11 21:02:13 [debug    ] Download progress              file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf progress=100%
+2026-01-11 21:02:13 [info     ] Downloaded file                file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf path=/var/folders/3n/r8k5fbk537vfycjzfxnpy_780000gn/T/tmpmxykr7a6.pdf
+2026-01-11 21:02:13 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=parsing step=parse success=False
+2026-01-11 21:02:13 [info     ] Uploading PDF                  file_path=/var/folders/3n/r8k5fbk537vfycjzfxnpy_780000gn/T/tmpmxykr7a6.pdf
+2026-01-11 21:02:15 [info     ] Upload complete                job_id=b7d7dd51-7f4d-482f-9b1e-5721565eeaa0
+2026-01-11 21:02:15 [debug    ] Job status                     job_id=b7d7dd51-7f4d-482f-9b1e-5721565eeaa0 status=PENDING
+2026-01-11 21:02:15 [debug    ] Job still pending              attempt=1 job_id=b7d7dd51-7f4d-482f-9b1e-5721565eeaa0 max_attempts=60
+2026-01-11 21:02:20 [debug    ] Job status                     job_id=b7d7dd51-7f4d-482f-9b1e-5721565eeaa0 status=SUCCESS
+2026-01-11 21:02:20 [info     ] Retrieved markdown             job_id=b7d7dd51-7f4d-482f-9b1e-5721565eeaa0 length=64718
+2026-01-11 21:02:20 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=None step=parse success=True
+2026-01-11 21:02:20 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=extracting step=boilerplate success=False
+2026-01-11 21:02:20 [info     ] Stripping boilerplate          file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf model=claude-3-5-haiku-20241022 provider=anthropic text_length=64718
+2026-01-11 21:02:20 [debug    ] Calling Anthropic              max_tokens=8192 model=claude-3-5-haiku-20241022 thinking_enabled=False
+2026-01-11 21:02:27 [warning  ] Boilerplate result suspiciously short, using original file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf max_reduction=90% min_threshold=2000 original_length=64718 reduction=99.0% result_length=623
+2026-01-11 21:02:27 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=None step=boilerplate success=True
+2026-01-11 21:02:27 [info     ] Extracting metadata            file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf model=claude-3-5-haiku-20241022 provider=anthropic text_length=64718
+2026-01-11 21:02:27 [debug    ] Calling Anthropic              max_tokens=4096 model=claude-3-5-haiku-20241022 thinking_enabled=False
+2026-01-11 21:02:33 [info     ] Metadata extracted             area=USD file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf source='Morgan Stanley'
+2026-01-11 21:02:33 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=None step=metadata success=True
+2026-01-11 21:02:33 [info     ] Extracting themes              file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf model=gpt-5.2 provider=openai text_length=64718 thinking_budget=None thinking_enabled=None
+2026-01-11 21:02:33 [debug    ] Calling OpenAI                 max_tokens=16000 model=gpt-5.2
+2026-01-11 21:03:24 [info     ] Themes extracted               count=10 file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf
+2026-01-11 21:03:24 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=None step=themes success=True
+2026-01-11 21:03:24 [info     ] Extracting trades              file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf model=claude-sonnet-4-20250514 provider=anthropic text_length=64718
+2026-01-11 21:03:24 [debug    ] Calling Anthropic              max_tokens=4096 model=claude-sonnet-4-20250514 thinking_enabled=False
+2026-01-11 21:03:33 [info     ] Trades extracted               count=3 file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 file_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf
+2026-01-11 21:03:33 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=None step=trades success=True
+2026-01-11 21:03:33 [info     ] Inserting research             document_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf source='Morgan Stanley' source_date=2026-01-10
+2026-01-11 21:03:34 [info     ] Research inserted              document_name=2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Funding_USRATES_20260110_0058.pdf
+2026-01-11 21:03:34 [info     ] Updated step                   file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4 status=None step=storage success=True
+2026-01-11 21:03:34 [info     ] Completed processing           file_id=1N63bbDZgfX7MN3n7odY7WXRfYqW_WoE4
+
+============================================================
+RESULT: Processed 3 file(s)
+============================================================
+
+Recent processing states:
+
+  2026-01-11_MS_US__Sitting_at_the_Intersection_of_Soft_Fundin...
+    Status: completed
+    Steps: parse=1 meta=1 themes=1 trades=1 storage=1
+
+  2026-01-11_MS_US__Volatility_Smile_Signals_Calm_Before_the_S...
+    Status: completed
+    Steps: parse=1 meta=1 themes=1 trades=1 storage=1
+
+  2026-01-11_MS_US__On_the_Edge_of_Stopping_Out_USRATES_202601...
+    Status: completed
+    Steps: parse=1 meta=1 themes=1 trades=1 storage=1
+
+  2025-12-18_BOA__10yT_fair_value_vs._Fed_policy_trough_10yT.p...
+    Status: completed
+    Steps: parse=1 meta=1 themes=1 trades=1 storage=1
+
+  2025-12-19_Citi_euro_rates_weekly__issuance_matters_euro rat...
+    Status: completed
+    Steps: parse=1 meta=1 themes=1 trades=1 storage=1

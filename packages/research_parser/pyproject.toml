@@ -5,7 +5,7 @@ description = "Financial research PDF parser with LLM extraction"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.40.0",
-    "openai>=1.50.0",
+    "openai>=1.60.0",
     "google-api-python-client>=2.150.0",
     "google-auth>=2.35.0",
     "supabase>=2.10.0",

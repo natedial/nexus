@@ -84,6 +84,9 @@ SUPABASE_KEY=your_service_role_key
 
 # Local paths (for development)
 STATE_DB_PATH=./data/state.db
+
+# Catchup on startup (process files from the last N days, 0 disables)
+CATCHUP_DAYS=0
 ```
 
 ### 3. Set Up Google Drive
@@ -101,6 +104,20 @@ python scripts/test_extraction.py
 
 # Run the full service
 python -m src.main
+```
+
+To run in catchup mode, set `CATCHUP_DAYS` in `.env` before starting the service:
+
+```bash
+# Example: process the last 7 days on startup, then continue polling
+export CATCHUP_DAYS=7
+python -m src.main
+```
+
+Or run with a CLI flag to override the env setting:
+
+```bash
+python -m src.main --catchup 7
 ```
 
 ## Model Configuration

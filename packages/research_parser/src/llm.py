@@ -82,7 +82,33 @@ def load_model_config(config_path: Path | None = None) -> ExtractionConfig:
     with open(path) as f:
         data = yaml.safe_load(f)
 
+    _validate_model_config(data)
     return ExtractionConfig.from_dict(data["extraction"])
+
+
+def _validate_model_config(data: dict) -> None:
+    """Warn if configured models aren't listed in available_models."""
+    available = data.get("available_models")
+    extraction = data.get("extraction")
+    if not available or not extraction:
+        return
+
+    available_ids = {}
+    for provider, models in available.items():
+        available_ids[provider] = {m.get("id") for m in models if m.get("id")}
+
+    for step, config in extraction.items():
+        provider = config.get("provider")
+        model = config.get("model")
+        if not provider or not model:
+            continue
+        if provider in available_ids and model not in available_ids[provider]:
+            logger.warning(
+                "Configured model not listed in available_models",
+                step=step,
+                provider=provider,
+                model=model,
+            )
 
 
 def reload_model_config(config_path: Path | None = None) -> ExtractionConfig:
@@ -129,6 +155,7 @@ class LLMClient:
         config: ModelConfig,
         system: str,
         user: str,
+        response_format: dict | None = None,
     ) -> str:
         """
         Generate a completion using the configured provider/model.
@@ -144,7 +171,7 @@ class LLMClient:
         if config.provider == "anthropic":
             return self._generate_anthropic(config, system, user)
         elif config.provider == "openai":
-            return self._generate_openai(config, system, user)
+            return self._generate_openai(config, system, user, response_format=response_format)
         else:
             raise ValueError(f"Unknown provider: {config.provider}")
 
@@ -193,35 +220,199 @@ class LLMClient:
         config: ModelConfig,
         system: str,
         user: str,
+        response_format: dict | None = None,
     ) -> str:
         """Generate completion using OpenAI."""
+        if response_format is not None and "json" not in system.lower():
+            system = f"{system}\n\nRespond with valid json only."
         logger.debug(
             "Calling OpenAI",
             model=config.model,
             max_tokens=config.max_tokens,
         )
 
+        import openai
+
+        if config.model.startswith("gpt-5"):
+            if response_format is not None:
+                try:
+                    response = self.openai.chat.completions.create(
+                        model=config.model,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        max_completion_tokens=config.max_tokens,
+                        temperature=config.temperature,
+                        response_format=response_format,
+                    )
+                    return response.choices[0].message.content or ""
+                except (openai.BadRequestError, TypeError) as e:
+                    logger.warning(
+                        "OpenAI chat.completions rejected response_format for gpt-5, retrying with responses",
+                        model=config.model,
+                        error=str(e),
+                    )
+            try:
+                return self._generate_openai_responses(
+                    config,
+                    system,
+                    user,
+                    response_format=response_format,
+                )
+            except openai.BadRequestError as e:
+                logger.warning(
+                    "OpenAI responses request rejected, retrying with chat.completions",
+                    model=config.model,
+                    error=str(e),
+                )
+
         # Check if this is a reasoning model (o1, o1-mini)
         is_reasoning_model = config.model.startswith("o1")
 
-        if is_reasoning_model:
-            # o1 models don't support system messages or temperature
-            # Prepend system prompt to user message
+        try:
+            if is_reasoning_model:
+                # o1 models don't support system messages or temperature
+                # Prepend system prompt to user message
+                combined_message = f"{system}\n\n---\n\n{user}"
+                response = self.openai.chat.completions.create(
+                    model=config.model,
+                    messages=[{"role": "user", "content": combined_message}],
+                    max_completion_tokens=config.max_tokens,
+                )
+            else:
+                if config.model.startswith("gpt-5"):
+                    response = self.openai.chat.completions.create(
+                        model=config.model,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        max_completion_tokens=config.max_tokens,
+                        temperature=config.temperature,
+                        response_format=response_format,
+                    )
+                else:
+                    response = self.openai.chat.completions.create(
+                        model=config.model,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        max_tokens=config.max_tokens,
+                        temperature=config.temperature,
+                        response_format=response_format,
+                    )
+        except openai.BadRequestError as e:
+            logger.warning(
+                "OpenAI request rejected, retrying with compatibility payload",
+                model=config.model,
+                error=str(e),
+            )
             combined_message = f"{system}\n\n---\n\n{user}"
             response = self.openai.chat.completions.create(
                 model=config.model,
                 messages=[{"role": "user", "content": combined_message}],
                 max_completion_tokens=config.max_tokens,
+                response_format=response_format,
             )
-        else:
-            response = self.openai.chat.completions.create(
+        except TypeError as e:
+            logger.warning(
+                "OpenAI chat.completions rejected response_format, retrying without it",
                 model=config.model,
-                messages=[
+                error=str(e),
+            )
+            if is_reasoning_model:
+                combined_message = f"{system}\n\n---\n\n{user}"
+                response = self.openai.chat.completions.create(
+                    model=config.model,
+                    messages=[{"role": "user", "content": combined_message}],
+                    max_completion_tokens=config.max_tokens,
+                )
+            else:
+                if config.model.startswith("gpt-5"):
+                    response = self.openai.chat.completions.create(
+                        model=config.model,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        max_completion_tokens=config.max_tokens,
+                        temperature=config.temperature,
+                    )
+                else:
+                    response = self.openai.chat.completions.create(
+                        model=config.model,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        max_tokens=config.max_tokens,
+                        temperature=config.temperature,
+                    )
+
+        return response.choices[0].message.content or ""
+
+    def _generate_openai_responses(
+        self,
+        config: ModelConfig,
+        system: str,
+        user: str,
+        response_format: dict | None = None,
+    ) -> str:
+        """Generate completion using OpenAI Responses API."""
+        if response_format is not None and "json" not in system.lower():
+            system = f"{system}\n\nRespond with valid json only."
+        try:
+            response = self.openai.responses.create(
+                model=config.model,
+                input=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                max_tokens=config.max_tokens,
+                max_output_tokens=config.max_tokens,
+                temperature=config.temperature,
+                response_format=response_format,
+            )
+        except TypeError as e:
+            logger.warning(
+                "OpenAI responses rejected response_format, retrying without it",
+                model=config.model,
+                error=str(e),
+            )
+            response = self.openai.responses.create(
+                model=config.model,
+                input=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                max_output_tokens=config.max_tokens,
                 temperature=config.temperature,
             )
+        return self._extract_responses_text(response)
 
-        return response.choices[0].message.content or ""
+    @staticmethod
+    def _extract_responses_text(response) -> str:
+        """Extract text from an OpenAI Responses API result."""
+        output_text = getattr(response, "output_text", None)
+        if output_text:
+            return output_text
+
+        output = getattr(response, "output", None) or []
+        parts = []
+        for item in output:
+            item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+            if item_type != "message":
+                continue
+            content = item.get("content") if isinstance(item, dict) else getattr(item, "content", None)
+            for block in content or []:
+                block_type = (
+                    block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                )
+                if block_type not in ("output_text", "text"):
+                    continue
+                text = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
+                if text:
+                    parts.append(text)
+
+        return "\n".join(parts)

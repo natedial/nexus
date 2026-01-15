@@ -20,7 +20,7 @@ For each position found (maximum 10), extract:
     - Medium: recommendation without strong emphasis
     - Low: conditional or tentative language
 5. **rationale**: Brief summary based only on the quoted text (max 50 words). No new reasoning. Avoid first-person voice.
-6. **trigger_levels**: Array of numeric values mentioned, or null
+6. **trigger_levels**: String of numeric levels mentioned (comma-separated), or null
 
 If NO explicit positions are found, return an empty array.
 
@@ -33,7 +33,7 @@ Return a JSON array:
     "timeframe": "intraday|days|weeks|months",
     "conviction": "High|Medium|Low",
     "rationale": "brief explanation max 50 words",
-    "trigger_levels": "specific numbers/levels or null"
+    "trigger_levels": "specific numbers/levels as a comma-separated string, or null"
   }
 ]
 

@@ -11,7 +11,7 @@ extraction:
   # Recommended: Fast model, no reasoning needed
   boilerplate:
     provider: anthropic
-    model: claude-3-5-haiku-20241022
+    model: claude-sonnet-4-20250514
     max_tokens: 8192
     temperature: 0
     extended_thinking:
@@ -31,7 +31,7 @@ extraction:
   # Recommended: Smart model with reasoning for nuanced analysis
   themes:
     provider: openai
-    model: gpt5.2
+    model: gpt-5.2
     max_tokens: 16000
     temperature: 0
 
@@ -75,7 +75,7 @@ available_models:
 
   openai:
     # GPT-5.2 - Next-gen model
-    - id: gpt5.2
+    - id: gpt-5.2
       description: "Next-gen GPT model"
       supports_reasoning: true
       max_output_tokens: 32000

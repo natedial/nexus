@@ -2,6 +2,7 @@
 
 import signal
 import sys
+import argparse
 from datetime import datetime
 
 import structlog
@@ -72,6 +73,15 @@ class ResearchParserService:
             drive_folder=self.settings.google_drive_folder_id,
         )
 
+        # Catch up on recent files if configured
+        if self.settings.catchup_days > 0:
+            logger.info("Running catchup", days=self.settings.catchup_days)
+            try:
+                processed = self.pipeline.run_once(days_ago=self.settings.catchup_days)
+                logger.info("Catchup complete", processed_count=processed)
+            except Exception:
+                logger.exception("Error in catchup")
+
         # Run once immediately on startup
         self._poll_job()
 
@@ -93,7 +103,18 @@ class ResearchParserService:
 
 def main():
     """Entry point."""
+    parser = argparse.ArgumentParser(description="Run the Research Parser Service")
+    parser.add_argument(
+        "--catchup",
+        type=int,
+        default=None,
+        help="Process files from the last N days on startup, then continue polling",
+    )
+    args = parser.parse_args()
+
     service = ResearchParserService()
+    if args.catchup is not None:
+        service.settings.catchup_days = args.catchup
     service.run()
 
 

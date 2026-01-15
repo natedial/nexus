@@ -25,8 +25,12 @@ def main():
         folder_id=settings.google_drive_folder_id,
     )
     pdfs = watcher.list_pdfs()
+    if not pdfs:
+        print("No PDFs found.")
+        return
+    pdfs = sorted(pdfs, key=lambda p: p.name)
     test_pdf = pdfs[0]
-    print(f"Using: {test_pdf.name}")
+    print(f"Using (deterministic): {test_pdf.name}")
 
     file_path = watcher.download_file(test_pdf.id, test_pdf.name)
 
@@ -57,7 +61,12 @@ def main():
 
     # Strip boilerplate
     print(f"\n[3a] Stripping boilerplate ({model_config.boilerplate.provider}/{model_config.boilerplate.model})...")
-    clean_text = strip_boilerplate(client, markdown, config=model_config.boilerplate)
+    clean_text = strip_boilerplate(
+        client,
+        markdown,
+        config=model_config.boilerplate,
+        deterministic_only=settings.boilerplate_deterministic_only,
+    )
     print(f"  Before: {len(markdown)} chars -> After: {len(clean_text)} chars")
 
     # Extract metadata

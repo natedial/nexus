@@ -12,6 +12,67 @@ from .prompts import get_themes_prompt
 
 logger = structlog.get_logger()
 
+_THEMES_RESPONSE_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "themes_response",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "coverage": {
+                    "type": "object",
+                    "additionalProperties": True,
+                },
+                "themes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "properties": {
+                            "label": {"type": "string"},
+                            "excerpts": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": True,
+                                    "properties": {"text": {"type": "string"}},
+                                    "required": ["text"],
+                                },
+                            },
+                            "relevance": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "classification": {"type": "string"},
+                            "mention_count": {"type": "number"},
+                            "evidence_count": {"type": "number"},
+                            "strength": {"type": "string"},
+                            "directionality": {
+                                "type": ["object", "null"],
+                                "additionalProperties": {"type": "integer"},
+                            },
+                            "confidence": {"type": "string"},
+                            "context": {"type": ["string", "null"]},
+                        },
+                        "required": [
+                            "label",
+                            "excerpts",
+                            "relevance",
+                            "classification",
+                            "strength",
+                            "confidence",
+                            "context",
+                        ],
+                    },
+                },
+                "excluded_topics": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["themes"],
+        },
+    },
+}
+
 
 def _clean_json_response(text: str) -> str:
     """Clean JSON response from LLM (remove code fences, explanatory text, etc.)."""
@@ -42,6 +103,7 @@ def extract_themes(
     client: LLMClient,
     text: str,
     config: ModelConfig,
+    log=None,
 ) -> list[Theme]:
     """
     Extract key themes from a financial research document.
@@ -49,7 +111,8 @@ def extract_themes(
     Uses extended thinking (if configured) for deeper reasoning about theme relationships.
     """
     thinking_enabled = config.extended_thinking and config.extended_thinking.enabled
-    logger.info(
+    log = log or logger
+    log.info(
         "Extracting themes",
         text_length=len(text),
         provider=config.provider,
@@ -62,17 +125,34 @@ def extract_themes(
         config=config,
         system=get_themes_prompt(),
         user=text,
+        response_format=_THEMES_RESPONSE_SCHEMA,
     )
 
     cleaned = _clean_json_response(raw)
 
     try:
         data = json.loads(cleaned)
+        if isinstance(data, dict) and "themes" in data:
+            data = data["themes"]
         if not isinstance(data, list):
             data = [data]
+        for theme in data:
+            if "mention_count" not in theme and "evidence_count" in theme:
+                theme["mention_count"] = theme["evidence_count"]
+            directionality = theme.get("directionality")
+            if isinstance(directionality, dict):
+                cleaned = {}
+                for key, value in directionality.items():
+                    try:
+                        cleaned[key] = int(value)
+                    except (TypeError, ValueError):
+                        continue
+                theme["directionality"] = cleaned or None
+            elif directionality is not None:
+                theme["directionality"] = None
         themes = [Theme(**t) for t in data]
-        logger.info("Themes extracted", count=len(themes))
+        log.info("Themes extracted", count=len(themes))
         return themes
     except (json.JSONDecodeError, ValueError) as e:
-        logger.warning("Failed to parse themes JSON", error=str(e), raw=raw[:500])
-        return []
+        log.warning("Failed to parse themes JSON", error=str(e), raw=raw[:500])
+        raise

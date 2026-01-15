@@ -101,6 +101,8 @@ class Pipeline:
                     self.llm,
                     markdown,
                     config=self.model_config.boilerplate,
+                    log=log,
+                    deterministic_only=self.settings.boilerplate_deterministic_only,
                 )
                 self.state.update_step(file_id, "boilerplate", True)
             except Exception as e:
@@ -125,6 +127,7 @@ class Pipeline:
                     self.llm,
                     clean_text,
                     config=self.model_config.metadata,
+                    log=log,
                 )
                 extraction.metadata_ok = True
                 self.state.update_step(file_id, "metadata", True)
@@ -138,6 +141,7 @@ class Pipeline:
                     self.llm,
                     clean_text,
                     config=self.model_config.themes,
+                    log=log,
                 )
                 extraction.themes_ok = True
                 self.state.update_step(file_id, "themes", True)
@@ -151,6 +155,7 @@ class Pipeline:
                     self.llm,
                     clean_text,
                     config=self.model_config.trades,
+                    log=log,
                 )
                 extraction.trades_ok = True
                 self.state.update_step(file_id, "trades", True)
@@ -213,16 +218,16 @@ class Pipeline:
                 f"Failed steps: {', '.join(failed_steps)}",
             )
 
-    def run_once(self) -> int:
+    def run_once(self, days_ago: int | None = None) -> int:
         """
         Run one polling cycle.
 
         Returns the number of files processed.
         """
-        logger.info("Starting polling cycle")
+        logger.info("Starting polling cycle", days_ago=days_ago)
 
         # Get new files from Drive
-        all_files = self.drive.list_pdfs()
+        all_files = self.drive.list_pdfs(days_ago=days_ago)
         new_files = [f for f in all_files if not self.state.is_processed(f.id)]
 
         if not new_files:
