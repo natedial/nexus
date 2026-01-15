@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from typing import Any
 
@@ -220,6 +220,19 @@ class Synthesizer:
         sources = set()
         dates = []
 
+        def _parse_source_date(value: Any) -> date | None:
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+            if isinstance(value, str) and value.strip():
+                try:
+                    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                    return parsed.date()
+                except ValueError:
+                    return None
+            return None
+
         for doc in documents:
             parsed_data = doc.get("parsed_data", {})
             if not parsed_data:
@@ -230,8 +243,9 @@ class Synthesizer:
             source_date = doc.get("source_date")
 
             sources.add(source)
-            if source_date:
-                dates.append(source_date)
+            parsed_date = _parse_source_date(source_date)
+            if parsed_date:
+                dates.append(parsed_date)
 
             # Extract themes with source attribution
             doc_themes = parsed_data.get("themes", [])
@@ -264,7 +278,7 @@ class Synthesizer:
         # Build date range string
         if dates:
             dates_sorted = sorted(dates)
-            date_range = f"{dates_sorted[0]} to {dates_sorted[-1]}"
+            date_range = f"{dates_sorted[0].isoformat()} to {dates_sorted[-1].isoformat()}"
         else:
             date_range = datetime.now().strftime("%Y-%m-%d")
 

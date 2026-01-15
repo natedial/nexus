@@ -111,20 +111,116 @@ function formatFullText(text: string): string {
   return html;
 }
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
+function decodeBase64Url(input: string): Uint8Array {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    result |= a[i] ^ b[i];
+  }
+  return result === 0;
+}
+
+async function verifySignedToken(
+  token: string,
+  expectedId: string,
+  secret: string,
+): Promise<boolean> {
+  const parts = token.split(".");
+  if (parts.length !== 2) {
+    return false;
+  }
+  const [payloadB64, signatureB64] = parts;
+  if (!payloadB64 || !signatureB64) {
+    return false;
+  }
+
+  let payload;
+  try {
+    const payloadBytes = decodeBase64Url(payloadB64);
+    payload = JSON.parse(textDecoder.decode(payloadBytes));
+  } catch (_err) {
+    return false;
+  }
+
+  if (!payload?.id || payload.id !== expectedId) {
+    return false;
+  }
+  if (!payload.exp || typeof payload.exp !== "number") {
+    return false;
+  }
+  if (payload.exp < Math.floor(Date.now() / 1000)) {
+    return false;
+  }
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    textEncoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const expectedSig = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, textEncoder.encode(payloadB64)),
+  );
+  const providedSig = decodeBase64Url(signatureB64);
+  return timingSafeEqual(expectedSig, providedSig);
+}
+
+const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const isOriginAllowed = (origin: string | null): boolean => {
+  if (!origin) {
+    return true;
+  }
+  return allowedOrigins.includes(origin);
+};
+
+const buildCorsHeaders = (req: Request): HeadersInit => {
+  const origin = req.headers.get("origin");
+  const allowOrigin = origin && allowedOrigins.includes(origin) ? origin : origin ? "null" : "*";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Vary": "Origin",
+  };
 };
 
 console.info("document function started");
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    if (!isOriginAllowed(req.headers.get("origin"))) {
+      return new Response(
+        JSON.stringify({ error: "Origin not allowed" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
 
@@ -135,10 +231,58 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const authHeader = req.headers.get("authorization");
+    const token = url.searchParams.get("token");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const linkSecret = Deno.env.get("DOCUMENT_LINK_SECRET");
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error("Missing Supabase configuration");
+      return new Response(
+        JSON.stringify({ error: "Service configuration error" }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    let supabase;
+    if (token && linkSecret) {
+      const valid = await verifySignedToken(token, id, linkSecret);
+      if (valid) {
+        if (!supabaseServiceKey) {
+          console.error("Missing service role key for signed links");
+          return new Response(
+            JSON.stringify({ error: "Service configuration error" }),
+            { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        supabase = createClient(supabaseUrl, supabaseServiceKey);
+      }
+    }
+
+    if (!supabase) {
+      if (!authHeader) {
+        return new Response(
+          JSON.stringify({ error: "Authorization required" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      supabase = createClient(supabaseUrl, supabaseAnonKey, {
+        global: {
+          headers: { Authorization: authHeader },
+        },
+      });
+
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData?.user) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
     const { data, error } = await supabase
       .from("parsed_research")

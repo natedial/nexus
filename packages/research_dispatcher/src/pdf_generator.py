@@ -7,6 +7,11 @@ from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
 from typing import Dict, Any
 from urllib.parse import urlencode
+import base64
+import hashlib
+import hmac
+import json
+import time
 import os
 import yaml
 from datetime import datetime
@@ -176,10 +181,14 @@ class PDFGenerator:
 
         # Static document viewer page (fetches JSON from Edge Function)
         viewer_url = Config.DOCUMENT_VIEWER_URL
+        token = self._sign_document_link(doc_id)
 
         useful_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'useful'})}"
         flag_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'flag'})}"
-        view_url = f"{viewer_url}?{urlencode({'id': doc_id})}"
+        view_params = {'id': doc_id}
+        if token:
+            view_params['token'] = token
+        view_url = f"{viewer_url}?{urlencode(view_params)}"
 
         return (
             f'&nbsp;&nbsp;&nbsp;&nbsp;'
@@ -187,6 +196,25 @@ class PDFGenerator:
             f'[<a href="{flag_url}" color="#0066cc">Flag</a>] '
             f'[<a href="{view_url}" color="#0066cc">Full Text</a>]'
         )
+
+    def _sign_document_link(self, doc_id: str) -> str | None:
+        """Create a short-lived signed token for document viewing."""
+        secret = Config.DOCUMENT_LINK_SECRET
+        if not secret or not doc_id:
+            return None
+
+        expires_at = int(time.time()) + (Config.DOCUMENT_LINK_TTL_DAYS * 86400)
+        payload = {"id": doc_id, "exp": expires_at}
+        payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+
+        signature = hmac.new(
+            secret.encode("utf-8"),
+            payload_b64.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        signature_b64 = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+        return f"{payload_b64}.{signature_b64}"
 
     def _create_callout_box(self, callout: Dict[str, Any]) -> list:
         """

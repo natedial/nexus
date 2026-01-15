@@ -33,10 +33,18 @@ class Config:
     MODE = os.getenv('MODE', 'debug').lower()
 
     # Feedback links (Supabase Edge Function)
-    FEEDBACK_BASE_URL = 'https://qeyhmsqepsenhvtkryjh.supabase.co/functions/v1/feedback'
+    FEEDBACK_BASE_URL = os.getenv(
+        'FEEDBACK_BASE_URL',
+        'https://qeyhmsqepsenhvtkryjh.supabase.co/functions/v1/feedback'
+    )
 
     # Document viewer (static HTML page on S3)
-    DOCUMENT_VIEWER_URL = 'http://research-dispatch-viewer.s3-website-us-east-1.amazonaws.com/document-viewer.html'
+    DOCUMENT_VIEWER_URL = os.getenv(
+        'DOCUMENT_VIEWER_URL',
+        'http://research-dispatch-viewer.s3-website-us-east-1.amazonaws.com/document-viewer.html'
+    )
+    DOCUMENT_LINK_SECRET = os.getenv('DOCUMENT_LINK_SECRET', '')
+    DOCUMENT_LINK_TTL_DAYS = int(os.getenv('DOCUMENT_LINK_TTL_DAYS', 7))
 
     # Filters
     DATE_RANGE_DAYS = int(os.getenv('DATE_RANGE_DAYS', 3))  # Number of days to look back
