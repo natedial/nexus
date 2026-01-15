@@ -184,6 +184,46 @@ class ReportFormatter:
 
         return formatted_themes
 
+    def group_themes_by_through_lines(
+        self,
+        themes_analysis: List[Dict[str, Any]],
+        through_lines: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Group themes under synthesis through-lines for readability."""
+        if not themes_analysis or not through_lines:
+            return []
+
+        themes_by_label = {
+            theme.get("label"): theme
+            for theme in themes_analysis
+            if theme.get("label")
+        }
+        remaining = dict(themes_by_label)
+        grouped = []
+
+        for tl in through_lines:
+            if not isinstance(tl, dict):
+                continue
+            labels = tl.get("supporting_themes") or []
+            group_themes = []
+            for label in labels:
+                theme = remaining.pop(label, None)
+                if theme:
+                    group_themes.append(theme)
+            if group_themes:
+                grouped.append({
+                    "lead": tl.get("lead", "Theme Cluster"),
+                    "themes": group_themes,
+                })
+
+        if remaining:
+            grouped.append({
+                "lead": "Other Themes",
+                "themes": list(remaining.values()),
+            })
+
+        return grouped
+
     def _aggregate_trades(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Aggregate and format trades across all documents.

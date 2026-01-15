@@ -72,6 +72,10 @@ try:
         report_data['synthesis'] = synthesis_result.to_dict()
         report_data['through_lines'] = synthesis_result.through_lines
         report_data['callouts'] = synthesis_result.callouts
+        report_data['themes_by_through_line'] = formatter.group_themes_by_through_lines(
+            report_data.get('themes_analysis', []),
+            synthesis_result.through_lines,
+        )
 
     # Add calendar data to report
     report_data['economic_calendar'] = formatter.format_economic_calendar(economic_events)

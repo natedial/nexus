@@ -117,6 +117,17 @@ class PDFGenerator:
             spaceBefore=minimalist_config.get('space_before', 0)
         ))
 
+        # Smaller theme header for clustered thematic analysis
+        self.styles.add(ParagraphStyle(
+            name='ThemeHeader',
+            parent=self.styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#000000'),
+            spaceAfter=4,
+            spaceBefore=6,
+            fontName='Helvetica-Bold'
+        ))
+
         # Callout quote style - italic, slightly larger
         self.styles.add(ParagraphStyle(
             name='CalloutQuote',
@@ -411,8 +422,58 @@ class PDFGenerator:
             story.append(Spacer(1, 0.2 * inch))
 
         # Themes Analysis section (moved to top)
+        themes_by_through_line = report_data.get('themes_by_through_line', [])
         themes_analysis = report_data.get('themes_analysis', [])
-        if themes_analysis:
+        if themes_by_through_line:
+            story.append(PageBreak())
+            story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+
+            for group in themes_by_through_line:
+                lead = group.get('lead', 'Theme Cluster')
+                story.append(Paragraph(lead, self.styles['SubsectionHeader']))
+
+                for theme in group.get('themes', []):
+                    # Theme label (with count only if >= 2)
+                    count = theme['count']
+                    if count >= 2:
+                        theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
+                    else:
+                        theme_title = f"<b>{theme['label']}</b>"
+                    story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
+
+                    # Example contexts (show document name only first time)
+                    examples = theme.get('examples', [])
+                    for example in examples:
+                        context = example.get('context', '')
+                        if context:
+                            # Only show document name if this is the first time we've seen it
+                            if example.get('show_document', True):
+                                doc_name = example.get('document', 'Unknown')
+                                story.append(Paragraph(
+                                    f"&nbsp;&nbsp;&nbsp;&nbsp;<i>({doc_name}):</i> {context}",
+                                    self.styles['Normal']
+                                ))
+                            else:
+                                # Just show context without document name
+                                story.append(Paragraph(
+                                    f"&nbsp;&nbsp;&nbsp;&nbsp;{context}",
+                                    self.styles['Normal']
+                                ))
+
+                            # Add feedback links
+                            doc_id = example.get('doc_id', '')
+                            item_id = example.get('item_id', '')
+                            if doc_id and item_id:
+                                feedback_links = self._create_feedback_links(doc_id, item_id)
+                                if feedback_links:
+                                    story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
+
+                    story.append(Spacer(1, 0.15 * inch))
+
+                story.append(Spacer(1, 0.2 * inch))
+        elif themes_analysis:
+            story.append(PageBreak())
             story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
@@ -423,7 +484,7 @@ class PDFGenerator:
                     theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
                 else:
                     theme_title = f"<b>{theme['label']}</b>"
-                story.append(Paragraph(theme_title, self.styles['Normal']))
+                story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
 
                 # Example contexts (show document name only first time)
                 examples = theme.get('examples', [])
@@ -460,6 +521,7 @@ class PDFGenerator:
         # Trades section
         trades = report_data.get('trades', [])
         if trades:
+            story.append(PageBreak())
             story.append(Paragraph('Trade Recommendations', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
@@ -492,6 +554,7 @@ class PDFGenerator:
         # Economic Calendar section
         economic_calendar = report_data.get('economic_calendar', {})
         if economic_calendar:
+            story.append(PageBreak())
             story.append(Paragraph('Economic Calendar', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
@@ -540,6 +603,7 @@ class PDFGenerator:
         # Supply Calendar section
         supply_calendar = report_data.get('supply_calendar', {})
         if supply_calendar:
+            story.append(PageBreak())
             story.append(Paragraph('Treasury Supply Calendar', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 

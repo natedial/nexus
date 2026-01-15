@@ -4,6 +4,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _int_from_env(name: str, default: int) -> int:
+    """Parse int env var, falling back to default on empty/invalid values."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 class Config:
     """Application configuration loaded from environment variables."""
 
@@ -44,10 +55,10 @@ class Config:
         'http://research-dispatch-viewer.s3-website-us-east-1.amazonaws.com/document-viewer.html'
     )
     DOCUMENT_LINK_SECRET = os.getenv('DOCUMENT_LINK_SECRET', '')
-    DOCUMENT_LINK_TTL_DAYS = int(os.getenv('DOCUMENT_LINK_TTL_DAYS', 7))
+    DOCUMENT_LINK_TTL_DAYS = _int_from_env('DOCUMENT_LINK_TTL_DAYS', 7)
 
     # Filters
-    DATE_RANGE_DAYS = int(os.getenv('DATE_RANGE_DAYS', 3))  # Number of days to look back
+    DATE_RANGE_DAYS = _int_from_env('DATE_RANGE_DAYS', 3)  # Number of days to look back
     FILTER_SOURCES = os.getenv('FILTER_SOURCES', '')  # Comma-separated list of sources (empty = all)
     FILTER_REGION = os.getenv('FILTER_REGION', '')  # Filter by region: US, EU, UK, Japan, China, EM, Global (empty = all)
     FILTER_ASSET_FOCUS = os.getenv('FILTER_ASSET_FOCUS', '')  # Filter by asset: rates, credit, FX, equities, commodities, multi-asset (empty = all)
