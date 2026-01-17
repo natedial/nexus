@@ -24,6 +24,9 @@ services:
       # Mount Google service account credentials (read-only)
       - ./credentials:/app/credentials:ro
 
+      # Mount model configuration (read-only)
+      - ./config:/app/config:ro
+
     # Logging configuration
     logging:
       driver: json-file
@@ -56,5 +59,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./credentials:/app/credentials:ro
+      - ./config:/app/config:ro
       - ./src:/app/src:ro  # Mount source for changes
     command: ["python", "-m", "src.main"]
