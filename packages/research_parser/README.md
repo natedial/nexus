@@ -218,7 +218,16 @@ research_parser/
 ### Build and Run
 
 ```bash
+mkdir -p data credentials
 docker compose up -d
+```
+
+Ensure `config/models.yaml` exists on the host (it is mounted into `/app/config` in the container).
+
+If deploying on a fresh host, copy your model config into place:
+
+```bash
+cp /path/to/models.yaml ./config/models.yaml
 ```
 
 ### docker-compose.yml
