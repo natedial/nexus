@@ -45,6 +45,9 @@ class Metadata(BaseModel):
     publisher: str | None = None
     number_pages: int | str | None = None
     keywords: list[str] | str | None = None
+    document_id: str | None = None
+    document_uri: str | None = None
+    document_link: str | None = None
 
     @field_validator("source", "area", "region", "asset_focus", mode="before")
     @classmethod
