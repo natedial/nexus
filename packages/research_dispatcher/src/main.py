@@ -8,6 +8,7 @@ generates a PDF report, and emails it.
 
 import sys
 import os
+import logging
 from datetime import datetime
 
 # Add parent directory to path for imports
@@ -20,33 +21,39 @@ from src.pdf_generator import PDFGenerator
 from src.email_sender import EmailSender
 from src.synthesizer import Synthesizer
 
+logger = logging.getLogger(__name__)
+
 
 def main():
     """Main execution flow."""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Research Dispatch...")
-    print(f"Mode: {Config.MODE}")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logger.info("Starting Research Dispatch")
+    logger.info("Mode: %s", Config.MODE)
 
     try:
         # Validate configuration
-        print("Validating configuration...")
+        logger.info("Validating configuration...")
         Config.validate()
 
         # Query database
-        print("Connecting to database...")
+        logger.info("Connecting to database...")
         db_client = DatabaseClient()
-        print("Querying documents...")
+        logger.info("Querying documents...")
         data = db_client.query_analysis()
-        print(f"Retrieved {len(data)} research records")
+        logger.info("Retrieved %d research records", len(data))
 
         # Query calendar data
         economic_events = db_client.query_economic_events()
-        print(f"Retrieved {len(economic_events)} economic events")
+        logger.info("Retrieved %d economic events", len(economic_events))
 
         supply_events = db_client.query_supply_events()
-        print(f"Retrieved {len(supply_events)} supply events")
+        logger.info("Retrieved %d supply events", len(supply_events))
 
         if not data:
-            print("No documents to process.")
+            logger.info("No documents to process.")
             return 0
 
         # Extract document IDs for later update
@@ -55,23 +62,23 @@ def main():
         # Run cross-document synthesis
         synthesis_result = None
         if Config.ENABLE_SYNTHESIS and Config.ANTHROPIC_API_KEY:
-            print("Running cross-document synthesis...")
+            logger.info("Running cross-document synthesis...")
             synthesizer = Synthesizer(
                 anthropic_api_key=Config.ANTHROPIC_API_KEY,
                 openai_api_key=Config.OPENAI_API_KEY,
             )
             synthesis_result = synthesizer.synthesize(data)
             if synthesis_result:
-                print(f"✓ Synthesis complete: {synthesis_result.title}")
+                logger.info("Synthesis complete: %s", synthesis_result.title)
             else:
-                print("⚠ Synthesis failed or returned no results")
+                logger.warning("Synthesis failed or returned no results")
         elif not Config.ENABLE_SYNTHESIS:
-            print("Synthesis disabled (ENABLE_SYNTHESIS=false)")
+            logger.info("Synthesis disabled (ENABLE_SYNTHESIS=false)")
         else:
-            print("Synthesis skipped (no ANTHROPIC_API_KEY)")
+            logger.warning("Synthesis skipped (no ANTHROPIC_API_KEY)")
 
         # Format data
-        print("Formatting report...")
+        logger.info("Formatting report...")
         formatter = ReportFormatter()
 
         # Build active filters for display in report
@@ -92,42 +99,48 @@ def main():
             report_data['synthesis'] = synthesis_result.to_dict()
             report_data['through_lines'] = synthesis_result.through_lines  # Override aggregated
             report_data['callouts'] = synthesis_result.callouts  # Override aggregated
+            report_data['themes_by_through_line'] = formatter.group_themes_by_through_lines(
+                report_data.get('themes_analysis', []),
+                synthesis_result.through_lines,
+            )
 
         # Add calendar data to report
         report_data['economic_calendar'] = formatter.format_economic_calendar(economic_events)
         report_data['supply_calendar'] = formatter.format_supply_calendar(supply_events)
 
         # Generate PDF
-        print("Generating PDF...")
+        logger.info("Generating PDF...")
         pdf_generator = PDFGenerator(format_rules_path='format_rules.yaml')
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         pdf_filename = f"research_report_{timestamp}.pdf"
         pdf_path = pdf_generator.generate(report_data, pdf_filename)
-        print(f"PDF generated: {pdf_path}")
+        logger.info("PDF generated: %s", pdf_path)
 
         # Send email
-        print("Sending email...")
+        logger.info("Sending email...")
         email_sender = EmailSender()
         recipient_list = email_sender.send_report(pdf_path)
-        print(f"Email sent to {len(recipient_list)} recipient(s): {', '.join(recipient_list)}")
+        logger.info(
+            "Email sent to %d recipient(s): %s",
+            len(recipient_list),
+            ", ".join(recipient_list),
+        )
 
         # Mark documents as synthesized if in production mode
         if Config.MODE in ['production', 'prod', 'active']:
-            print(f"Marking {len(document_ids)} documents as synthesized...")
+            logger.info("Marking %d documents as synthesized...", len(document_ids))
             if db_client.mark_as_synthesized(document_ids):
-                print("✓ Documents marked as synthesized")
+                logger.info("Documents marked as synthesized")
             else:
-                print("⚠ Warning: Failed to mark documents as synthesized")
+                logger.warning("Failed to mark documents as synthesized")
         else:
-            print(f"Debug mode: Skipping synthesized flag update")
+            logger.info("Debug mode: Skipping synthesized flag update")
 
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Research Dispatch completed successfully!")
+        logger.info("Research Dispatch completed successfully")
         return 0
 
     except Exception as e:
-        print(f"ERROR: {str(e)}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        logger.exception("Unhandled error: %s", str(e))
         return 1
 
 

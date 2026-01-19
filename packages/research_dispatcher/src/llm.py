@@ -5,10 +5,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+import logging
 import yaml
 
 # Default config path
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "models.yaml"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,12 +53,34 @@ class ModelConfig:
 def load_model_config(config_path: Path | None = None) -> ModelConfig:
     """Load synthesis model configuration from YAML file."""
     path = config_path or CONFIG_PATH
-    print(f"Loading model config from {path}")
+    logger.info("Loading model config from %s", path)
 
     with open(path) as f:
         data = yaml.safe_load(f)
 
-    return ModelConfig.from_dict(data["synthesis"])
+    config = ModelConfig.from_dict(data["synthesis"])
+
+    if config.provider != "anthropic":
+        if config.extended_thinking is not None:
+            logger.warning(
+                "Extended thinking is only supported for Anthropic; disabling."
+            )
+        config.extended_thinking = None
+        return config
+
+    if config.extended_thinking and config.extended_thinking.enabled:
+        available = data.get("available_models", {}).get("anthropic", [])
+        thinking_models = {
+            entry.get("id")
+            for entry in available
+            if entry.get("supports_thinking") is True
+        }
+        if thinking_models and config.model not in thinking_models:
+            raise ValueError(
+                "Extended thinking is enabled but the selected model does not support it."
+            )
+
+    return config
 
 
 def reload_model_config(config_path: Path | None = None) -> ModelConfig:
@@ -130,7 +154,7 @@ class LLMClient:
     ) -> str:
         """Generate completion using Anthropic."""
         thinking_enabled = config.extended_thinking and config.extended_thinking.enabled
-        print(f"  Calling {config.model} (thinking={thinking_enabled})")
+        logger.info("Calling %s (thinking=%s)", config.model, thinking_enabled)
 
         kwargs = {
             "model": config.model,
@@ -164,10 +188,11 @@ class LLMClient:
         user: str,
     ) -> str:
         """Generate completion using OpenAI."""
-        print(f"  Calling {config.model}")
+        logger.info("Calling %s", config.model)
 
         # Check if this is a reasoning model (o1, o1-mini)
         is_reasoning_model = config.model.startswith("o1")
+        uses_max_completion_tokens = config.model.startswith(("o1", "gpt-5"))
 
         if is_reasoning_model:
             # o1 models don't support system messages or temperature
@@ -178,14 +203,18 @@ class LLMClient:
                 max_completion_tokens=config.max_tokens,
             )
         else:
-            response = self.openai.chat.completions.create(
-                model=config.model,
-                messages=[
+            request = {
+                "model": config.model,
+                "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                max_tokens=config.max_tokens,
-                temperature=config.temperature,
-            )
+                "temperature": config.temperature,
+            }
+            if uses_max_completion_tokens:
+                request["max_completion_tokens"] = config.max_tokens
+            else:
+                request["max_tokens"] = config.max_tokens
+            response = self.openai.chat.completions.create(**request)
 
         return response.choices[0].message.content or ""

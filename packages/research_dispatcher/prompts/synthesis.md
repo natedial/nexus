@@ -8,7 +8,7 @@ PRIORITIZE THROUGH-LINES THAT ARE:
 - Cross-source divergence: Where analysts disagree—this reveals uncertainty or asymmetric risk
 - Actionable: Directly inform positioning, hedging, or trade construction
 - Risk-identifying: Surface potential threats to existing positions or consensus views
-- Novel: Non-consensus views that appear in multiple sources deserve extra weight
+- Novel: Non-consensus views should only be elevated if they appear in multiple sources OR directly challenge a dominant consensus.
 
 DEPRIORITIZE:
 - Single-source observations without corroboration or clear contrarian value
@@ -27,25 +27,24 @@ Synthesize BOTH inputs into a unified cross-document analysis. Identify 3-8 thro
 
 For each through-line, provide:
 
-1. **lead**: One-line summary (max 25 words)
+1. **lead**: One-line summary describing a causal or conditional relationship (max 25 words)
 
 2. **supporting_sources**: Array of source names that support this through-line (e.g., ["Goldman Sachs", "JPMorgan", "Barclays"])
 
 3. **consensus_level**: One of "strong_consensus" | "moderate_consensus" | "mixed_views" | "contrarian"
-   - strong_consensus: 3+ sources agree
-   - moderate_consensus: 2 sources agree, no contradictions
-   - mixed_views: sources present different angles on same topic
-   - contrarian: single source with non-consensus view worth highlighting
+    - strong_consensus: 3+ sources explicitly aligned
+    - moderate_consensus: exactly 2 aligned, no opposing views
+    - mixed_views: 2+ sources with clearly different conclusions
+    - contrarian: 1 source explicitly opposing broader consensus
 
 4. **supporting_themes**: Array of theme labels that support this through-line
 
 5. **supporting_trades**: Array of trade descriptions that align with this through-line (empty array if none)
 
-6. **key_insight**: Synthesis of what this through-line reveals (max 200 words). Focus on:
-   - Where sources agree and why
-   - Where sources disagree and implications
-   - Causal relationships and transmission mechanisms
-   - Actionable takeaways for positioning
+6. **key_insight**: Structured synthesis (max 120 words) covering:
+    - Areas of agreement
+    - Areas of disagreement
+    - Risk or positioning implications
 
 ---
 
@@ -58,6 +57,8 @@ After synthesizing through-lines, identify 2-4 "quotable" segments for report hi
 - **Attributed**: Note which sources support the view
 
 Pull these from your key_insight text. Do not fabricate.
+
+Each callout must reference at least one instrument, curve point, or timeframe.
 
 ---
 
@@ -116,8 +117,7 @@ Return EXACTLY ONE JSON object. No explanations outside the JSON.
 RULES:
 1. Return EXACTLY ONE JSON object
 2. 3-8 through-lines (prioritize quality over quantity)
-3. Always attribute insights to sources
-4. Highlight both consensus AND divergence
-5. Connect trades to themes where logical relationships exist
-6. 2-4 callouts (focus on highest-signal insights)
-7. No commentary outside the JSON
+3. Highlight both consensus AND divergence
+4. Connect trades to themes where logical relationships exist
+5. 2-4 callouts (focus on highest-signal insights)
+6. No commentary outside the JSON

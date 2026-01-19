@@ -31,7 +31,7 @@ class DatabaseClient:
         query = (
             self.client.table('parsed_research')
             .select('*')
-            .gte('source_date', date_threshold)
+            .gte('parsed_at', date_threshold)
         )
 
         # Apply source filter if configured
@@ -48,7 +48,7 @@ class DatabaseClient:
             query = query.eq('parsed_data->metadata->>asset_focus', Config.FILTER_ASSET_FOCUS)
 
         # Execute query
-        response = query.order('source_date', desc=True).execute()
+        response = query.order('parsed_at', desc=True).execute()
 
         return response.data
 
@@ -148,8 +148,8 @@ class DatabaseClient:
         response = (
             self.client.table('parsed_research')
             .select('*')
-            .gte('source_date', seven_days_ago)
-            .order('source_date', desc=True)
+            .gte('parsed_at', seven_days_ago)
+            .order('parsed_at', desc=True)
             .execute()
         )
 

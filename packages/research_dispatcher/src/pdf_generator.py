@@ -5,10 +5,19 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
-from typing import Dict, Any, Optional
+from typing import Dict, Any
+from urllib.parse import urlencode
+import base64
+import hashlib
+import hmac
+import json
+import time
 import os
 import yaml
+from datetime import datetime
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Config
 
 
@@ -108,6 +117,17 @@ class PDFGenerator:
             spaceBefore=minimalist_config.get('space_before', 0)
         ))
 
+        # Smaller theme header for clustered thematic analysis
+        self.styles.add(ParagraphStyle(
+            name='ThemeHeader',
+            parent=self.styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#000000'),
+            spaceAfter=4,
+            spaceBefore=6,
+            fontName='Helvetica-Bold'
+        ))
+
         # Callout quote style - italic, slightly larger
         self.styles.add(ParagraphStyle(
             name='CalloutQuote',
@@ -129,6 +149,84 @@ class PDFGenerator:
             alignment=2  # Right align
         ))
 
+        # Feedback links style
+        self.styles.add(ParagraphStyle(
+            name='FeedbackLinks',
+            parent=self.styles['Normal'],
+            fontSize=8,
+            textColor=colors.HexColor('#666666'),
+            spaceAfter=8,
+            spaceBefore=2
+        ))
+
+    def _format_date_range(self, start: str, end: str) -> str:
+        """Format YYYY-MM-DD date range into '22Dec to 29Dec'."""
+        try:
+            start_dt = datetime.fromisoformat(start)
+            end_dt = datetime.fromisoformat(end)
+        except ValueError:
+            return f"{start} to {end}"
+
+        def _fmt(dt: datetime) -> str:
+            month = dt.strftime("%b")
+            return f"{dt.day}{month}"
+
+        if start_dt.date() == end_dt.date():
+            return _fmt(start_dt)
+        return f"{_fmt(start_dt)} to {_fmt(end_dt)}"
+
+    def _create_feedback_links(self, doc_id: str, item_id: str) -> str:
+        """
+        Create feedback links HTML for a theme or through-line.
+
+        Args:
+            doc_id: Document ID from parsed_research
+            item_id: Unique item identifier (hash)
+
+        Returns:
+            HTML string with clickable links: [Useful] [Flag] [Full Text]
+        """
+        feedback_url = Config.FEEDBACK_BASE_URL
+        if not feedback_url or not doc_id:
+            return ""
+
+        # Static document viewer page (fetches JSON from Edge Function)
+        viewer_url = Config.DOCUMENT_VIEWER_URL
+        token = self._sign_document_link(doc_id)
+
+        useful_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'useful'})}"
+        flag_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'flag'})}"
+        view_params = {'id': doc_id}
+        if token:
+            view_params['token'] = token
+        view_url = f"{viewer_url}?{urlencode(view_params)}"
+
+        return (
+            f'&nbsp;&nbsp;&nbsp;&nbsp;'
+            f'[<a href="{useful_url}" color="#0066cc">Useful</a>] '
+            f'[<a href="{flag_url}" color="#0066cc">Flag</a>] '
+            f'[<a href="{view_url}" color="#0066cc">Full Text</a>]'
+        )
+
+    def _sign_document_link(self, doc_id: str) -> str | None:
+        """Create a short-lived signed token for document viewing."""
+        secret = Config.DOCUMENT_LINK_SECRET
+        if not secret or not doc_id:
+            return None
+
+        expires_at = int(time.time()) + (Config.DOCUMENT_LINK_TTL_DAYS * 86400)
+        payload = {"id": doc_id, "exp": expires_at}
+        payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+
+        signature = hmac.new(
+            secret.encode("utf-8"),
+            payload_b64.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        signature_b64 = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+        return f"{payload_b64}.{signature_b64}"
+
     def _create_callout_box(self, callout: Dict[str, Any]) -> list:
         """
         Create a styled callout box with coral red left border.
@@ -146,7 +244,11 @@ class PDFGenerator:
         quote_para = Paragraph(quote_text, self.styles['CalloutQuote'])
 
         # Attribution line
-        attribution = f"— {callout['source']}"
+        source_label = callout.get("source", "Multiple")
+        if "," in source_label or source_label == "Multiple":
+            attribution = f"— Sources: {source_label}"
+        else:
+            attribution = f"— {source_label}"
         attr_para = Paragraph(attribution, self.styles['CalloutAttribution'])
 
         # Create a table with the coral red left border effect
@@ -189,44 +291,17 @@ class PDFGenerator:
 
         return elements
 
-    def _create_interactive_links(self, doc_id: str, item_id: str, record_id: str) -> Optional[Paragraph]:
-        """
-        Create interactive links for feedback.
-
-        Args:
-            doc_id: Report generation timestamp
-            item_id: Hash of through-line lead text
-            record_id: Database record UUID (reserved for future document viewer)
-
-        Returns:
-            Paragraph with clickable links, or None if feedback is disabled
-        """
-        if not Config.FEEDBACK_ENABLED:
-            return None
-
-        base = Config.SUPABASE_URL + '/functions/v1'
-        links = (
-            f'<a href="{base}/feedback?doc={doc_id}&amp;item={item_id}&amp;action=useful" color="#999999">[Useful]</a>  '
-            f'<a href="{base}/feedback?doc={doc_id}&amp;item={item_id}&amp;action=flag" color="#999999">[Flag]</a>  '
-            f'<a href="https://x7skxo2acase5mxxqfn4d5herm0xzqly.lambda-url.us-east-1.on.aws/?id={record_id}" color="#999999">[View Full Text]</a>'
-        )
-        return Paragraph(links, self.styles['Minimalist'])
-
-    def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf', doc_id: str = None) -> str:
+    def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
         """
         Generate PDF from report data.
 
         Args:
             report_data: Formatted report data dictionary
             filename: Output filename
-            doc_id: Document ID for interactive links (defaults to generated_at timestamp)
 
         Returns:
             Full path to generated PDF file
         """
-        # Use provided doc_id or extract from report timestamp
-        if doc_id is None:
-            doc_id = report_data.get('generated_at', '').replace(' ', '_').replace(':', '').replace('-', '')
         filepath = os.path.join(self.output_dir, filename)
         doc = SimpleDocTemplate(filepath, pagesize=letter)
         story = []
@@ -250,7 +325,14 @@ class PDFGenerator:
         story.append(title)
 
         # Accent label (coral red)
-        accent_label = Paragraph("Weekly Synthesis", self.styles['Accent'])
+        subtitle = "Weekly Synthesis - "
+        source_date_range = report_data.get("source_date_range")
+        if source_date_range:
+            start = source_date_range.get("start")
+            end = source_date_range.get("end")
+            if start and end:
+                subtitle = f"{subtitle} {self._format_date_range(start, end)}"
+        accent_label = Paragraph(subtitle, self.styles['Accent'])
         story.append(accent_label)
 
         # Generation timestamp
@@ -291,25 +373,45 @@ class PDFGenerator:
                 if tl.get('key_insight'):
                     story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;{tl['key_insight']}", self.styles['Normal']))
 
-                # Supporting themes
+                # Inline tags: Themes | Trades | Sources
+                tags = []
                 if tl.get('supporting_themes'):
                     themes_list = ', '.join(tl['supporting_themes'])
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Themes: {themes_list}</i>", self.styles['Normal']))
-
-                # Supporting trades
+                    tags.append(f"Themes: {themes_list}")
                 if tl.get('supporting_trades'):
                     trades_list = ', '.join(tl['supporting_trades'])
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Related trades: {trades_list}</i>", self.styles['Normal']))
+                    tags.append(f"Trades: {trades_list}")
 
-                # Source document
-                source_info = f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Source: {tl['source']} - {tl['document'][:80]}{'...' if len(tl['document']) > 80 else ''}</i>"
-                story.append(Paragraph(source_info, self.styles['Normal']))
+                source = tl.get("source")
+                document = tl.get("document")
+                supporting_sources = tl.get("supporting_sources")
+                if source:
+                    label = "Sources" if "," in source or source == "Multiple" else "Source"
+                    tags.append(f"{label}: {source}")
+                elif supporting_sources:
+                    sources_text = ", ".join(supporting_sources)
+                    tags.append(f"Sources: {sources_text}")
 
-                # Interactive links (View Full Text, Useful, Flag)
-                if tl.get('item_id') and tl.get('record_id'):
-                    interactive_links = self._create_interactive_links(doc_id, tl['item_id'], tl['record_id'])
-                    if interactive_links:
-                        story.append(interactive_links)
+                if document:
+                    doc_text = document[:80] + ("..." if len(document) > 80 else "")
+                    tags.append(f"Doc: {doc_text}")
+
+                if tags:
+                    tag_line = " | ".join(tags)
+                    story.append(
+                        Paragraph(
+                            f"&nbsp;&nbsp;&nbsp;&nbsp;<i>{tag_line}</i>",
+                            self.styles['Normal'],
+                        )
+                    )
+
+                # Add feedback links for through-lines
+                doc_id = tl.get('doc_id', '')
+                item_id = tl.get('item_id', '')
+                if doc_id and item_id:
+                    feedback_links = self._create_feedback_links(doc_id, item_id)
+                    if feedback_links:
+                        story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
 
                 story.append(Spacer(1, 0.15 * inch))
 
@@ -320,8 +422,58 @@ class PDFGenerator:
             story.append(Spacer(1, 0.2 * inch))
 
         # Themes Analysis section (moved to top)
+        themes_by_through_line = report_data.get('themes_by_through_line', [])
         themes_analysis = report_data.get('themes_analysis', [])
-        if themes_analysis:
+        if themes_by_through_line:
+            story.append(PageBreak())
+            story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+
+            for group in themes_by_through_line:
+                lead = group.get('lead', 'Theme Cluster')
+                story.append(Paragraph(lead, self.styles['SubsectionHeader']))
+
+                for theme in group.get('themes', []):
+                    # Theme label (with count only if >= 2)
+                    count = theme['count']
+                    if count >= 2:
+                        theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
+                    else:
+                        theme_title = f"<b>{theme['label']}</b>"
+                    story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
+
+                    # Example contexts (show document name only first time)
+                    examples = theme.get('examples', [])
+                    for example in examples:
+                        context = example.get('context', '')
+                        if context:
+                            # Only show document name if this is the first time we've seen it
+                            if example.get('show_document', True):
+                                doc_name = example.get('document', 'Unknown')
+                                story.append(Paragraph(
+                                    f"&nbsp;&nbsp;&nbsp;&nbsp;<i>({doc_name}):</i> {context}",
+                                    self.styles['Normal']
+                                ))
+                            else:
+                                # Just show context without document name
+                                story.append(Paragraph(
+                                    f"&nbsp;&nbsp;&nbsp;&nbsp;{context}",
+                                    self.styles['Normal']
+                                ))
+
+                            # Add feedback links
+                            doc_id = example.get('doc_id', '')
+                            item_id = example.get('item_id', '')
+                            if doc_id and item_id:
+                                feedback_links = self._create_feedback_links(doc_id, item_id)
+                                if feedback_links:
+                                    story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
+
+                    story.append(Spacer(1, 0.15 * inch))
+
+                story.append(Spacer(1, 0.2 * inch))
+        elif themes_analysis:
+            story.append(PageBreak())
             story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
@@ -332,7 +484,7 @@ class PDFGenerator:
                     theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
                 else:
                     theme_title = f"<b>{theme['label']}</b>"
-                story.append(Paragraph(theme_title, self.styles['Normal']))
+                story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
 
                 # Example contexts (show document name only first time)
                 examples = theme.get('examples', [])
@@ -353,6 +505,14 @@ class PDFGenerator:
                                 self.styles['Normal']
                             ))
 
+                        # Add feedback links
+                        doc_id = example.get('doc_id', '')
+                        item_id = example.get('item_id', '')
+                        if doc_id and item_id:
+                            feedback_links = self._create_feedback_links(doc_id, item_id)
+                            if feedback_links:
+                                story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
+
                 story.append(Spacer(1, 0.15 * inch))
 
             story.append(Spacer(1, 0.2 * inch))
@@ -361,6 +521,7 @@ class PDFGenerator:
         # Trades section
         trades = report_data.get('trades', [])
         if trades:
+            story.append(PageBreak())
             story.append(Paragraph('Trade Recommendations', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
@@ -393,6 +554,7 @@ class PDFGenerator:
         # Economic Calendar section
         economic_calendar = report_data.get('economic_calendar', {})
         if economic_calendar:
+            story.append(PageBreak())
             story.append(Paragraph('Economic Calendar', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
@@ -441,6 +603,7 @@ class PDFGenerator:
         # Supply Calendar section
         supply_calendar = report_data.get('supply_calendar', {})
         if supply_calendar:
+            story.append(PageBreak())
             story.append(Paragraph('Treasury Supply Calendar', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 

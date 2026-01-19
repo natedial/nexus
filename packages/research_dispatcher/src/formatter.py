@@ -1,11 +1,16 @@
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from collections import defaultdict
 import hashlib
 
 
 class ReportFormatter:
     """Formats query results into structured report data for parsed_research."""
+
+    @staticmethod
+    def _generate_item_id(text: str) -> str:
+        """Generate a short hash ID for an item (theme/through-line)."""
+        return hashlib.sha256(text.encode()).hexdigest()[:8]
 
     def format_report(self, data: List[Dict[str, Any]], active_filters: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -22,12 +27,36 @@ class ReportFormatter:
             'title': 'Research Dispatch',
             'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'active_filters': active_filters or {},
+            'source_date_range': self._source_date_range(data),
             'summary': self._create_summary(data),
             'details': self._format_details(data),
             'themes_analysis': self._aggregate_themes(data),
             'trades': self._aggregate_trades(data),
             'through_lines': self._aggregate_through_lines(data),
             'callouts': self._aggregate_callouts(data)
+        }
+
+    def _source_date_range(self, data: List[Dict[str, Any]]) -> Dict[str, str] | None:
+        """Get min/max source_date from included records."""
+        dates = []
+        for record in data:
+            source_date = record.get('source_date')
+            if isinstance(source_date, datetime):
+                dates.append(source_date.date())
+            elif isinstance(source_date, date):
+                dates.append(source_date)
+            elif isinstance(source_date, str) and source_date.strip():
+                try:
+                    parsed = datetime.fromisoformat(source_date.replace('Z', '+00:00'))
+                    dates.append(parsed.date())
+                except ValueError:
+                    continue
+        if not dates:
+            return None
+        dates_sorted = sorted(dates)
+        return {
+            'start': dates_sorted[0].isoformat(),
+            'end': dates_sorted[-1].isoformat(),
         }
 
     def _create_summary(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -115,12 +144,14 @@ class ReportFormatter:
                 continue
 
             doc_name = record.get('document_name', 'Unknown Document')
+            doc_id = record.get('id', '')
 
             for theme in themes:
                 if not isinstance(theme, dict):
                     continue
 
                 label = theme.get('label', 'Unlabeled')
+                context = theme.get('context', '')
 
                 # Count occurrences
                 if label not in theme_counts:
@@ -133,7 +164,9 @@ class ReportFormatter:
                 if len(theme_examples[label]) < 3:
                     theme_examples[label].append({
                         'document': doc_name,
-                        'context': theme.get('context', ''),  # Full context, no truncation
+                        'doc_id': doc_id,
+                        'item_id': self._generate_item_id(f"{doc_id}:{label}:{context[:50]}"),
+                        'context': context,  # Full context, no truncation
                         'show_document': doc_name not in seen_documents  # Only show if not seen before
                     })
                     seen_documents.add(doc_name)
@@ -150,6 +183,46 @@ class ReportFormatter:
             })
 
         return formatted_themes
+
+    def group_themes_by_through_lines(
+        self,
+        themes_analysis: List[Dict[str, Any]],
+        through_lines: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Group themes under synthesis through-lines for readability."""
+        if not themes_analysis or not through_lines:
+            return []
+
+        themes_by_label = {
+            theme.get("label"): theme
+            for theme in themes_analysis
+            if theme.get("label")
+        }
+        remaining = dict(themes_by_label)
+        grouped = []
+
+        for tl in through_lines:
+            if not isinstance(tl, dict):
+                continue
+            labels = tl.get("supporting_themes") or []
+            group_themes = []
+            for label in labels:
+                theme = remaining.pop(label, None)
+                if theme:
+                    group_themes.append(theme)
+            if group_themes:
+                grouped.append({
+                    "lead": tl.get("lead", "Theme Cluster"),
+                    "themes": group_themes,
+                })
+
+        if remaining:
+            grouped.append({
+                "lead": "Other Themes",
+                "themes": list(remaining.values()),
+            })
+
+        return grouped
 
     def _aggregate_trades(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -200,6 +273,7 @@ class ReportFormatter:
                 continue
 
             doc_name = record.get('document_name', 'Unknown Document')
+            doc_id = record.get('id', '')
             source = record.get('source', 'Unknown Source')
 
             for tl in through_lines:
@@ -213,9 +287,9 @@ class ReportFormatter:
                     'supporting_themes': tl.get('supporting_themes', []),
                     'supporting_trades': tl.get('supporting_trades', []),
                     'document': doc_name,
-                    'source': source,
-                    'item_id': hashlib.md5(lead.encode()).hexdigest()[:8],
-                    'record_id': record.get('id')
+                    'doc_id': doc_id,
+                    'item_id': self._generate_item_id(f"{doc_id}:{lead[:50]}"),
+                    'source': source
                 })
 
         return all_through_lines
