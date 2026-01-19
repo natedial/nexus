@@ -232,3 +232,13 @@ class StateStore:
                 )
                 for row in rows
             ]
+
+    def delete_state(self, file_id: str) -> None:
+        """Remove a file from the state store."""
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM processed_files WHERE file_id = ?",
+                (file_id,),
+            )
+            conn.commit()
+        logger.info("Deleted state entry", file_id=file_id)

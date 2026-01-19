@@ -28,7 +28,7 @@ class Pipeline:
     Orchestrates the full research parsing pipeline.
 
     Fault-tolerant design: each extraction step can fail independently
-    without breaking the entire pipeline. Partial results are saved.
+    without breaking the entire pipeline. Only fully successful runs are persisted.
 
     Note: Synthesis is performed downstream by research_dispatcher,
     which aggregates themes/trades across multiple documents.
@@ -62,10 +62,49 @@ class Pipeline:
         """
         Process a single file through the pipeline.
 
-        Returns True if processing completed (even partially), False if fatal error.
+        Returns True if processing completed successfully, False otherwise.
         """
         log = logger.bind(file_id=file_id, file_name=file_name)
-        log.info("Starting file processing")
+        max_attempts = 2
+
+        for attempt in range(1, max_attempts + 1):
+            attempt_log = log.bind(attempt=attempt, max_attempts=max_attempts)
+            attempt_log.info("Starting file processing attempt")
+            status, error_message = self._process_file_once(
+                file_id,
+                file_name,
+                attempt_log,
+            )
+
+            if status == ProcessingStatus.COMPLETED:
+                return True
+
+            if attempt < max_attempts:
+                attempt_log.warning(
+                    "Processing incomplete, retrying",
+                    status=status.value,
+                    error=error_message,
+                )
+                continue
+
+            attempt_log.error(
+                "Processing incomplete after retries; dropping state entry",
+                status=status.value,
+                error=error_message,
+            )
+            self.state.delete_state(file_id)
+            return False
+
+        return False
+
+    def _process_file_once(
+        self,
+        file_id: str,
+        file_name: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> tuple[ProcessingStatus, str | None]:
+        """Process a single attempt and return its status and error summary."""
+        step_errors: dict[str, str] = {}
 
         # Track processing state
         self.state.start_processing(file_id, file_name)
@@ -74,9 +113,10 @@ class Pipeline:
         try:
             file_path = self.drive.download_file(file_id, file_name)
         except Exception as e:
+            message = f"Download failed: {e}"
             log.exception("Download failed")
-            self.state.mark_failed(file_id, f"Download failed: {e}")
-            return False
+            self.state.mark_failed(file_id, message)
+            return ProcessingStatus.FAILED, message
 
         try:
             # Step 2: Parse PDF to markdown
@@ -84,10 +124,11 @@ class Pipeline:
             parse_result = self.parser.parse(file_path)
 
             if not parse_result.markdown:
+                message = f"Parse failed: {parse_result.error}"
                 log.error("PDF parsing failed", error=parse_result.error)
-                self.state.update_step(file_id, "parse", False)
-                self.state.mark_failed(file_id, f"Parse failed: {parse_result.error}")
-                return False
+                self.state.update_step(file_id, "parse", False, error_message=message)
+                self.state.mark_failed(file_id, message)
+                return ProcessingStatus.FAILED, message
 
             self.state.update_step(file_id, "parse", True)
             markdown = parse_result.markdown
@@ -106,9 +147,14 @@ class Pipeline:
                 )
                 self.state.update_step(file_id, "boilerplate", True)
             except Exception as e:
-                log.warning("Boilerplate stripping failed, using raw markdown", error=str(e))
+                message = f"Boilerplate failed: {e}"
+                log.warning(
+                    "Boilerplate stripping failed, using raw markdown",
+                    error=str(e),
+                )
                 clean_text = markdown
-                self.state.update_step(file_id, "boilerplate", False)
+                self.state.update_step(file_id, "boilerplate", False, error_message=message)
+                step_errors["boilerplate"] = message
 
             # Initialize result with defaults
             extraction = ExtractionResult(
@@ -132,8 +178,16 @@ class Pipeline:
                 extraction.metadata_ok = True
                 self.state.update_step(file_id, "metadata", True)
             except Exception as e:
+                message = f"Metadata failed: {e}"
                 log.warning("Metadata extraction failed", error=str(e))
-                self.state.update_step(file_id, "metadata", False)
+                self.state.update_step(file_id, "metadata", False, error_message=message)
+                step_errors["metadata"] = message
+            finally:
+                extraction.metadata.document_id = file_id
+                extraction.metadata.document_uri = f"gdrive://{file_id}"
+                extraction.metadata.document_link = (
+                    f"https://drive.google.com/file/d/{file_id}/view"
+                )
 
             # Step 5: Extract themes
             try:
@@ -146,8 +200,10 @@ class Pipeline:
                 extraction.themes_ok = True
                 self.state.update_step(file_id, "themes", True)
             except Exception as e:
+                message = f"Themes failed: {e}"
                 log.warning("Theme extraction failed", error=str(e))
-                self.state.update_step(file_id, "themes", False)
+                self.state.update_step(file_id, "themes", False, error_message=message)
+                step_errors["themes"] = message
 
             # Step 6: Extract trades
             try:
@@ -160,23 +216,40 @@ class Pipeline:
                 extraction.trades_ok = True
                 self.state.update_step(file_id, "trades", True)
             except Exception as e:
+                message = f"Trades failed: {e}"
                 log.warning("Trade extraction failed", error=str(e))
-                self.state.update_step(file_id, "trades", False)
+                self.state.update_step(file_id, "trades", False, error_message=message)
+                step_errors["trades"] = message
+
+            all_extraction_ok = (
+                extraction.metadata_ok
+                and extraction.themes_ok
+                and extraction.trades_ok
+            )
+            if not all_extraction_ok:
+                error_summary = self._format_error_summary(step_errors)
+                log.warning(
+                    "Extraction incomplete",
+                    failed_steps=list(step_errors.keys()),
+                    error=error_summary,
+                )
+                self.state.mark_partial(file_id, error_summary)
+                return ProcessingStatus.PARTIAL, error_summary
 
             # Step 7: Store in Supabase
             try:
                 self.supabase.insert_research(extraction, file_name)
                 self.state.update_step(file_id, "storage", True)
             except Exception as e:
+                message = f"Storage failed: {e}"
                 log.exception("Storage failed")
-                self.state.update_step(file_id, "storage", False)
-                # Storage failure is still partial success
-                self._finalize_processing(file_id, extraction, storage_failed=True)
-                return True
+                self.state.update_step(file_id, "storage", False, error_message=message)
+                self.state.mark_failed(file_id, message)
+                return ProcessingStatus.FAILED, message
 
             # Finalize
-            self._finalize_processing(file_id, extraction, storage_failed=False)
-            return True
+            self._finalize_processing(file_id, extraction)
+            return ProcessingStatus.COMPLETED, None
 
         finally:
             # Clean up temp file
@@ -190,33 +263,17 @@ class Pipeline:
         self,
         file_id: str,
         extraction: ExtractionResult,
-        storage_failed: bool,
     ) -> None:
-        """Mark processing as complete or partial based on step results."""
-        all_ok = all([
-            extraction.metadata_ok,
-            extraction.themes_ok,
-            extraction.trades_ok,
-            not storage_failed,
-        ])
+        """Mark processing as complete after a successful run."""
+        self.state.mark_completed(file_id)
 
-        if all_ok:
-            self.state.mark_completed(file_id)
-        else:
-            failed_steps = []
-            if not extraction.metadata_ok:
-                failed_steps.append("metadata")
-            if not extraction.themes_ok:
-                failed_steps.append("themes")
-            if not extraction.trades_ok:
-                failed_steps.append("trades")
-            if storage_failed:
-                failed_steps.append("storage")
-
-            self.state.mark_partial(
-                file_id,
-                f"Failed steps: {', '.join(failed_steps)}",
-            )
+    @staticmethod
+    def _format_error_summary(step_errors: dict[str, str]) -> str:
+        if not step_errors:
+            return "Unknown error"
+        return "; ".join(
+            f"{step}: {message}" for step, message in step_errors.items()
+        )
 
     def run_once(self, days_ago: int | None = None) -> int:
         """
