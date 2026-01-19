@@ -267,6 +267,18 @@ The pipeline is designed to be resilient:
 
 ## Extraction Output
 
+## Checking Progress (SQLite)
+
+The SQLite state database tracks each processed file and the status of every step.
+
+```bash
+# Status counts
+sqlite3 ./data/state.db "SELECT status, COUNT(*) FROM processed_files GROUP BY status;"
+
+# Latest 20 files with step flags
+sqlite3 ./data/state.db "SELECT file_name, status, parse_ok, boilerplate_ok, metadata_ok, themes_ok, trades_ok, storage_ok, updated_at FROM processed_files ORDER BY updated_at DESC LIMIT 20;"
+```
+
 Each document produces structured JSON stored in Supabase:
 
 ```json
