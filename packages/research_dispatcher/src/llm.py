@@ -89,6 +89,39 @@ def reload_model_config(config_path: Path | None = None) -> ModelConfig:
     return load_model_config(config_path)
 
 
+def load_skill_config(skill_name: str, config_path: Path | None = None) -> ModelConfig:
+    """
+    Load model configuration for a specific skill.
+
+    Args:
+        skill_name: Name of the skill (e.g., 'throughline_synthesizer', 'callout_extractor')
+        config_path: Optional path to config file
+
+    Returns:
+        ModelConfig for the skill, or falls back to synthesis config if not defined
+    """
+    path = config_path or CONFIG_PATH
+
+    with open(path) as f:
+        data = yaml.safe_load(f)
+
+    skills = data.get("skills", {})
+    skill_data = skills.get(skill_name)
+
+    if not skill_data:
+        logger.warning("Skill config not found for %s, using synthesis config", skill_name)
+        return load_model_config(config_path)
+
+    config = ModelConfig.from_dict(skill_data)
+
+    # Validate extended thinking for non-Anthropic
+    if config.provider != "anthropic" and config.extended_thinking:
+        logger.warning("Extended thinking only supported for Anthropic; disabling for skill %s", skill_name)
+        config.extended_thinking = None
+
+    return config
+
+
 class LLMClient:
     """Unified client for Anthropic and OpenAI."""
 

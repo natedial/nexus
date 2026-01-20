@@ -19,5 +19,6 @@ Use this skill when the task is to synthesize multiple sources into a small set 
 
 ## References
 - `references/throughline_rubric.md` for selection criteria
+- `references/consensus_rubric.md` for consensus level assignment
 - `references/synthesis_guidance.md` for structure and emphasis
 - `references/attribution_rules.md` for source discipline

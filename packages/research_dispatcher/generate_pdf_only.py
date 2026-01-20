@@ -35,11 +35,14 @@ try:
 
     # Run cross-document synthesis
     synthesis_result = None
-    if Config.ENABLE_SYNTHESIS and Config.ANTHROPIC_API_KEY:
+    if Config.ENABLE_SYNTHESIS and (Config.ANTHROPIC_API_KEY or Config.OPENAI_API_KEY):
         print("Running cross-document synthesis...")
+        if Config.USE_SKILL_PIPELINE:
+            print("Using skill-based pipeline")
         synthesizer = Synthesizer(
             anthropic_api_key=Config.ANTHROPIC_API_KEY,
             openai_api_key=Config.OPENAI_API_KEY,
+            use_skill_pipeline=Config.USE_SKILL_PIPELINE,
         )
         synthesis_result = synthesizer.synthesize(data)
         if synthesis_result:
@@ -49,7 +52,7 @@ try:
     elif not Config.ENABLE_SYNTHESIS:
         print("Synthesis disabled (ENABLE_SYNTHESIS=false)")
     else:
-        print("Synthesis skipped (no ANTHROPIC_API_KEY)")
+        print("Synthesis skipped (no ANTHROPIC_API_KEY or OPENAI_API_KEY)")
 
     print("Formatting report...")
     formatter = ReportFormatter()

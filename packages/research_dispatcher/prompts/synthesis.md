@@ -32,10 +32,27 @@ For each through-line, provide:
 2. **supporting_sources**: Array of source names that support this through-line (e.g., ["Goldman Sachs", "JPMorgan", "Barclays"])
 
 3. **consensus_level**: One of "strong_consensus" | "moderate_consensus" | "mixed_views" | "contrarian"
-    - strong_consensus: 3+ sources explicitly aligned
-    - moderate_consensus: exactly 2 aligned, no opposing views
-    - mixed_views: 2+ sources with clearly different conclusions
-    - contrarian: 1 source explicitly opposing broader consensus
+
+    strong_consensus (ALL must be met):
+    - 3+ sources align on the same directional call
+    - No explicit contradictions on direction
+    - At least 2 sources provide similar rationale or mechanism
+    - Claims are specific (not heavily hedged)
+
+    moderate_consensus (ALL must be met):
+    - 2 sources align on direction
+    - No direct contradictions from other sources
+    - At least one source provides actionable specificity
+
+    mixed_views (ANY of these):
+    - Sources explicitly disagree on direction
+    - Same topic addressed with materially different conclusions
+    - Hedged or conditional views that could resolve either way
+
+    contrarian (ALL must be met):
+    - Single source with non-consensus view
+    - View is specific and actionable (not vague speculation)
+    - View challenges a prevailing market assumption
 
 4. **supporting_themes**: Array of theme labels that support this through-line
 

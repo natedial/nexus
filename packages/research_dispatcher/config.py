@@ -29,6 +29,9 @@ class Config:
     # Synthesis toggle
     ENABLE_SYNTHESIS = os.getenv('ENABLE_SYNTHESIS', 'true').lower() in ('true', '1', 'yes')
 
+    # Skill-based pipeline (two-stage synthesis instead of monolithic prompt)
+    USE_SKILL_PIPELINE = os.getenv('USE_SKILL_PIPELINE', 'false').lower() in ('true', '1', 'yes')
+
     # Email
     SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
     SMTP_PORT = int(os.getenv('SMTP_PORT', 587))

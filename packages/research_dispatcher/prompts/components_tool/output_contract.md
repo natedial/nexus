@@ -23,10 +23,31 @@ Return EXACTLY ONE JSON object. No explanations outside the JSON.
 }
 
 CONSENSUS LEVELS
-- strong_consensus: 3+ sources agree
-- moderate_consensus: 2 sources agree, no contradictions
-- mixed_views: sources present different angles on the same topic
-- contrarian: single source with non-consensus view worth highlighting
+
+strong_consensus
+Requirements (ALL must be met):
+- 3+ sources align on the same directional call
+- No explicit contradictions on direction
+- At least 2 sources provide similar rationale or mechanism
+- Claims are specific (not heavily hedged)
+
+moderate_consensus
+Requirements (ALL must be met):
+- 2 sources align on direction
+- No direct contradictions from other sources
+- At least one source provides actionable specificity
+
+mixed_views
+Requirements (ANY of these):
+- Sources explicitly disagree on direction
+- Same topic addressed with materially different conclusions
+- Hedged or conditional views that could resolve either way
+
+contrarian
+Requirements (ALL must be met):
+- Single source with non-consensus view
+- View is specific and actionable (not vague speculation)
+- View challenges a prevailing market assumption
 
 OUTPUT RULES
 1. Return EXACTLY ONE JSON object

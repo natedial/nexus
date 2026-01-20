@@ -3,7 +3,7 @@
 # Change models on the fly by editing this file.
 
 synthesis:
-  # Cross-document synthesis - needs deep reasoning
+  # Cross-document synthesis - needs deep reasoning (monolithic fallback)
   # Recommended: Best model with extended thinking
   provider: openai
   model: gpt-5.2
@@ -12,6 +12,22 @@ synthesis:
   extended_thinking:
     enabled: true
     budget_tokens: 10000
+
+# Skill-specific configurations (used when USE_SKILL_PIPELINE=true)
+skills:
+  throughline_synthesizer:
+    # Stage 1: Extract through-lines from themes+trades
+    provider: openai
+    model: gpt-5.2
+    max_tokens: 16000
+    temperature: 0
+
+  callout_extractor:
+    # Stage 2: Extract callouts from through-lines (lighter task)
+    provider: openai
+    model: gpt-5.2
+    max_tokens: 16000
+    temperature: 0
 
 
 # Available Models Reference

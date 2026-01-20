@@ -1,4 +1,4 @@
-"""Cross-document synthesis using LLM."""
+"""Cross-document synthesis using LLM with optional skill-based pipeline."""
 
 import json
 from dataclasses import dataclass
@@ -6,16 +6,19 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Any
 
-from .llm import LLMClient, ModelConfig, load_model_config
+from .llm import LLMClient, ModelConfig, load_model_config, load_skill_config
 
 
-# Load prompt from file
+# Prompt paths
 PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "synthesis.md"
+SKILL_PROMPTS_PATH = Path(__file__).parent.parent / "prompts" / "skills"
 
 
-def _load_prompt() -> str:
-    """Load synthesis prompt from markdown file."""
-    return PROMPT_PATH.read_text().strip()
+def _load_prompt(filename: str = "synthesis.md") -> str:
+    """Load prompt from markdown file."""
+    if filename == "synthesis.md":
+        return PROMPT_PATH.read_text().strip()
+    return (SKILL_PROMPTS_PATH / filename).read_text().strip()
 
 
 def _clean_json_response(text: str) -> str:
@@ -66,13 +69,51 @@ class Synthesizer:
         self,
         anthropic_api_key: str | None = None,
         openai_api_key: str | None = None,
+        use_skill_pipeline: bool = False,
     ):
         self.client = LLMClient(
             anthropic_api_key=anthropic_api_key,
             openai_api_key=openai_api_key,
         )
+        self.use_skill_pipeline = use_skill_pipeline
+
+        # Load monolithic config/prompt
         self.config = load_model_config()
         self.prompt = _load_prompt()
+
+        # Skill configs (lazy-loaded)
+        self._throughline_config: ModelConfig | None = None
+        self._callout_config: ModelConfig | None = None
+        self._throughline_prompt: str | None = None
+        self._callout_prompt: str | None = None
+
+    @property
+    def throughline_config(self) -> ModelConfig:
+        """Lazy-load throughline synthesizer config."""
+        if self._throughline_config is None:
+            self._throughline_config = load_skill_config("throughline_synthesizer")
+        return self._throughline_config
+
+    @property
+    def callout_config(self) -> ModelConfig:
+        """Lazy-load callout extractor config."""
+        if self._callout_config is None:
+            self._callout_config = load_skill_config("callout_extractor")
+        return self._callout_config
+
+    @property
+    def throughline_prompt(self) -> str:
+        """Lazy-load throughline synthesizer prompt."""
+        if self._throughline_prompt is None:
+            self._throughline_prompt = _load_prompt("throughline_synthesizer.md")
+        return self._throughline_prompt
+
+    @property
+    def callout_prompt(self) -> str:
+        """Lazy-load callout extractor prompt."""
+        if self._callout_prompt is None:
+            self._callout_prompt = _load_prompt("callout_extractor.md")
+        return self._callout_prompt
 
     def synthesize(
         self,
@@ -80,6 +121,8 @@ class Synthesizer:
     ) -> SynthesisResult | None:
         """
         Synthesize themes and trades across multiple documents.
+
+        Uses skill pipeline if enabled, otherwise falls back to monolithic prompt.
 
         Args:
             documents: List of parsed_research records from Supabase
@@ -100,14 +143,23 @@ class Synthesizer:
 
         print(f"Synthesizing {len(input_data['themes'])} themes and {len(input_data['trades'])} trades from {input_data['document_count']} documents...")
 
-        # Call LLM
+        if self.use_skill_pipeline:
+            return self._synthesize_with_skills(input_data, len(documents))
+        else:
+            return self._synthesize_monolithic(input_data, len(documents))
+
+    def _synthesize_monolithic(
+        self,
+        input_data: dict,
+        document_count: int,
+    ) -> SynthesisResult | None:
+        """Original monolithic synthesis using single LLM call."""
         raw_response = self.client.generate(
             config=self.config,
             system=self.prompt,
             user=json.dumps(input_data, indent=2),
         )
 
-        # Parse response
         cleaned = _clean_json_response(raw_response)
 
         try:
@@ -118,7 +170,7 @@ class Synthesizer:
             self._normalize_callouts(callouts, through_lines)
             result = SynthesisResult(
                 title=data.get("title", "Cross-Document Synthesis"),
-                document_count=data.get("document_count", len(documents)),
+                document_count=data.get("document_count", document_count),
                 through_lines=through_lines,
                 callouts=callouts,
                 raw_response=raw_response,
@@ -131,6 +183,98 @@ class Synthesizer:
         except (json.JSONDecodeError, ValueError) as e:
             print(f"Failed to parse synthesis JSON: {e}")
             print(f"Raw response (first 500 chars): {raw_response[:500]}")
+            return None
+
+    def _synthesize_with_skills(
+        self,
+        input_data: dict,
+        document_count: int,
+    ) -> SynthesisResult | None:
+        """Two-stage synthesis using skills."""
+        print("  Using skill-based pipeline...")
+
+        # Stage 1: Extract through-lines
+        print("  Stage 1: Extracting through-lines...")
+        stage1_result = self._stage1_throughlines(input_data)
+
+        if stage1_result is None:
+            print("  Stage 1 failed, aborting synthesis")
+            return None
+
+        title = stage1_result.get("title", "Cross-Document Synthesis")
+        through_lines = stage1_result.get("through_lines", [])
+
+        if not through_lines:
+            print("  Stage 1 returned no through-lines")
+            return None
+
+        print(f"  Stage 1 complete: {len(through_lines)} through-lines")
+
+        # Stage 2: Extract callouts
+        print("  Stage 2: Extracting callouts...")
+        callouts = self._stage2_callouts(through_lines)
+
+        if callouts is None:
+            print("  Stage 2 failed, returning through-lines without callouts")
+            callouts = []
+        else:
+            print(f"  Stage 2 complete: {len(callouts)} callouts")
+
+        # Post-process
+        self._normalize_through_lines(through_lines)
+        self._normalize_callouts(callouts, through_lines)
+
+        result = SynthesisResult(
+            title=title,
+            document_count=document_count,
+            through_lines=through_lines,
+            callouts=callouts,
+            raw_response=None,
+        )
+        print(f"Synthesis complete: {result.title}")
+        print(f"  Through-lines: {len(result.through_lines)}")
+        print(f"  Callouts: {len(result.callouts)}")
+        return result
+
+    def _stage1_throughlines(self, input_data: dict) -> dict | None:
+        """Stage 1: Extract through-lines from themes and trades."""
+        try:
+            raw_response = self.client.generate(
+                config=self.throughline_config,
+                system=self.throughline_prompt,
+                user=json.dumps(input_data, indent=2),
+            )
+
+            cleaned = _clean_json_response(raw_response)
+            return json.loads(cleaned)
+
+        except json.JSONDecodeError as e:
+            print(f"  Stage 1 JSON parse error: {e}")
+            return None
+        except Exception as e:
+            print(f"  Stage 1 error: {e}")
+            return None
+
+    def _stage2_callouts(self, through_lines: list[dict]) -> list[dict] | None:
+        """Stage 2: Extract callouts from through-lines."""
+        try:
+            stage2_input = {"through_lines": through_lines}
+
+            raw_response = self.client.generate(
+                config=self.callout_config,
+                system=self.callout_prompt,
+                user=json.dumps(stage2_input, indent=2),
+            )
+
+            cleaned = _clean_json_response(raw_response)
+            data = json.loads(cleaned)
+            return data.get("callouts", [])
+
+        except json.JSONDecodeError as e:
+            print(f"  Stage 2 JSON parse error: {e}")
+            return None
+        except Exception as e:
+            print(f"  Stage 2 error: {e}")
             return None
 
     def _normalize_through_lines(self, through_lines: list[dict[str, Any]]) -> None:
