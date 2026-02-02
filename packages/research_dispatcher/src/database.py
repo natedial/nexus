@@ -31,7 +31,7 @@ class DatabaseClient:
         query = (
             self.client.table('parsed_research')
             .select('*')
-            .gte('parsed_at', date_threshold)
+            .gte('source_date', date_threshold)
         )
 
         # Apply source filter if configured
