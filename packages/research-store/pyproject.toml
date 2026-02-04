@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "distill-tool"
+version = "0.1.0"
+description = "Markdown distillation tool for keyword extraction and embeddings"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "sentence-transformers>=2.6.0",
+]
+license = {text = "MIT"}
+
+[project.scripts]
+distill = "distill_tool.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["distill_tool*"]
