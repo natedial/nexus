@@ -78,17 +78,22 @@ class DatabaseClient:
             return False
 
     def _get_upcoming_week_range(self):
-        """Get the Monday-Friday date range for the upcoming week."""
+        """Get the Monday-Friday date range for the relevant week.
+
+        On weekdays (Mon-Fri): returns the current week's Mon-Fri.
+        On weekends (Sat-Sun): returns next week's Mon-Fri.
+        """
         today = date.today()
-        # Find next Monday
-        days_until_monday = (7 - today.weekday()) % 7
-        if days_until_monday == 0:
-            days_until_monday = 7  # If today is Monday, get next Monday
+        weekday = today.weekday()  # 0=Mon, 6=Sun
 
-        next_monday = today + timedelta(days=days_until_monday)
-        next_friday = next_monday + timedelta(days=4)
+        if weekday <= 4:  # Mon-Fri: use current week
+            monday = today - timedelta(days=weekday)
+        else:  # Sat-Sun: use next week
+            days_until_monday = 7 - weekday
+            monday = today + timedelta(days=days_until_monday)
 
-        return next_monday, next_friday
+        friday = monday + timedelta(days=4)
+        return monday, friday
 
     def query_economic_events(self):
         """

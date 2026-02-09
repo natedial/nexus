@@ -396,14 +396,29 @@ class Synthesizer:
             if isinstance(doc_themes, list):
                 for theme in doc_themes:
                     if isinstance(theme, dict):
-                        themes.append({
+                        theme_entry = {
                             "source": source,
                             "document": doc_name,
                             "label": theme.get("label", "Unlabeled"),
                             "context": theme.get("context", ""),
                             "strength": theme.get("strength", "Secondary"),
                             "confidence": theme.get("confidence", "Medium"),
-                        })
+                            "classification": theme.get("classification", "Description"),
+                            "mention_count": theme.get("mention_count", 0),
+                        }
+                        # Include excerpts if present (verbatim quotes aid synthesis)
+                        excerpts = theme.get("excerpts")
+                        if excerpts and isinstance(excerpts, list):
+                            theme_entry["excerpts"] = excerpts
+                        # Include directionality if present (e.g. {"bullish": 3, "bearish": 1})
+                        directionality = theme.get("directionality")
+                        if directionality and isinstance(directionality, dict):
+                            theme_entry["directionality"] = directionality
+                        # Include relevance tags if present
+                        relevance = theme.get("relevance")
+                        if relevance and isinstance(relevance, list):
+                            theme_entry["relevance"] = relevance
+                        themes.append(theme_entry)
 
             # Extract trades with source attribution
             doc_trades = parsed_data.get("trades", [])

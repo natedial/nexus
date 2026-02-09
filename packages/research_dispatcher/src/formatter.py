@@ -175,7 +175,7 @@ class ReportFormatter:
         sorted_themes = sorted(theme_counts.items(), key=lambda x: x[1], reverse=True)
 
         formatted_themes = []
-        for label, count in sorted_themes[:10]:  # Top 10 themes
+        for label, count in sorted_themes:
             formatted_themes.append({
                 'label': label,
                 'count': count,
