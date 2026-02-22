@@ -8,7 +8,7 @@ This tool distills markdown into:
 - local embeddings
 - SQLite metadata + `.npz` embeddings sidecar
 
-It is designed for offline processing; search is handled elsewhere.
+It is designed for offline processing and local hybrid retrieval.
 
 ## Page markers
 
@@ -59,6 +59,10 @@ SQLite:
 - `chunk_ids`: array of chunk ids
 - `embeddings`: array of vectors aligned with `chunk_ids`
 
+FTS virtual tables:
+- `chunks_fts`: full text index over chunk text (`MATCH` syntax supported).
+- `keyword_fts`: keyword phrase index for fast lexical filtering.
+
 ## Schema details
 
 `runs`:
@@ -81,6 +85,12 @@ SQLite:
 - `text_hash` (TEXT)
 - `created_at` (TEXT, SQLite datetime)
 
+`chunk_keywords`:
+- `chunk_id` (TEXT, FK -> chunks)
+- `term` (TEXT)
+- `source` (TEXT) dictionary | rake
+- `score` (REAL)
+
 ## Keyword extraction
 
 Hybrid approach:
@@ -96,6 +106,25 @@ Dictionary format:
 Default model: `all-MiniLM-L6-v2`
 
 To change models, pass `--model` or `model_name=...` in Python.
+
+## Hybrid search
+
+Use CLI:
+
+```bash
+distill-search --db distill_out/chunks.sqlite --npz distill_out/embeddings.npz --query '"risk controls" AND audit'
+```
+
+This ranks by:
+- lexical score from `chunks_fts` + `keyword_fts`
+- semantic score from cosine similarity over embeddings
+- weighted fusion (`--keyword-weight`, `--semantic-weight`)
+
+Backfill an existing DB:
+
+```bash
+distill-backfill --db distill_out/chunks.sqlite --batch-size 2000
+```
 
 ## Future extensions
 

@@ -64,6 +64,42 @@ def init_db(db_path: str | Path) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chunk_keywords (
+                chunk_id TEXT NOT NULL,
+                term TEXT NOT NULL,
+                source TEXT NOT NULL,
+                score REAL NOT NULL,
+                PRIMARY KEY (chunk_id, term, source),
+                FOREIGN KEY(chunk_id) REFERENCES chunks(chunk_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chunk_keywords_term
+            ON chunk_keywords(term)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chunk_keywords_chunk_id
+            ON chunk_keywords(chunk_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts
+            USING fts5(chunk_id UNINDEXED, text, tokenize='unicode61')
+            """
+        )
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS keyword_fts
+            USING fts5(chunk_id UNINDEXED, terms, tokenize='unicode61')
+            """
+        )
 
 
 def store_run(db_path: str | Path, run_info: RunInfo) -> None:
@@ -86,6 +122,9 @@ def store_run(db_path: str | Path, run_info: RunInfo) -> None:
 
 
 def store_chunks(db_path: str | Path, chunks: Iterable[ChunkRecord]) -> None:
+    chunk_list = list(chunks)
+    chunk_ids = [chunk.chunk_id for chunk in chunk_list]
+
     with sqlite3.connect(db_path) as conn:
         conn.executemany(
             """
@@ -105,8 +144,69 @@ def store_chunks(db_path: str | Path, chunks: Iterable[ChunkRecord]) -> None:
                     chunk.keywords_json,
                     chunk.text_hash,
                 )
-                for chunk in chunks
+                for chunk in chunk_list
             ],
+        )
+        if not chunk_ids:
+            return
+
+        placeholders = ",".join("?" for _ in chunk_ids)
+        conn.execute(
+            f"DELETE FROM chunk_keywords WHERE chunk_id IN ({placeholders})",
+            chunk_ids,
+        )
+        conn.execute(
+            f"DELETE FROM chunks_fts WHERE chunk_id IN ({placeholders})",
+            chunk_ids,
+        )
+        conn.execute(
+            f"DELETE FROM keyword_fts WHERE chunk_id IN ({placeholders})",
+            chunk_ids,
+        )
+
+        keyword_rows: list[tuple[str, str, str, float]] = []
+        keyword_fts_rows: list[tuple[str, str]] = []
+        text_fts_rows: list[tuple[str, str]] = []
+
+        for chunk in chunk_list:
+            parsed = json.loads(chunk.keywords_json)
+            terms_for_fts: list[str] = []
+            for item in parsed:
+                term = str(item.get("term", "")).strip().lower()
+                source = str(item.get("source", "")).strip()
+                try:
+                    score = float(item.get("score", 0.0))
+                except (TypeError, ValueError):
+                    score = 0.0
+                if not term or not source:
+                    continue
+                keyword_rows.append((chunk.chunk_id, term, source, score))
+                terms_for_fts.append(term)
+
+            text_fts_rows.append((chunk.chunk_id, chunk.text))
+            keyword_fts_rows.append((chunk.chunk_id, " ".join(terms_for_fts)))
+
+        if keyword_rows:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO chunk_keywords (chunk_id, term, source, score)
+                VALUES (?, ?, ?, ?)
+                """,
+                keyword_rows,
+            )
+        conn.executemany(
+            """
+            INSERT INTO chunks_fts (chunk_id, text)
+            VALUES (?, ?)
+            """,
+            text_fts_rows,
+        )
+        conn.executemany(
+            """
+            INSERT INTO keyword_fts (chunk_id, terms)
+            VALUES (?, ?)
+            """,
+            keyword_fts_rows,
         )
 
 
@@ -114,3 +214,98 @@ def save_embeddings(npz_path: str | Path, chunk_ids: list[str], embeddings: np.n
     npz_path = Path(npz_path)
     npz_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(npz_path, chunk_ids=np.array(chunk_ids), embeddings=embeddings)
+
+
+def backfill_search_indexes(
+    db_path: str | Path,
+    batch_size: int = 1000,
+    rebuild: bool = True,
+) -> dict[str, int]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be > 0")
+
+    init_db(db_path)
+    db_path = Path(db_path)
+
+    total_chunks = 0
+    total_keywords = 0
+    last_rowid = 0
+
+    with sqlite3.connect(db_path) as conn:
+        if rebuild:
+            conn.execute("DELETE FROM chunk_keywords")
+            conn.execute("DELETE FROM chunks_fts")
+            conn.execute("DELETE FROM keyword_fts")
+
+        while True:
+            rows = conn.execute(
+                """
+                SELECT rowid, chunk_id, text, keywords_json
+                FROM chunks
+                WHERE rowid > ?
+                ORDER BY rowid
+                LIMIT ?
+                """,
+                (last_rowid, batch_size),
+            ).fetchall()
+            if not rows:
+                break
+
+            keyword_rows: list[tuple[str, str, str, float]] = []
+            text_fts_rows: list[tuple[str, str]] = []
+            keyword_fts_rows: list[tuple[str, str]] = []
+
+            for rowid, chunk_id, text, keywords_json in rows:
+                last_rowid = int(rowid)
+                total_chunks += 1
+                terms_for_fts: list[str] = []
+
+                try:
+                    parsed_keywords = json.loads(keywords_json)
+                except json.JSONDecodeError:
+                    parsed_keywords = []
+
+                for item in parsed_keywords:
+                    term = str(item.get("term", "")).strip().lower()
+                    source = str(item.get("source", "")).strip()
+                    try:
+                        score = float(item.get("score", 0.0))
+                    except (TypeError, ValueError):
+                        score = 0.0
+                    if not term or not source:
+                        continue
+                    keyword_rows.append((str(chunk_id), term, source, score))
+                    terms_for_fts.append(term)
+
+                total_keywords += len(terms_for_fts)
+                text_fts_rows.append((str(chunk_id), str(text)))
+                keyword_fts_rows.append((str(chunk_id), " ".join(terms_for_fts)))
+
+            if keyword_rows:
+                conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO chunk_keywords (chunk_id, term, source, score)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    keyword_rows,
+                )
+            conn.executemany(
+                """
+                INSERT INTO chunks_fts (chunk_id, text)
+                VALUES (?, ?)
+                """,
+                text_fts_rows,
+            )
+            conn.executemany(
+                """
+                INSERT INTO keyword_fts (chunk_id, terms)
+                VALUES (?, ?)
+                """,
+                keyword_fts_rows,
+            )
+            conn.commit()
+
+    return {
+        "chunks_indexed": total_chunks,
+        "keyword_rows_written": total_keywords,
+    }
