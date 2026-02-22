@@ -129,6 +129,20 @@ Backfill an existing DB:
 distill-backfill --db distill_out/chunks.sqlite --batch-size 2000
 ```
 
+## Supabase indexing
+
+Index rows from Supabase where `index_status='pending'` by reading
+`parsed_data.full_text` and updating row status after processing.
+
+```bash
+distill-index-supabase \
+  --supabase-url "$SUPABASE_URL" \
+  --supabase-key "$SUPABASE_KEY" \
+  --out-dir distill_out \
+  --poll-limit 50 \
+  --index-version v1
+```
+
 ## Future extensions
 
 - Pluggable embedding backends (remote APIs, alternative local models)

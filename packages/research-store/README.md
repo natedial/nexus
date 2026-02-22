@@ -72,6 +72,29 @@ Backfill indexes for an existing corpus (no re-distillation):
 distill-backfill --db distill_out/chunks.sqlite --batch-size 2000
 ```
 
+## Supabase indexing worker
+
+Pull pending documents from Supabase (`parsed_research.parsed_data.full_text`), distill them into
+the local corpus, then update `index_status`.
+
+```bash
+distill-index-supabase \
+  --supabase-url "$SUPABASE_URL" \
+  --supabase-key "$SUPABASE_KEY" \
+  --out-dir distill_out \
+  --poll-limit 50 \
+  --index-version v1
+```
+
+Status behavior:
+- Claims work with `index_status='pending'` and moves rows to `processing`.
+- On success sets `index_status='indexed'`, `indexed_at`, and `index_version`.
+- On failure sets `index_status='failed'` and writes `index_error`.
+
+Notes:
+- Uses local `chunks.sqlite` + `embeddings.npz` as the retrieval corpus.
+- Embeddings sidecar is merged incrementally so prior vectors are preserved across runs.
+
 ### Common flags
 
 - `--file` or `--text` (or pipe via stdin)

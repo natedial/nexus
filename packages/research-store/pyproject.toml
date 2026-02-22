@@ -18,6 +18,7 @@ license = {text = "MIT"}
 distill = "distill_tool.cli:main"
 distill-search = "distill_tool.search_cli:main"
 distill-backfill = "distill_tool.backfill_cli:main"
+distill-index-supabase = "distill_tool.index_supabase_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
