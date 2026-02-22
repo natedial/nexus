@@ -18,8 +18,8 @@ Default page marker pattern:
 --- PAGE 12 ---
 ```
 
-If no markers exist, the entire markdown becomes one chunk.
 If no markers exist, fallback paragraph-based chunking is applied.
+Oversized single paragraphs are further split by sentence boundaries (with whitespace fallback).
 
 ## CLI
 

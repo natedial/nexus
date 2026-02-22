@@ -113,4 +113,4 @@ Embeddings sidecar:
 ## Notes
 
 - Embeddings require model download on first run (Hugging Face). Use `--no-embeddings` if offline.
-- If no page markers are present, the entire document becomes one chunk.
+- If no page markers are present, fallback chunking groups by paragraphs and also splits oversized single paragraphs using sentence/whitespace boundaries.

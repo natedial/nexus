@@ -53,6 +53,16 @@ def split_fallback_chunks(
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     if not paragraphs:
         return [Page(number=1, text=text)]
+    normalized_paragraphs: list[str] = []
+    for paragraph in paragraphs:
+        normalized_paragraphs.extend(
+            _split_oversized_paragraph(
+                paragraph=paragraph,
+                target_chars=target_chars,
+                min_chars=min_chars,
+            )
+        )
+    paragraphs = normalized_paragraphs
 
     pages: list[Page] = []
     current: list[str] = []
@@ -90,6 +100,80 @@ def split_fallback_chunks(
             pages.append(Page(number=page_number, text="\n\n".join(current)))
 
     return pages
+
+
+def _split_oversized_paragraph(paragraph: str, target_chars: int, min_chars: int) -> list[str]:
+    if len(paragraph) <= target_chars:
+        return [paragraph]
+
+    sentence_units = [s.strip() for s in re.split(r"(?<=[.!?])\s+", paragraph) if s.strip()]
+    if not sentence_units:
+        sentence_units = [paragraph]
+
+    parts: list[str] = []
+    for unit in sentence_units:
+        if len(unit) <= target_chars:
+            parts.append(unit)
+            continue
+        parts.extend(_split_unit_by_words(unit, target_chars))
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for part in parts:
+        projected = current_len + len(part) + (1 if current else 0)
+        if current and projected > target_chars:
+            chunks.append(" ".join(current))
+            current = [part]
+            current_len = len(part)
+            continue
+        current.append(part)
+        current_len = projected
+
+    if current:
+        chunks.append(" ".join(current))
+
+    if len(chunks) >= 2 and len(chunks[-1]) < min_chars:
+        chunks[-2] = f"{chunks[-2]} {chunks[-1]}".strip()
+        chunks.pop()
+
+    return chunks
+
+
+def _split_unit_by_words(text: str, target_chars: int) -> list[str]:
+    words = [w for w in re.split(r"\s+", text.strip()) if w]
+    if not words:
+        return []
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for word in words:
+        if len(word) > target_chars:
+            if current:
+                chunks.append(" ".join(current))
+                current = []
+                current_len = 0
+            for start in range(0, len(word), target_chars):
+                chunks.append(word[start : start + target_chars])
+            continue
+
+        projected = current_len + len(word) + (1 if current else 0)
+        if current and projected > target_chars:
+            chunks.append(" ".join(current))
+            current = [word]
+            current_len = len(word)
+            continue
+
+        current.append(word)
+        current_len = projected
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks
 
 
 def apply_page_overlap(pages: list[Page], overlap_paragraphs: int = 1) -> list[Page]:

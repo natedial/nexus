@@ -1,0 +1,4 @@
+   1 data/sample_text.md:sqlite3 data/chunks
+   1 data/sample_text.md:sqlite
+   1 data/sample_text.md:select count
+   1 data/sample_text.md:from chunks
