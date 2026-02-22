@@ -8,7 +8,15 @@ from pathlib import Path
 
 import numpy as np
 
-from distill_tool.chunking import PAGE_MARKER_REGEX, Page, apply_page_overlap, split_pages
+from distill_tool.chunking import (
+    FALLBACK_MIN_CHARS,
+    FALLBACK_TARGET_CHARS,
+    PAGE_MARKER_REGEX,
+    Page,
+    apply_page_overlap,
+    split_fallback_chunks,
+    split_pages,
+)
 from distill_tool.embeddings import EmbeddingConfig, EmbeddingModel
 from distill_tool.keywords import extract_keywords, load_dictionary
 from distill_tool.storage import ChunkRecord, RunInfo, init_db, save_embeddings, store_chunks, store_run
@@ -32,6 +40,8 @@ def distill_file(
     max_keywords: int = 20,
     overlap_paragraphs: int = 1,
     page_marker_regex: str | None = None,
+    fallback_target_chars: int = FALLBACK_TARGET_CHARS,
+    fallback_min_chars: int = FALLBACK_MIN_CHARS,
     batch_size: int = 32,
     skip_embeddings: bool = False,
 ) -> DistillResult:
@@ -47,6 +57,8 @@ def distill_file(
         max_keywords=max_keywords,
         overlap_paragraphs=overlap_paragraphs,
         page_marker_regex=page_marker_regex,
+        fallback_target_chars=fallback_target_chars,
+        fallback_min_chars=fallback_min_chars,
         batch_size=batch_size,
         skip_embeddings=skip_embeddings,
     )
@@ -61,6 +73,8 @@ def distill_markdown(
     max_keywords: int = 20,
     overlap_paragraphs: int = 1,
     page_marker_regex: str | None = None,
+    fallback_target_chars: int = FALLBACK_TARGET_CHARS,
+    fallback_min_chars: int = FALLBACK_MIN_CHARS,
     batch_size: int = 32,
     source_path: str | None = None,
     skip_embeddings: bool = False,
@@ -71,7 +85,17 @@ def distill_markdown(
 
         marker_re = re.compile(page_marker_regex, re.MULTILINE)
 
-    pages = split_pages(markdown, marker_re) if marker_re else split_pages(markdown)
+    pages = (
+        split_pages(markdown, marker_re)
+        if marker_re
+        else split_pages(markdown)
+    )
+    if not marker_re and len(pages) == 1:
+        pages = split_fallback_chunks(
+            pages[0].text,
+            target_chars=fallback_target_chars,
+            min_chars=fallback_min_chars,
+        )
     pages = apply_page_overlap(pages, overlap_paragraphs=overlap_paragraphs)
 
     dictionary = load_dictionary(dictionary_path)
@@ -104,6 +128,8 @@ def distill_markdown(
             "max_keywords": max_keywords,
             "overlap_paragraphs": overlap_paragraphs,
             "page_marker_regex": page_marker_regex or PAGE_MARKER_REGEX,
+            "fallback_target_chars": fallback_target_chars,
+            "fallback_min_chars": fallback_min_chars,
             "batch_size": batch_size,
             "skip_embeddings": skip_embeddings,
         },

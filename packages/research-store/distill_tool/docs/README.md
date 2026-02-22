@@ -19,6 +19,7 @@ Default page marker pattern:
 ```
 
 If no markers exist, the entire markdown becomes one chunk.
+If no markers exist, fallback paragraph-based chunking is applied.
 
 ## CLI
 

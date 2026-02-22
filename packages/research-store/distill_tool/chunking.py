@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 PAGE_MARKER_REGEX = r"^--- PAGE (\d+) ---\s*$"
 PAGE_MARKER_RE = re.compile(PAGE_MARKER_REGEX, re.MULTILINE)
+FALLBACK_TARGET_CHARS = 2000
+FALLBACK_MIN_CHARS = 700
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,62 @@ def split_pages(markdown: str, marker_re: re.Pattern[str] = PAGE_MARKER_RE) -> l
             text = f"{preamble}\n\n{text}" if text else preamble
         if text:
             pages.append(Page(number=page_number, text=text))
+    return pages
+
+
+def split_fallback_chunks(
+    text: str,
+    target_chars: int = FALLBACK_TARGET_CHARS,
+    min_chars: int = FALLBACK_MIN_CHARS,
+) -> list[Page]:
+    if target_chars <= 0:
+        raise ValueError("target_chars must be > 0")
+    if min_chars <= 0:
+        raise ValueError("min_chars must be > 0")
+
+    text = text.strip()
+    if not text:
+        return []
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if not paragraphs:
+        return [Page(number=1, text=text)]
+
+    pages: list[Page] = []
+    current: list[str] = []
+    current_len = 0
+    page_number = 1
+
+    for para in paragraphs:
+        para_len = len(para)
+        if para_len >= target_chars:
+            if current:
+                pages.append(Page(number=page_number, text="\n\n".join(current)))
+                page_number += 1
+                current = []
+                current_len = 0
+            pages.append(Page(number=page_number, text=para))
+            page_number += 1
+            continue
+
+        projected_len = current_len + para_len + (2 if current else 0)
+        if current and projected_len > target_chars and current_len >= min_chars:
+            pages.append(Page(number=page_number, text="\n\n".join(current)))
+            page_number += 1
+            current = [para]
+            current_len = para_len
+            continue
+
+        current.append(para)
+        current_len = projected_len
+
+    if current:
+        if pages and current_len < min_chars:
+            merged_text = pages[-1].text + "\n\n" + "\n\n".join(current)
+            pages[-1] = Page(number=pages[-1].number, text=merged_text)
+        else:
+            pages.append(Page(number=page_number, text="\n\n".join(current)))
+
     return pages
 
 

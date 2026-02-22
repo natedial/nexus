@@ -48,6 +48,18 @@ distill \
   --model all-MiniLM-L6-v2
 ```
 
+If documents do not contain explicit page markers, fallback paragraph chunking is used automatically.
+You can tune it:
+
+```bash
+distill \
+  --file path/to/your_input.md \
+  --dict path/to/your_dictionary.txt \
+  --out-dir distill_out \
+  --fallback-target-chars 2000 \
+  --fallback-min-chars 700
+```
+
 Output files:
 - `distill_out/chunks.sqlite`
 - `distill_out/embeddings.npz`

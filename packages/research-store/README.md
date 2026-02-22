@@ -5,6 +5,7 @@ Standalone markdown distillation tool for keyword extraction and embeddings.
 ## What it does
 
 - Splits markdown into page chunks using `--- PAGE N ---` markers.
+- Falls back to paragraph-based chunking when page markers are absent.
 - Extracts keywords using a hybrid dictionary + RAKE approach.
 - Generates local embeddings (sentence-transformers) and writes a `.npz` sidecar.
 - Stores chunk metadata and keywords in SQLite for later search pipelines.
@@ -78,6 +79,8 @@ distill-backfill --db distill_out/chunks.sqlite --batch-size 2000
 - `--out-dir` output folder (defaults to `distill_out`)
 - `--model` embedding model name (default `all-MiniLM-L6-v2`)
 - `--overlap-paragraphs` paragraphs of overlap between pages (default `1`)
+- `--fallback-target-chars` fallback chunk size target when no page markers (default `2000`)
+- `--fallback-min-chars` fallback minimum chunk size before splitting (default `700`)
 - `--no-embeddings` skip embedding generation (offline smoke test)
 
 ## Python usage

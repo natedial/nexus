@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from distill_tool.chunking import PAGE_MARKER_REGEX
+from distill_tool.chunking import FALLBACK_MIN_CHARS, FALLBACK_TARGET_CHARS, PAGE_MARKER_REGEX
 from distill_tool.pipeline import distill_file, distill_markdown
 
 
@@ -31,6 +31,18 @@ def main() -> None:
         default=None,
         help=f"Regex to split pages (defaults to '{PAGE_MARKER_REGEX}').",
     )
+    parser.add_argument(
+        "--fallback-target-chars",
+        type=int,
+        default=FALLBACK_TARGET_CHARS,
+        help="Fallback chunk target size in characters when no page markers are found.",
+    )
+    parser.add_argument(
+        "--fallback-min-chars",
+        type=int,
+        default=FALLBACK_MIN_CHARS,
+        help="Minimum chunk size before splitting in fallback paragraph chunking.",
+    )
     parser.add_argument("--batch-size", type=int, default=32, help="Embedding batch size.")
     parser.add_argument(
         "--no-embeddings",
@@ -54,6 +66,8 @@ def main() -> None:
             max_keywords=args.max_keywords,
             overlap_paragraphs=args.overlap_paragraphs,
             page_marker_regex=args.page_marker_regex,
+            fallback_target_chars=args.fallback_target_chars,
+            fallback_min_chars=args.fallback_min_chars,
             batch_size=args.batch_size,
             skip_embeddings=args.no_embeddings,
         )
@@ -73,6 +87,8 @@ def main() -> None:
             max_keywords=args.max_keywords,
             overlap_paragraphs=args.overlap_paragraphs,
             page_marker_regex=args.page_marker_regex,
+            fallback_target_chars=args.fallback_target_chars,
+            fallback_min_chars=args.fallback_min_chars,
             batch_size=args.batch_size,
             skip_embeddings=args.no_embeddings,
         )
