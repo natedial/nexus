@@ -1,3 +1,5 @@
 .venv/
+data/
+distill_tool/__pycache__/
 distill_tool/out/
 distill_tool.egg-info/
