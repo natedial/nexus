@@ -120,6 +120,8 @@ This ranks by:
 - lexical score from `chunks_fts` + `keyword_fts`
 - semantic score from cosine similarity over embeddings
 - weighted fusion (`--keyword-weight`, `--semantic-weight`)
+- lexical precision floor (`--min-lexical-score`, default `0.05`)
+- semantic-only tail handling (`--semantic-tail-mode`: `filter` | `demote` | `allow`)
 
 Backfill an existing DB:
 

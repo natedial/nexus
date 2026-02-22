@@ -82,6 +82,8 @@ distill-backfill --db distill_out/chunks.sqlite --batch-size 2000
 - `--fallback-target-chars` fallback chunk size target when no page markers (default `2000`)
 - `--fallback-min-chars` fallback minimum chunk size before splitting (default `700`)
 - `--no-embeddings` skip embedding generation (offline smoke test)
+- `distill-search --min-lexical-score` lexical floor for precision (default `0.05`)
+- `distill-search --semantic-tail-mode` handling for semantic-only matches: `filter` | `demote` | `allow` (default `filter`)
 
 ## Python usage
 

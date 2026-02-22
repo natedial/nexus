@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from distill_tool.search import HybridSearchEngine
@@ -28,6 +29,25 @@ def main() -> None:
         help="Weight for embedding similarity score in hybrid rank.",
     )
     parser.add_argument(
+        "--min-lexical-score",
+        type=float,
+        default=0.05,
+        help="Lexical floor; results below this score are demoted (0 disables floor).",
+    )
+    parser.add_argument(
+        "--semantic-tail-mode",
+        type=str,
+        default="filter",
+        choices=["filter", "demote", "allow"],
+        help="Handling for semantic-only matches when lexical signal exists.",
+    )
+    parser.add_argument(
+        "--semantic-tail-penalty",
+        type=float,
+        default=0.25,
+        help="Penalty multiplier used when semantic-tail-mode=demote.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Emit machine-readable JSON results.",
@@ -51,7 +71,15 @@ def main() -> None:
         run_id=args.run_id,
         keyword_weight=args.keyword_weight,
         semantic_weight=args.semantic_weight,
+        min_lexical_score=args.min_lexical_score,
+        semantic_tail_mode=args.semantic_tail_mode,
+        semantic_tail_penalty=args.semantic_tail_penalty,
     )
+    if args.semantic_weight > 0 and engine.last_semantic_error:
+        print(
+            f"warning: semantic scoring unavailable ({engine.last_semantic_error}); using lexical ranking.",
+            file=sys.stderr,
+        )
 
     if args.json:
         payload = [

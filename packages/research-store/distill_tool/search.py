@@ -38,6 +38,7 @@ class HybridSearchEngine:
         self._model: EmbeddingModel | None = None
         self._embedding_chunk_ids: np.ndarray | None = None
         self._embedding_matrix: np.ndarray | None = None
+        self._last_semantic_error: str | None = None
         self._load_embeddings()
 
     def search(
@@ -47,18 +48,37 @@ class HybridSearchEngine:
         run_id: str | None = None,
         keyword_weight: float = 0.55,
         semantic_weight: float = 0.45,
+        min_lexical_score: float = 0.05,
+        semantic_tail_mode: str = "filter",
+        semantic_tail_penalty: float = 0.25,
     ) -> list[SearchResult]:
         query = query.strip()
         if not query or limit <= 0:
             return []
 
-        lexical_scores = self._lexical_scores(query, run_id=run_id, limit=max(limit * 8, 50))
-        semantic_scores = self._semantic_scores(query, run_id=run_id, limit=max(limit * 8, 50))
+        self._last_semantic_error = None
+        candidate_limit = max(limit * 8, 50)
 
-        # If embeddings are unavailable, fallback to lexical-only ranking.
-        if not semantic_scores:
+        lexical_scores: dict[str, float] = {}
+        if keyword_weight > 0.0 or semantic_weight <= 0.0:
+            lexical_scores = self._lexical_scores(query, run_id=run_id, limit=candidate_limit)
+
+        semantic_scores: dict[str, float] = {}
+        if semantic_weight > 0.0:
+            semantic_scores = self._semantic_scores(query, run_id=run_id, limit=candidate_limit)
+
+        if semantic_weight > 0.0 and not semantic_scores:
+            if not lexical_scores:
+                lexical_scores = self._lexical_scores(query, run_id=run_id, limit=candidate_limit)
             semantic_weight = 0.0
             keyword_weight = 1.0
+        elif lexical_scores and not semantic_scores:
+            semantic_weight = 0.0
+            keyword_weight = 1.0
+        elif semantic_scores and not lexical_scores:
+            semantic_weight = 1.0
+            keyword_weight = 0.0
+
         total_weight = keyword_weight + semantic_weight
         if total_weight <= 0:
             keyword_weight = 1.0
@@ -71,11 +91,28 @@ class HybridSearchEngine:
         if not all_chunk_ids:
             return []
 
+        min_lexical_score = max(0.0, min_lexical_score)
+        semantic_tail_penalty = max(0.0, min(1.0, semantic_tail_penalty))
+        semantic_tail_mode = semantic_tail_mode.lower().strip()
+        if semantic_tail_mode not in {"filter", "demote", "allow"}:
+            semantic_tail_mode = "filter"
+        lexical_constraints_active = keyword_weight > 0.0 and any(score > 0.0 for score in lexical_scores.values())
+
         final_scores: list[tuple[str, float, float, float]] = []
         for chunk_id in all_chunk_ids:
             lexical = lexical_scores.get(chunk_id, 0.0)
             semantic = semantic_scores.get(chunk_id, 0.0)
             hybrid = (keyword_weight * lexical) + (semantic_weight * semantic)
+
+            if lexical_constraints_active and semantic > 0.0 and lexical <= 0.0:
+                if semantic_tail_mode == "filter":
+                    continue
+                if semantic_tail_mode == "demote":
+                    hybrid *= semantic_tail_penalty
+
+            if lexical_constraints_active and min_lexical_score > 0.0 and 0.0 <= lexical < min_lexical_score:
+                hybrid *= lexical / min_lexical_score
+
             final_scores.append((chunk_id, lexical, semantic, hybrid))
 
         final_scores.sort(key=lambda row: row[3], reverse=True)
@@ -105,28 +142,45 @@ class HybridSearchEngine:
         return results
 
     def _lexical_scores(self, query: str, run_id: str | None, limit: int) -> dict[str, float]:
+        text_query, keyword_query, phrase_query = self._build_lexical_queries(query)
         text_rows = self._fts_query(
             table="chunks_fts",
-            query=query,
+            query=text_query,
             run_id=run_id,
             limit=limit,
         )
-        keyword_query = self._to_keyword_query(query)
         keyword_rows = self._fts_query(
             table="keyword_fts",
             query=keyword_query,
             run_id=run_id,
             limit=limit,
         )
+        phrase_rows: list[tuple[str, float]] = []
+        if phrase_query:
+            phrase_rows = self._fts_query(
+                table="chunks_fts",
+                query=phrase_query,
+                run_id=run_id,
+                limit=limit,
+            )
 
         text_scores = _normalize_bm25(text_rows)
         keyword_scores = _normalize_bm25(keyword_rows)
-        chunk_ids = set(text_scores) | set(keyword_scores)
+        phrase_scores = _normalize_bm25(phrase_rows)
+        chunk_ids = set(text_scores) | set(keyword_scores) | set(phrase_scores)
 
         combined: dict[str, float] = {}
         for chunk_id in chunk_ids:
-            # Favor explicit keyword hits while still considering full-text syntax matches.
-            score = 0.65 * keyword_scores.get(chunk_id, 0.0) + 0.35 * text_scores.get(chunk_id, 0.0)
+            if phrase_query:
+                # Natural-language queries benefit from giving phrase matches extra lift.
+                score = (
+                    0.50 * keyword_scores.get(chunk_id, 0.0)
+                    + 0.30 * text_scores.get(chunk_id, 0.0)
+                    + 0.20 * phrase_scores.get(chunk_id, 0.0)
+                )
+            else:
+                # Favor explicit keyword hits while still considering full-text syntax matches.
+                score = 0.65 * keyword_scores.get(chunk_id, 0.0) + 0.35 * text_scores.get(chunk_id, 0.0)
             if score > 0.0:
                 combined[chunk_id] = score
         return combined
@@ -171,9 +225,14 @@ class HybridSearchEngine:
         if self._embedding_matrix.size == 0:
             return {}
 
-        model = self._get_model()
-        query_vector = model.embed([query])[0]
-        similarities = self._embedding_matrix @ query_vector
+        try:
+            model = self._get_model()
+            query_vector = model.embed([query])[0]
+            similarities = self._embedding_matrix @ query_vector
+        except Exception as exc:  # pragma: no cover - runtime integration path
+            message = " ".join(str(exc).split())
+            self._last_semantic_error = f"{type(exc).__name__}: {message[:180]}"
+            return {}
 
         if run_id:
             allowed_ids = self._chunk_ids_for_run(run_id)
@@ -201,6 +260,10 @@ class HybridSearchEngine:
             str(self._embedding_chunk_ids[i]): max(0.0, min(1.0, (score + 1.0) / 2.0))
             for i, score in top_pairs
         }
+
+    @property
+    def last_semantic_error(self) -> str | None:
+        return self._last_semantic_error
 
     def _load_chunk_metadata(self, chunk_ids: list[str]) -> dict[str, dict]:
         if not chunk_ids:
@@ -251,9 +314,28 @@ class HybridSearchEngine:
             normalized.append(token)
         return " ".join(normalized)
 
+    def _build_lexical_queries(self, query: str) -> tuple[str, str, str | None]:
+        if _is_structured_fts_query(query):
+            return query, self._to_keyword_query(query), None
+
+        tokens = _extract_query_tokens(query, drop_stopwords=True)
+        if not tokens:
+            tokens = _extract_query_tokens(query, drop_stopwords=False)
+        if not tokens:
+            normalized = self._to_keyword_query(query)
+            return normalized, normalized, None
+
+        text_query = " AND ".join(tokens)
+        keyword_query = " ".join(tokens)
+        phrase = _best_query_phrase(query)
+        phrase_query = f'"{phrase}"' if phrase else None
+        return text_query, keyword_query, phrase_query
+
     def _get_model(self) -> EmbeddingModel:
         if self._model is None:
-            self._model = EmbeddingModel(EmbeddingConfig(model_name=self.model_name, batch_size=16))
+            self._model = EmbeddingModel(
+                EmbeddingConfig(model_name=self.model_name, batch_size=16, local_files_only=True, quiet=True)
+            )
         return self._model
 
     def _load_embeddings(self) -> None:
@@ -283,3 +365,72 @@ def _normalize_bm25(rows: list[tuple[str, float]]) -> dict[str, float]:
 def _sanitize_fts_query(query: str) -> str:
     tokens = re.findall(r"\w[\w\-]*", query.lower())
     return " ".join(tokens)
+
+
+_FTS_BOOLEAN_TERMS = {"and", "or", "not", "near"}
+_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "been",
+    "being",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "their",
+    "these",
+    "this",
+    "to",
+    "was",
+    "were",
+    "with",
+}
+
+
+def _is_structured_fts_query(query: str) -> bool:
+    return bool(re.search(r'"|\(|\)|\*|\b(?:and|or|not|near)\b', query, flags=re.IGNORECASE))
+
+
+def _extract_query_tokens(query: str, drop_stopwords: bool) -> list[str]:
+    raw_tokens = re.findall(r"\w[\w\-]*", query.lower())
+    tokens: list[str] = []
+    for token in raw_tokens:
+        if token in _FTS_BOOLEAN_TERMS:
+            continue
+        if drop_stopwords and token in _QUERY_STOPWORDS:
+            continue
+        tokens.append(token)
+    return tokens
+
+
+def _best_query_phrase(query: str) -> str | None:
+    raw_tokens = re.findall(r"\w[\w\-]*", query.lower())
+    runs: list[list[str]] = []
+    current: list[str] = []
+    for token in raw_tokens:
+        if token in _FTS_BOOLEAN_TERMS or token in _QUERY_STOPWORDS:
+            if len(current) >= 2:
+                runs.append(current)
+            current = []
+            continue
+        current.append(token)
+    if len(current) >= 2:
+        runs.append(current)
+    if not runs:
+        return None
+    longest = max(runs, key=len)
+    return " ".join(longest)
