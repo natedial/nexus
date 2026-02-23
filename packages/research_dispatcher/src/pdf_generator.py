@@ -1,7 +1,7 @@
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
@@ -33,11 +33,9 @@ class PDFGenerator:
     def _load_format_rules(self, path: str) -> Dict[str, Any]:
         """Load formatting rules from YAML file."""
         try:
-            # Try the provided path first
             with open(path, 'r') as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            # Try relative to the script's directory
             try:
                 script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 full_path = os.path.join(script_dir, path)
@@ -47,21 +45,46 @@ class PDFGenerator:
                 print(f"Warning: {path} not found, using default colors")
                 return {}
 
+    def _get_font(self, weight: str = 'normal') -> str:
+        """Get font name from YAML config."""
+        font_family = self.format_rules.get('FONT_FAMILY', {})
+        base = font_family.get('body', 'Helvetica')
+        if weight == 'bold':
+            return f"{base}-Bold"
+        elif weight == 'italic':
+            return f"{base}-Oblique"
+        elif weight == 'bold-italic':
+            return f"{base}-BoldOblique"
+        return base
+
+    def _get_heading_font(self, weight: str = 'bold') -> str:
+        """Get heading font name from YAML config."""
+        font_family = self.format_rules.get('FONT_FAMILY', {})
+        base = font_family.get('heading', 'Helvetica')
+        if weight == 'bold':
+            return f"{base}-Bold"
+        return base
+
     def _setup_custom_styles(self):
         """Create custom paragraph styles dynamically from format_rules.yaml."""
-        # Get colors from YAML or use defaults
         title_config = self.format_rules.get('TITLE', [{}])[0]
-        title_bg_config = self.format_rules.get('TITLE_BACKGROUND', [{}])[0]
-
         h1_config = self.format_rules.get('H1_HEADING', [{}])[0]
-        h1_bg_config = self.format_rules.get('H1_BACKGROUND', [{}])[0]
-
         h2_config = self.format_rules.get('H2_HEADING', [{}])[0]
-        h2_bg_config = self.format_rules.get('H2_BACKGROUND', [{}])[0]
-
+        normal_config = self.format_rules.get('NORMAL_TEXT', [{}])[0]
         minimalist_config = self.format_rules.get('MINIMALIST_TEXT', [{}])[0]
+        accent_config = self.format_rules.get('ACCENT_TEXT', [{}])[0]
+        theme_header_config = self.format_rules.get('THEME_HEADER', [{}])[0]
+        callout_quote_config = self.format_rules.get('CALLOUT_QUOTE', [{}])[0]
+        callout_attr_config = self.format_rules.get('CALLOUT_ATTRIBUTION', [{}])[0]
+        feedback_config = self.format_rules.get('FEEDBACK_LINKS', [{}])[0]
+        indented_config = self.format_rules.get('INDENTED_BODY', [{}])[0]
+        summary_stat_config = self.format_rules.get('SUMMARY_STAT', [{}])[0]
+        summary_label_config = self.format_rules.get('SUMMARY_STAT_LABEL', [{}])[0]
 
-        # Title style - bold, large, black on white
+        # Set leading on base Normal style
+        self.styles['Normal'].leading = normal_config.get('leading', 18)
+
+        # Title style
         self.styles.add(ParagraphStyle(
             name='CustomTitle',
             parent=self.styles['Heading1'],
@@ -70,10 +93,10 @@ class PDFGenerator:
             spaceAfter=title_config.get('space_after', 40),
             spaceBefore=title_config.get('space_before', 20),
             alignment=TA_CENTER,
-            fontName='Helvetica-Bold'
+            fontName=self._get_heading_font('bold')
         ))
 
-        # H1 Section Header - clean, bold, black text
+        # H1 Section Header
         self.styles.add(ParagraphStyle(
             name='SectionHeader',
             parent=self.styles['Heading2'],
@@ -81,7 +104,8 @@ class PDFGenerator:
             textColor=colors.HexColor(h1_config.get('font_color', '#000000')),
             spaceAfter=h1_config.get('space_after', 20),
             spaceBefore=h1_config.get('space_before', 30),
-            fontName='Helvetica-Bold'
+            leading=h1_config.get('leading', 34),
+            fontName=self._get_heading_font('bold')
         ))
 
         # H2 Subsection Header
@@ -92,11 +116,11 @@ class PDFGenerator:
             textColor=colors.HexColor(h2_config.get('font_color', '#000000')),
             spaceAfter=h2_config.get('space_after', 16),
             spaceBefore=h2_config.get('space_before', 16),
-            fontName='Helvetica-Bold'
+            leading=h2_config.get('leading', 26),
+            fontName=self._get_heading_font('bold')
         ))
 
         # Accent style for small labels (coral red)
-        accent_config = self.format_rules.get('ACCENT_TEXT', [{}])[0]
         self.styles.add(ParagraphStyle(
             name='Accent',
             parent=self.styles['Normal'],
@@ -104,7 +128,7 @@ class PDFGenerator:
             textColor=colors.HexColor(accent_config.get('font_color', '#FF4458')),
             spaceAfter=accent_config.get('space_after', 6),
             spaceBefore=accent_config.get('space_before', 0),
-            fontName='Helvetica-Bold'
+            fontName=self._get_font('bold')
         ))
 
         # Minimalist style for timestamps and metadata
@@ -117,46 +141,116 @@ class PDFGenerator:
             spaceBefore=minimalist_config.get('space_before', 0)
         ))
 
-        # Smaller theme header for clustered thematic analysis
+        # Theme header — YAML-driven at 13pt
         self.styles.add(ParagraphStyle(
             name='ThemeHeader',
             parent=self.styles['Normal'],
-            fontSize=10,
-            textColor=colors.HexColor('#000000'),
-            spaceAfter=4,
-            spaceBefore=6,
-            fontName='Helvetica-Bold'
+            fontSize=theme_header_config.get('font_size', 13),
+            textColor=colors.HexColor(theme_header_config.get('font_color', '#000000')),
+            spaceAfter=theme_header_config.get('space_after', 4),
+            spaceBefore=theme_header_config.get('space_before', 6),
+            fontName=self._get_font('bold')
         ))
 
-        # Callout quote style - italic, slightly larger
+        # Callout quote style — YAML-driven with generous leading
         self.styles.add(ParagraphStyle(
             name='CalloutQuote',
             parent=self.styles['Normal'],
-            fontSize=12,
-            textColor=colors.HexColor('#333333'),
-            fontName='Helvetica-Oblique',
-            leading=16,
-            spaceAfter=4
+            fontSize=callout_quote_config.get('font_size', 12),
+            textColor=colors.HexColor(callout_quote_config.get('font_color', '#333333')),
+            fontName=self._get_font('italic'),
+            leading=callout_quote_config.get('leading', 20),
+            spaceAfter=callout_quote_config.get('space_after', 4)
         ))
 
-        # Callout attribution style
+        # Callout attribution style — YAML-driven
         self.styles.add(ParagraphStyle(
             name='CalloutAttribution',
             parent=self.styles['Normal'],
-            fontSize=9,
-            textColor=colors.HexColor('#666666'),
-            fontName='Helvetica',
-            alignment=2  # Right align
+            fontSize=callout_attr_config.get('font_size', 9),
+            textColor=colors.HexColor(callout_attr_config.get('font_color', '#666666')),
+            fontName=self._get_font(),
+            alignment=TA_RIGHT
         ))
 
-        # Feedback links style
+        # Feedback links style — YAML-driven
         self.styles.add(ParagraphStyle(
             name='FeedbackLinks',
             parent=self.styles['Normal'],
-            fontSize=8,
-            textColor=colors.HexColor('#666666'),
-            spaceAfter=8,
-            spaceBefore=2
+            fontSize=feedback_config.get('font_size', 8),
+            textColor=colors.HexColor(feedback_config.get('font_color', '#666666')),
+            spaceAfter=feedback_config.get('space_after', 8),
+            spaceBefore=feedback_config.get('space_before', 2),
+            leftIndent=indented_config.get('left_indent', 18)
+        ))
+
+        # Indented body text — replaces &nbsp; indentation
+        self.styles.add(ParagraphStyle(
+            name='IndentedBody',
+            parent=self.styles['Normal'],
+            fontSize=indented_config.get('font_size', 11),
+            textColor=colors.HexColor(indented_config.get('font_color', '#000000')),
+            leftIndent=indented_config.get('left_indent', 18),
+            leading=indented_config.get('leading', 18),
+            spaceAfter=indented_config.get('space_after', 6),
+            spaceBefore=indented_config.get('space_before', 2)
+        ))
+
+        # Conviction color styles
+        conviction_high = self.format_rules.get('CONVICTION_HIGH', [{}])[0]
+        conviction_med = self.format_rules.get('CONVICTION_MEDIUM', [{}])[0]
+        conviction_low = self.format_rules.get('CONVICTION_LOW', [{}])[0]
+
+        self.styles.add(ParagraphStyle(
+            name='ConvictionHigh',
+            parent=self.styles['Normal'],
+            fontSize=9,
+            textColor=colors.HexColor(conviction_high.get('color', '#00875A')),
+            fontName=self._get_font('bold'),
+            spaceAfter=2,
+            spaceBefore=0
+        ))
+
+        self.styles.add(ParagraphStyle(
+            name='ConvictionMedium',
+            parent=self.styles['Normal'],
+            fontSize=9,
+            textColor=colors.HexColor(conviction_med.get('color', '#FF8B00')),
+            fontName=self._get_font('bold'),
+            spaceAfter=2,
+            spaceBefore=0
+        ))
+
+        self.styles.add(ParagraphStyle(
+            name='ConvictionLow',
+            parent=self.styles['Normal'],
+            fontSize=9,
+            textColor=colors.HexColor(conviction_low.get('color', '#999999')),
+            fontName=self._get_font('bold'),
+            spaceAfter=2,
+            spaceBefore=0
+        ))
+
+        # Summary stat styles
+        self.styles.add(ParagraphStyle(
+            name='SummaryStat',
+            parent=self.styles['Normal'],
+            fontSize=summary_stat_config.get('font_size', 14),
+            textColor=colors.HexColor(summary_stat_config.get('font_color', '#000000')),
+            fontName=self._get_font('bold'),
+            alignment=TA_CENTER,
+            spaceAfter=0,
+            spaceBefore=0
+        ))
+
+        self.styles.add(ParagraphStyle(
+            name='SummaryStatLabel',
+            parent=self.styles['Normal'],
+            fontSize=summary_label_config.get('font_size', 8),
+            textColor=colors.HexColor(summary_label_config.get('font_color', '#999999')),
+            alignment=TA_CENTER,
+            spaceAfter=0,
+            spaceBefore=0
         ))
 
     def _format_date_range(self, start: str, end: str) -> str:
@@ -176,21 +270,11 @@ class PDFGenerator:
         return f"{_fmt(start_dt)} to {_fmt(end_dt)}"
 
     def _create_feedback_links(self, doc_id: str, item_id: str) -> str:
-        """
-        Create feedback links HTML for a theme or through-line.
-
-        Args:
-            doc_id: Document ID from parsed_research
-            item_id: Unique item identifier (hash)
-
-        Returns:
-            HTML string with clickable links: [Useful] [Flag] [Full Text]
-        """
+        """Create feedback links HTML for a theme or through-line."""
         feedback_url = Config.FEEDBACK_BASE_URL
         if not feedback_url or not doc_id:
             return ""
 
-        # Static document viewer page (fetches JSON from Edge Function)
         viewer_url = Config.DOCUMENT_VIEWER_URL
         token = self._sign_document_link(doc_id)
 
@@ -202,7 +286,6 @@ class PDFGenerator:
         view_url = f"{viewer_url}?{urlencode(view_params)}"
 
         return (
-            f'&nbsp;&nbsp;&nbsp;&nbsp;'
             f'[<a href="{useful_url}" color="#0066cc">Useful</a>] '
             f'[<a href="{flag_url}" color="#0066cc">Flag</a>] '
             f'[<a href="{view_url}" color="#0066cc">Full Text</a>]'
@@ -227,23 +310,31 @@ class PDFGenerator:
         signature_b64 = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
         return f"{payload_b64}.{signature_b64}"
 
+    def _get_conviction_style(self, conviction: str) -> str:
+        """Map conviction string to a style name."""
+        conviction_lower = conviction.strip().lower() if conviction else ''
+        if conviction_lower == 'high':
+            return 'ConvictionHigh'
+        elif conviction_lower in ('medium', 'moderate'):
+            return 'ConvictionMedium'
+        return 'ConvictionLow'
+
+    def _get_conviction_color(self, conviction: str) -> str:
+        """Map conviction string to a hex color for inline use."""
+        conviction_lower = conviction.strip().lower() if conviction else ''
+        if conviction_lower == 'high':
+            return self.format_rules.get('CONVICTION_HIGH', [{}])[0].get('color', '#00875A')
+        elif conviction_lower in ('medium', 'moderate'):
+            return self.format_rules.get('CONVICTION_MEDIUM', [{}])[0].get('color', '#FF8B00')
+        return self.format_rules.get('CONVICTION_LOW', [{}])[0].get('color', '#999999')
+
     def _create_callout_box(self, callout: Dict[str, Any]) -> list:
-        """
-        Create a styled callout box with coral red left border.
-
-        Args:
-            callout: Dictionary with 'text' and 'source' keys
-
-        Returns:
-            List of flowables for the callout box
-        """
+        """Create a styled callout box with coral red left border."""
         elements = []
 
-        # Build the quote with quotation marks
         quote_text = f'"{callout["text"]}"'
         quote_para = Paragraph(quote_text, self.styles['CalloutQuote'])
 
-        # Attribution line
         source_label = callout.get("source", "Multiple")
         if "," in source_label or source_label == "Multiple":
             attribution = f"— Sources: {source_label}"
@@ -251,8 +342,6 @@ class PDFGenerator:
             attribution = f"— {source_label}"
         attr_para = Paragraph(attribution, self.styles['CalloutAttribution'])
 
-        # Create a table with the coral red left border effect
-        # Using nested table: outer for border, inner for content
         content_table = Table(
             [[quote_para], [attr_para]],
             colWidths=[5.5 * inch]
@@ -265,13 +354,11 @@ class PDFGenerator:
             ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ]))
 
-        # Outer table with coral red left border
         border_cell = Table([['']], colWidths=[4], rowHeights=[None])
         border_cell.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#FF4458')),
         ]))
 
-        # Combine border and content
         callout_table = Table(
             [[border_cell, content_table]],
             colWidths=[4, 5.5 * inch]
@@ -291,19 +378,184 @@ class PDFGenerator:
 
         return elements
 
+    def _create_through_line_card(self, tl: Dict[str, Any]) -> list:
+        """Create a through-line card block with gray background and coral left border."""
+        elements = []
+        card_bg = self.format_rules.get('THROUGH_LINE_CARD', [{}])[0].get('background_color', '#F9F9F9')
+
+        card_rows = []
+
+        # Lead in bold
+        if tl.get('lead'):
+            lead_para = Paragraph(f"<b>{tl['lead']}</b>", self.styles['Normal'])
+            card_rows.append([lead_para])
+
+        # Key insight indented
+        if tl.get('key_insight'):
+            insight_para = Paragraph(tl['key_insight'], self.styles['IndentedBody'])
+            card_rows.append([insight_para])
+
+        # Tag line (themes, trades, sources) in minimalist style
+        tags = []
+        if tl.get('supporting_themes'):
+            themes_list = ', '.join(tl['supporting_themes'])
+            tags.append(f"Themes: {themes_list}")
+        if tl.get('supporting_trades'):
+            trades_list = ', '.join(tl['supporting_trades'])
+            tags.append(f"Trades: {trades_list}")
+
+        source = tl.get("source")
+        document = tl.get("document")
+        supporting_sources = tl.get("supporting_sources")
+        if source:
+            label = "Sources" if "," in source or source == "Multiple" else "Source"
+            tags.append(f"{label}: {source}")
+        elif supporting_sources:
+            sources_text = ", ".join(supporting_sources)
+            tags.append(f"Sources: {sources_text}")
+
+        if document:
+            doc_text = document[:80] + ("..." if len(document) > 80 else "")
+            tags.append(f"Doc: {doc_text}")
+
+        if tags:
+            tag_line = " | ".join(tags)
+            tag_para = Paragraph(f"<i>{tag_line}</i>", self.styles['Minimalist'])
+            card_rows.append([tag_para])
+
+        # Feedback links
+        doc_id = tl.get('doc_id', '')
+        item_id = tl.get('item_id', '')
+        if doc_id and item_id:
+            feedback_links = self._create_feedback_links(doc_id, item_id)
+            if feedback_links:
+                card_rows.append([Paragraph(feedback_links, self.styles['FeedbackLinks'])])
+
+        if not card_rows:
+            return elements
+
+        # Content table
+        content_width = 6.5 * inch
+        margins = self.format_rules.get('PAGE_MARGINS', {})
+        page_width = letter[0] / 72  # letter width in inches
+        available = page_width - margins.get('left', 0.75) - margins.get('right', 0.75)
+        content_width = (available - 0.1) * inch  # subtract border width
+
+        content_table = Table(card_rows, colWidths=[content_width])
+        content_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (0, 0), 10),
+            ('BOTTOMPADDING', (0, -1), (0, -1), 10),
+            ('TOPPADDING', (0, 1), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -2), 2),
+        ]))
+
+        # Coral left border cell
+        border_cell = Table([['']], colWidths=[4], rowHeights=[None])
+        border_cell.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#FF4458')),
+        ]))
+
+        # Combine border and content
+        card_table = Table(
+            [[border_cell, content_table]],
+            colWidths=[4, content_width]
+        )
+        card_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BACKGROUND', (1, 0), (1, 0), colors.HexColor(card_bg)),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ]))
+
+        elements.append(Spacer(1, 0.1 * inch))
+        elements.append(card_table)
+        elements.append(Spacer(1, 0.15 * inch))
+
+        return elements
+
+    def _create_summary_stats_bar(self, report_data: Dict[str, Any]) -> list:
+        """Create a compact horizontal stats bar for page 1."""
+        elements = []
+        summary = report_data.get('summary', {})
+
+        total_docs = summary.get('total_documents', 0)
+        sources = summary.get('by_source', {})
+        num_sources = len(sources)
+
+        # Date range display
+        source_date_range = report_data.get('source_date_range')
+        date_display = ''
+        if source_date_range:
+            start = source_date_range.get('start', '')
+            end = source_date_range.get('end', '')
+            if start and end:
+                date_display = self._format_date_range(start, end)
+
+        # Build stat cells: each is a mini table with number on top, label below
+        stat_cells = []
+
+        stat_items = [
+            (str(total_docs), 'Documents'),
+            (str(num_sources), 'Sources'),
+        ]
+        if date_display:
+            stat_items.append((date_display, 'Date Range'))
+
+        for value, label in stat_items:
+            val_para = Paragraph(value, self.styles['SummaryStat'])
+            label_para = Paragraph(label, self.styles['SummaryStatLabel'])
+            cell_table = Table([[val_para], [label_para]], colWidths=[2.0 * inch])
+            cell_table.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            stat_cells.append(cell_table)
+
+        if not stat_cells:
+            return elements
+
+        col_width = 2.0 * inch
+        stats_table = Table([stat_cells], colWidths=[col_width] * len(stat_cells))
+        stats_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F5F5F5')),
+            ('LINEAFTER', (0, 0), (-2, -1), 0.5, colors.HexColor('#DDDDDD')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ]))
+
+        elements.append(Spacer(1, 0.15 * inch))
+        elements.append(stats_table)
+        elements.append(Spacer(1, 0.15 * inch))
+
+        return elements
+
     def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
-        """
-        Generate PDF from report data.
-
-        Args:
-            report_data: Formatted report data dictionary
-            filename: Output filename
-
-        Returns:
-            Full path to generated PDF file
-        """
+        """Generate PDF from report data."""
         filepath = os.path.join(self.output_dir, filename)
-        doc = SimpleDocTemplate(filepath, pagesize=letter)
+
+        # Read page margins from YAML
+        margins = self.format_rules.get('PAGE_MARGINS', {})
+        doc = SimpleDocTemplate(
+            filepath,
+            pagesize=letter,
+            leftMargin=margins.get('left', 0.75) * inch,
+            rightMargin=margins.get('right', 0.75) * inch,
+            topMargin=margins.get('top', 1.0) * inch,
+            bottomMargin=margins.get('bottom', 0.75) * inch,
+        )
         story = []
 
         # Get callouts and index by source_through_line for positioning
@@ -315,7 +567,6 @@ class PDFGenerator:
                 callouts_by_through_line[source_tl] = callout
 
         def get_callout_for_through_line(lead):
-            """Get callout elements if one exists for this through-line."""
             if lead in callouts_by_through_line:
                 return self._create_callout_box(callouts_by_through_line[lead])
             return []
@@ -339,7 +590,7 @@ class PDFGenerator:
         timestamp = Paragraph(f"Generated: {report_data['generated_at']}", self.styles['Minimalist'])
         story.append(timestamp)
 
-        # Active filters banner (if any filters are set)
+        # Active filters banner
         active_filters = report_data.get('active_filters', {})
         if active_filters:
             filter_parts = []
@@ -355,65 +606,20 @@ class PDFGenerator:
                 filter_text = " | ".join(filter_parts)
                 story.append(Paragraph(f"Filters: {filter_text}", self.styles['Minimalist']))
 
-        story.append(Spacer(1, 0.5 * inch))
+        # Summary stats bar on page 1
+        story.extend(self._create_summary_stats_bar(report_data))
 
-        # Through Lines section
+        story.append(Spacer(1, 0.3 * inch))
+
+        # Through Lines section — rendered as card blocks
         through_lines = report_data.get('through_lines', [])
         if through_lines:
             story.append(Paragraph('Through Lines', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for tl in through_lines:
-                # Lead
-                if tl.get('lead'):
-                    lead_text = f"<b>{tl['lead']}</b>"
-                    story.append(Paragraph(lead_text, self.styles['Normal']))
-
-                # Key insight
-                if tl.get('key_insight'):
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;{tl['key_insight']}", self.styles['Normal']))
-
-                # Inline tags: Themes | Trades | Sources
-                tags = []
-                if tl.get('supporting_themes'):
-                    themes_list = ', '.join(tl['supporting_themes'])
-                    tags.append(f"Themes: {themes_list}")
-                if tl.get('supporting_trades'):
-                    trades_list = ', '.join(tl['supporting_trades'])
-                    tags.append(f"Trades: {trades_list}")
-
-                source = tl.get("source")
-                document = tl.get("document")
-                supporting_sources = tl.get("supporting_sources")
-                if source:
-                    label = "Sources" if "," in source or source == "Multiple" else "Source"
-                    tags.append(f"{label}: {source}")
-                elif supporting_sources:
-                    sources_text = ", ".join(supporting_sources)
-                    tags.append(f"Sources: {sources_text}")
-
-                if document:
-                    doc_text = document[:80] + ("..." if len(document) > 80 else "")
-                    tags.append(f"Doc: {doc_text}")
-
-                if tags:
-                    tag_line = " | ".join(tags)
-                    story.append(
-                        Paragraph(
-                            f"&nbsp;&nbsp;&nbsp;&nbsp;<i>{tag_line}</i>",
-                            self.styles['Normal'],
-                        )
-                    )
-
-                # Add feedback links for through-lines
-                doc_id = tl.get('doc_id', '')
-                item_id = tl.get('item_id', '')
-                if doc_id and item_id:
-                    feedback_links = self._create_feedback_links(doc_id, item_id)
-                    if feedback_links:
-                        story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
-
-                story.append(Spacer(1, 0.15 * inch))
+                # Render through-line as a card block
+                story.extend(self._create_through_line_card(tl))
 
                 # Insert callout if one is associated with this through-line
                 if tl.get('lead'):
@@ -421,7 +627,7 @@ class PDFGenerator:
 
             story.append(Spacer(1, 0.2 * inch))
 
-        # Themes Analysis section (moved to top)
+        # Themes Analysis section
         themes_by_through_line = report_data.get('themes_by_through_line', [])
         themes_analysis = report_data.get('themes_analysis', [])
         if themes_by_through_line:
@@ -434,7 +640,6 @@ class PDFGenerator:
                 story.append(Paragraph(lead, self.styles['SubsectionHeader']))
 
                 for theme in group.get('themes', []):
-                    # Theme label (with count only if >= 2)
                     count = theme['count']
                     if count >= 2:
                         theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
@@ -442,24 +647,31 @@ class PDFGenerator:
                         theme_title = f"<b>{theme['label']}</b>"
                     story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
 
-                    # Example contexts (show document name only first time)
                     examples = theme.get('examples', [])
                     for example in examples:
                         context = example.get('context', '')
                         if context:
-                            # Only show document name if this is the first time we've seen it
                             if example.get('show_document', True):
                                 doc_name = example.get('document', 'Unknown')
-                                story.append(Paragraph(
-                                    f"&nbsp;&nbsp;&nbsp;&nbsp;<i>({doc_name}):</i> {context}",
-                                    self.styles['Normal']
-                                ))
+                                # Two-column: context left, doc name right
+                                ctx_para = Paragraph(context, self.styles['IndentedBody'])
+                                doc_para = Paragraph(f"<i>{doc_name}</i>", self.styles['Minimalist'])
+                                attr_table = Table(
+                                    [[ctx_para, doc_para]],
+                                    colWidths=[5.0 * inch, 1.5 * inch]
+                                )
+                                attr_table.setStyle(TableStyle([
+                                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                    ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+                                    ('LEFTPADDING', (0, 0), (0, 0), 18),
+                                    ('LEFTPADDING', (1, 0), (1, 0), 4),
+                                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                                    ('TOPPADDING', (0, 0), (-1, -1), 2),
+                                    ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                                ]))
+                                story.append(attr_table)
                             else:
-                                # Just show context without document name
-                                story.append(Paragraph(
-                                    f"&nbsp;&nbsp;&nbsp;&nbsp;{context}",
-                                    self.styles['Normal']
-                                ))
+                                story.append(Paragraph(context, self.styles['IndentedBody']))
 
                             # Add feedback links
                             doc_id = example.get('doc_id', '')
@@ -478,7 +690,6 @@ class PDFGenerator:
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for theme in themes_analysis:
-                # Theme label (with count only if >= 2)
                 count = theme['count']
                 if count >= 2:
                     theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
@@ -486,26 +697,31 @@ class PDFGenerator:
                     theme_title = f"<b>{theme['label']}</b>"
                 story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
 
-                # Example contexts (show document name only first time)
                 examples = theme.get('examples', [])
                 for example in examples:
                     context = example.get('context', '')
                     if context:
-                        # Only show document name if this is the first time we've seen it
                         if example.get('show_document', True):
                             doc_name = example.get('document', 'Unknown')
-                            story.append(Paragraph(
-                                f"&nbsp;&nbsp;&nbsp;&nbsp;<i>({doc_name}):</i> {context}",
-                                self.styles['Normal']
-                            ))
+                            ctx_para = Paragraph(context, self.styles['IndentedBody'])
+                            doc_para = Paragraph(f"<i>{doc_name}</i>", self.styles['Minimalist'])
+                            attr_table = Table(
+                                [[ctx_para, doc_para]],
+                                colWidths=[5.0 * inch, 1.5 * inch]
+                            )
+                            attr_table.setStyle(TableStyle([
+                                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+                                ('LEFTPADDING', (0, 0), (0, 0), 18),
+                                ('LEFTPADDING', (1, 0), (1, 0), 4),
+                                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                                ('TOPPADDING', (0, 0), (-1, -1), 2),
+                                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                            ]))
+                            story.append(attr_table)
                         else:
-                            # Just show context without document name
-                            story.append(Paragraph(
-                                f"&nbsp;&nbsp;&nbsp;&nbsp;{context}",
-                                self.styles['Normal']
-                            ))
+                            story.append(Paragraph(context, self.styles['IndentedBody']))
 
-                        # Add feedback links
                         doc_id = example.get('doc_id', '')
                         item_id = example.get('item_id', '')
                         if doc_id and item_id:
@@ -518,7 +734,7 @@ class PDFGenerator:
             story.append(Spacer(1, 0.2 * inch))
 
 
-        # Trades section
+        # Trades section — with conviction color coding
         trades = report_data.get('trades', [])
         if trades:
             story.append(PageBreak())
@@ -526,25 +742,29 @@ class PDFGenerator:
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for trade in trades:
-                # Trade text and metadata
-                trade_header = f"<b>{trade['text']}</b>"
+                # Conviction colored label before trade text
+                conviction = trade['conviction']
+                conviction_color = self._get_conviction_color(conviction)
+                conviction_label = conviction.upper() if conviction else 'N/A'
+                trade_header = f'<font color="{conviction_color}"><b>[{conviction_label}]</b></font> <b>{trade["text"]}</b>'
                 story.append(Paragraph(trade_header, self.styles['Normal']))
 
-                # Trade details (exposure, timeframe, conviction)
-                details_line = f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Exposure: {trade['exposure']} | Timeframe: {trade['timeframe']} | Conviction: {trade['conviction']}</i>"
-                story.append(Paragraph(details_line, self.styles['Normal']))
+                # Trade details using IndentedBody
+                details_line = f"<i>Exposure: {trade['exposure']} | Timeframe: {trade['timeframe']}</i>"
+                story.append(Paragraph(details_line, self.styles['IndentedBody']))
 
                 # Rationale
                 if trade.get('rationale'):
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;{trade['rationale']}", self.styles['Normal']))
+                    story.append(Paragraph(trade['rationale'], self.styles['IndentedBody']))
 
                 # Trigger levels
                 if trade.get('trigger_levels'):
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Triggers: {trade['trigger_levels']}</i>", self.styles['Normal']))
+                    story.append(Paragraph(f"<i>Triggers: {trade['trigger_levels']}</i>", self.styles['IndentedBody']))
 
                 # Source document
-                source_info = f"&nbsp;&nbsp;&nbsp;&nbsp;<i>Source: {trade['source']} - {trade['document'][:80]}{'...' if len(trade['document']) > 80 else ''} ({trade['date']})</i>"
-                story.append(Paragraph(source_info, self.styles['Normal']))
+                doc_text = trade['document'][:80] + ('...' if len(trade['document']) > 80 else '')
+                source_info = f"<i>Source: {trade['source']} - {doc_text} ({trade['date']})</i>"
+                story.append(Paragraph(source_info, self.styles['IndentedBody']))
 
                 story.append(Spacer(1, 0.15 * inch))
 
@@ -559,12 +779,10 @@ class PDFGenerator:
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for day, events in economic_calendar.items():
-                # Day header
                 day_header = Paragraph(f"<b>{day}</b>", self.styles['Normal'])
                 story.append(day_header)
 
-                # Create table for this day
-                table_data = [['Time NY', 'Event', 'Consensus']]  # Headers
+                table_data = [['Time NY', 'Event', 'Consensus']]
                 for event in events:
                     table_data.append([
                         event['time'],
@@ -574,7 +792,6 @@ class PDFGenerator:
 
                 table = Table(table_data, colWidths=[1.0*inch, 4.0*inch, 1.5*inch])
 
-                # Create alternating row colors
                 table_style = [
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000000')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -586,7 +803,6 @@ class PDFGenerator:
                     ('FONTSIZE', (0, 1), (-1, -1), 8),
                 ]
 
-                # Add alternating row colors (white and light gray)
                 for i in range(1, len(table_data)):
                     if i % 2 == 1:
                         table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#FFFFFF')))
@@ -608,12 +824,10 @@ class PDFGenerator:
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for day, events in supply_calendar.items():
-                # Day header
                 day_header = Paragraph(f"<b>{day}</b>", self.styles['Normal'])
                 story.append(day_header)
 
-                # Create table for this day
-                table_data = [['Time NY', 'Description', 'Size (bn)']]  # Headers
+                table_data = [['Time NY', 'Description', 'Size (bn)']]
                 for event in events:
                     table_data.append([
                         event['time'],
@@ -623,7 +837,6 @@ class PDFGenerator:
 
                 table = Table(table_data, colWidths=[1.0*inch, 4.0*inch, 1.5*inch])
 
-                # Create alternating row colors
                 table_style = [
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000000')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -635,7 +848,6 @@ class PDFGenerator:
                     ('FONTSIZE', (0, 1), (-1, -1), 8),
                 ]
 
-                # Add alternating row colors (white and light gray)
                 for i in range(1, len(table_data)):
                     if i % 2 == 1:
                         table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#FFFFFF')))
@@ -649,35 +861,29 @@ class PDFGenerator:
             story.append(Spacer(1, 0.2 * inch))
 
 
-        # Details section (start on new page)
+        # Details section
         details = report_data.get('details', [])
         if details:
             story.append(PageBreak())
             story.append(Paragraph('Detailed Records', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
-            # Create table from details with smaller font and adjusted columns
             table_data = []
             if details:
-                # Header row
                 headers = list(details[0].keys())
                 table_data.append([h.replace('_', ' ').title() for h in headers])
 
-                # Data rows - truncate long text to fit
                 for record in details:
                     row = []
                     for h in headers:
                         value = str(record.get(h, ''))
-                        # Truncate document_name if too long
                         if h == 'document_name' and len(value) > 40:
                             value = value[:40] + '...'
                         row.append(value)
                     table_data.append(row)
 
-                # Auto-calculate column widths based on available space
                 table = Table(table_data)
 
-                # Create alternating row colors
                 table_style = [
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#000000')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -689,7 +895,6 @@ class PDFGenerator:
                     ('FONTSIZE', (0, 1), (-1, -1), 7),
                 ]
 
-                # Add alternating row colors (white and light gray)
                 for i in range(1, len(table_data)):
                     if i % 2 == 1:
                         table_style.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#FFFFFF')))
@@ -701,20 +906,17 @@ class PDFGenerator:
 
         story.append(Spacer(1, 0.3 * inch))
 
-        # Summary section (start on new page)
-        story.append(PageBreak())
-        story.append(Paragraph('Summary', self.styles['SectionHeader']))
-        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+        # Summary section — remaining nested dict data as a compact footer
         summary = report_data.get('summary', {})
-
-        for key, value in summary.items():
-            if isinstance(value, dict):
-                # Handle nested summaries (like category breakdown)
-                story.append(Paragraph(f"<b>{key.replace('_', ' ').title()}:</b>", self.styles['Normal']))
-                for sub_key, sub_value in value.items():
-                    story.append(Paragraph(f"&nbsp;&nbsp;&nbsp;&nbsp;{sub_key}: {sub_value}", self.styles['Normal']))
-            else:
-                story.append(Paragraph(f"<b>{key.replace('_', ' ').title()}:</b> {value}", self.styles['Normal']))
+        has_nested = any(isinstance(v, dict) for v in summary.values())
+        if has_nested:
+            story.append(Paragraph('Summary Detail', self.styles['SubsectionHeader']))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            for key, value in summary.items():
+                if isinstance(value, dict):
+                    story.append(Paragraph(f"<b>{key.replace('_', ' ').title()}:</b>", self.styles['Normal']))
+                    for sub_key, sub_value in value.items():
+                        story.append(Paragraph(f"{sub_key}: {sub_value}", self.styles['IndentedBody']))
 
         # Build PDF
         doc.build(story)

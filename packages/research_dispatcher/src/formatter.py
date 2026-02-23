@@ -245,12 +245,16 @@ class ReportFormatter:
                 if not isinstance(trade, dict):
                     continue
 
+                # Normalize conviction to lowercase for consistent color coding
+                raw_conviction = trade.get('conviction', 'N/A')
+                conviction = raw_conviction.strip().lower() if isinstance(raw_conviction, str) else 'n/a'
+
                 all_trades.append({
                     'text': trade.get('text', 'N/A'),
                     'exposure': trade.get('exposure', 'N/A'),
                     'rationale': trade.get('rationale', ''),
                     'timeframe': trade.get('timeframe', 'N/A'),
-                    'conviction': trade.get('conviction', 'N/A'),
+                    'conviction': conviction,
                     'trigger_levels': trade.get('trigger_levels'),
                     'document': doc_name,
                     'source': source,

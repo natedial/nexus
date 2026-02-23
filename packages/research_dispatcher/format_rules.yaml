@@ -1,6 +1,18 @@
 # Design Genome Project inspired color scheme
 # Colors: Coral Red, Black, White, Light Gray
 
+# Font family configuration (structured for future TTF registration)
+FONT_FAMILY:
+  heading: Helvetica
+  body: Helvetica
+
+# Page margins (inches)
+PAGE_MARGINS:
+  left: 0.75
+  right: 0.75
+  top: 1.0
+  bottom: 0.75
+
 TITLE:
   - font_size: 48
     font_color: '#000000'
@@ -17,6 +29,7 @@ H1_HEADING:
     font_color: '#FF4458'
     space_after: 20
     font_weight: bold
+    leading: 34
 
 H2_HEADING:
   - font_size: 20
@@ -24,6 +37,7 @@ H2_HEADING:
     space_after: 16
     space_before: 16
     font_weight: bold
+    leading: 26
 
 H1_BACKGROUND:
   - color: '#FFFFFF'
@@ -52,6 +66,7 @@ NORMAL_TEXT:
     font_color: '#000000'
     space_after: 10
     space_before: 10
+    leading: 18
 
 ACCENT_TEXT:
   - font_size: 9
@@ -65,3 +80,65 @@ MINIMALIST_TEXT:
     font_color: '#999999'
     space_after: 6
     space_before: 0
+
+# Theme header style (13pt bold for visual hierarchy)
+THEME_HEADER:
+  - font_size: 13
+    font_color: '#000000'
+    space_after: 4
+    space_before: 6
+    font_weight: bold
+
+# Callout quote style (italic, with generous leading)
+CALLOUT_QUOTE:
+  - font_size: 12
+    font_color: '#333333'
+    font_style: italic
+    leading: 20
+    space_after: 4
+
+# Callout attribution style (right-aligned, small)
+CALLOUT_ATTRIBUTION:
+  - font_size: 9
+    font_color: '#666666'
+    alignment: right
+
+# Feedback links style
+FEEDBACK_LINKS:
+  - font_size: 8
+    font_color: '#666666'
+    space_after: 8
+    space_before: 2
+
+# Indented body text (replaces &nbsp; hacks)
+INDENTED_BODY:
+  - font_size: 11
+    font_color: '#000000'
+    left_indent: 18
+    leading: 18
+    space_after: 6
+    space_before: 2
+
+# Conviction color coding for trades
+CONVICTION_HIGH:
+  - color: '#00875A'
+
+CONVICTION_MEDIUM:
+  - color: '#FF8B00'
+
+CONVICTION_LOW:
+  - color: '#999999'
+
+# Summary stats bar styles
+SUMMARY_STAT:
+  - font_size: 14
+    font_color: '#000000'
+    font_weight: bold
+
+SUMMARY_STAT_LABEL:
+  - font_size: 8
+    font_color: '#999999'
+
+# Through-line card background
+THROUGH_LINE_CARD:
+  - background_color: '#F9F9F9'
