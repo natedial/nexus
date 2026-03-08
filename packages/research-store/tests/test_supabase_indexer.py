@@ -58,13 +58,27 @@ def test_index_pending_documents_marks_indexed_and_failed(tmp_path: Path, monkey
         def __init__(self):
             self.indexed: list[int] = []
             self.failed: list[int] = []
+            self.reclaimed: list[int] = []
+
+        def fetch_stale_processing_documents(
+            self, *, limit: int, stale_before_batch_id: int
+        ) -> list[SupabaseDocument]:
+            assert limit == 5
+            assert stale_before_batch_id > 0
+            return [SupabaseDocument(id=99, parsed_data={"full_text": "doc 99 body"})]
 
         def fetch_pending_documents(self, *, limit: int) -> list[SupabaseDocument]:
-            assert limit == 5
+            assert limit == 4
             return [
                 SupabaseDocument(id=101, parsed_data={"full_text": "doc 101 body"}),
                 SupabaseDocument(id=202, parsed_data={"full_text": "doc 202 body"}),
             ]
+
+        def reclaim_document(self, *, doc_id: int, batch_id: int, stale_before_batch_id: int) -> bool:
+            assert batch_id > 0
+            assert stale_before_batch_id > 0
+            self.reclaimed.append(doc_id)
+            return True
 
         def claim_document(self, *, doc_id: int, batch_id: int) -> bool:
             assert batch_id > 0
@@ -110,13 +124,38 @@ def test_index_pending_documents_marks_indexed_and_failed(tmp_path: Path, monkey
         db_path=db_path,
         npz_path=npz_path,
         poll_limit=5,
+        stale_processing_seconds=3600,
         index_version="v-test",
     )
 
-    assert stats == IndexingStats(scanned=2, claimed=2, indexed=1, failed=1)
-    assert fake_client.indexed == [101]
+    assert stats == IndexingStats(scanned=3, claimed=3, indexed=2, failed=1, reclaimed=1)
+    assert fake_client.reclaimed == [99]
+    assert fake_client.indexed == [99, 101]
     assert fake_client.failed == [202]
 
     saved = np.load(npz_path)
-    assert saved["chunk_ids"].tolist() == ["supabase:101:chunk-1"]
-    assert saved["embeddings"].shape == (1, 2)
+    assert saved["chunk_ids"].tolist() == ["supabase:99:chunk-1", "supabase:101:chunk-1"]
+    assert saved["embeddings"].shape == (2, 2)
+
+
+def test_index_pending_documents_skips_stale_reclaim_when_disabled(tmp_path: Path, monkeypatch) -> None:
+    class FakeClient:
+        def fetch_stale_processing_documents(self, *, limit: int, stale_before_batch_id: int) -> list[SupabaseDocument]:
+            raise AssertionError("stale reclaim should be disabled")
+
+        def fetch_pending_documents(self, *, limit: int) -> list[SupabaseDocument]:
+            assert limit == 1
+            return []
+
+    monkeypatch.setattr("distill_tool.supabase_indexer.SupabaseRestClient", lambda **kwargs: FakeClient())
+
+    stats = index_pending_documents(
+        supabase_url="https://example.supabase.co",
+        supabase_key="service-key",
+        db_path=tmp_path / "chunks.sqlite",
+        npz_path=tmp_path / "embeddings.npz",
+        poll_limit=1,
+        stale_processing_seconds=0,
+    )
+
+    assert stats == IndexingStats(scanned=0, claimed=0, indexed=0, failed=0, reclaimed=0)

@@ -1,13 +1,89 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from distill_tool.chunking import FALLBACK_MIN_CHARS, FALLBACK_TARGET_CHARS, PAGE_MARKER_REGEX
-from distill_tool.supabase_indexer import index_pending_documents
+from distill_tool.supabase_indexer import IndexingStats, index_pending_documents
+
+
+logger = logging.getLogger(__name__)
+
+
+def run_indexing_worker(
+    args: argparse.Namespace,
+    *,
+    index_once=None,
+    sleep_fn=time.sleep,
+    log: logging.Logger | None = None,
+) -> IndexingStats:
+    active_logger = log or logger
+    index_once = index_once or index_pending_documents
+    total = IndexingStats(scanned=0, claimed=0, indexed=0, failed=0, reclaimed=0)
+    cycle = 0
+
+    while True:
+        cycle += 1
+        try:
+            stats = index_once(
+                supabase_url=args.supabase_url,
+                supabase_key=args.supabase_key,
+                db_path=args.db_path,
+                npz_path=args.npz_path,
+                dictionary_path=args.dictionary,
+                model_name=args.model,
+                max_keywords=args.max_keywords,
+                overlap_paragraphs=args.overlap_paragraphs,
+                page_marker_regex=args.page_marker_regex,
+                fallback_target_chars=args.fallback_target_chars,
+                fallback_min_chars=args.fallback_min_chars,
+                batch_size=args.batch_size,
+                skip_embeddings=args.no_embeddings,
+                poll_limit=args.poll_limit,
+                stale_processing_seconds=args.stale_processing_seconds,
+                index_version=args.index_version,
+                table=args.table,
+                schema=args.schema,
+            )
+            total = total + stats
+            active_logger.info(
+                "indexing cycle %s complete (scanned=%s claimed=%s indexed=%s failed=%s reclaimed=%s)",
+                cycle,
+                stats.scanned,
+                stats.claimed,
+                stats.indexed,
+                stats.failed,
+                stats.reclaimed,
+            )
+        except KeyboardInterrupt:
+            active_logger.info("indexing worker interrupted after %s cycle(s)", cycle - 1)
+            break
+        except Exception:
+            if not args.continuous:
+                raise
+            active_logger.exception(
+                "indexing cycle %s failed; retrying in %.1f seconds",
+                cycle,
+                args.error_backoff_seconds,
+            )
+            sleep_fn(args.error_backoff_seconds)
+            if args.max_cycles is not None and cycle >= args.max_cycles:
+                break
+            continue
+
+        if not args.continuous:
+            break
+        if args.max_cycles is not None and cycle >= args.max_cycles:
+            break
+
+        sleep_fn(args.poll_interval_seconds)
+
+    return total
 
 
 def main() -> None:
@@ -32,6 +108,35 @@ def main() -> None:
     parser.add_argument("--table", type=str, default="parsed_research")
     parser.add_argument("--schema", type=str, default="public")
     parser.add_argument("--poll-limit", type=int, default=25)
+    parser.add_argument(
+        "--continuous",
+        action="store_true",
+        help="Keep polling for more work until interrupted.",
+    )
+    parser.add_argument(
+        "--poll-interval-seconds",
+        type=float,
+        default=30.0,
+        help="Sleep interval between successful polling cycles in continuous mode.",
+    )
+    parser.add_argument(
+        "--error-backoff-seconds",
+        type=float,
+        default=60.0,
+        help="Sleep interval after a failed cycle in continuous mode.",
+    )
+    parser.add_argument(
+        "--stale-processing-seconds",
+        type=float,
+        default=3600.0,
+        help="Reclaim rows stuck in processing longer than this many seconds; use 0 to disable.",
+    )
+    parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--index-version", type=str, default="v1")
     parser.add_argument(
         "--env-file",
@@ -81,38 +186,33 @@ def main() -> None:
         parser.error("Missing Supabase URL. Use --supabase-url or set SUPABASE_URL.")
     if not args.supabase_key:
         parser.error("Missing Supabase key. Use --supabase-key or set SUPABASE_KEY.")
+    if args.poll_limit < 1:
+        parser.error("--poll-limit must be at least 1.")
+    if args.continuous and args.poll_interval_seconds < 0:
+        parser.error("--poll-interval-seconds must be >= 0.")
+    if args.continuous and args.error_backoff_seconds < 0:
+        parser.error("--error-backoff-seconds must be >= 0.")
+    if args.stale_processing_seconds < 0:
+        parser.error("--stale-processing-seconds must be >= 0.")
 
     out_dir = Path(args.out_dir)
-    db_path = Path(args.db) if args.db else out_dir / "chunks.sqlite"
-    npz_path = Path(args.npz) if args.npz else out_dir / "embeddings.npz"
+    args.db_path = Path(args.db) if args.db else out_dir / "chunks.sqlite"
+    args.npz_path = Path(args.npz) if args.npz else out_dir / "embeddings.npz"
 
-    stats = index_pending_documents(
-        supabase_url=args.supabase_url,
-        supabase_key=args.supabase_key,
-        db_path=db_path,
-        npz_path=npz_path,
-        dictionary_path=args.dictionary,
-        model_name=args.model,
-        max_keywords=args.max_keywords,
-        overlap_paragraphs=args.overlap_paragraphs,
-        page_marker_regex=args.page_marker_regex,
-        fallback_target_chars=args.fallback_target_chars,
-        fallback_min_chars=args.fallback_min_chars,
-        batch_size=args.batch_size,
-        skip_embeddings=args.no_embeddings,
-        poll_limit=args.poll_limit,
-        index_version=args.index_version,
-        table=args.table,
-        schema=args.schema,
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
     )
+
+    stats = run_indexing_worker(args)
 
     print(
         "Supabase indexing complete "
         f"(scanned={stats.scanned}, claimed={stats.claimed}, "
-        f"indexed={stats.indexed}, failed={stats.failed})"
+        f"indexed={stats.indexed}, failed={stats.failed}, reclaimed={stats.reclaimed})"
     )
-    print(f"Corpus DB: {db_path}")
-    print(f"Embeddings: {npz_path}")
+    print(f"Corpus DB: {args.db_path}")
+    print(f"Embeddings: {args.npz_path}")
 
 
 if __name__ == "__main__":

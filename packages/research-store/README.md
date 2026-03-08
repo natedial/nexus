@@ -142,12 +142,34 @@ distill-index-supabase \
 
 Status behavior:
 - Claims work with `index_status='pending'` and moves rows to `processing`.
+- Reclaims stale `processing` rows by treating `indexing_batch_id` as a lease timestamp.
 - On success sets `index_status='indexed'`, `indexed_at`, and `index_version`.
 - On failure sets `index_status='failed'` and writes `index_error`.
 
 Notes:
 - Uses local `chunks.sqlite` + `embeddings.npz` as the retrieval corpus.
 - Embeddings sidecar is merged incrementally so prior vectors are preserved across runs.
+
+Run continuously for unattended indexing:
+
+```bash
+distill-index-supabase \
+  --supabase-url "$SUPABASE_URL" \
+  --supabase-key "$SUPABASE_KEY" \
+  --out-dir distill_out \
+  --continuous \
+  --poll-limit 25 \
+  --poll-interval-seconds 30 \
+  --error-backoff-seconds 60 \
+  --stale-processing-seconds 3600
+```
+
+Docker background worker:
+
+```bash
+docker compose up -d indexer
+docker compose logs -f indexer
+```
 
 ### Common flags
 
@@ -161,6 +183,10 @@ Notes:
 - `--no-embeddings` skip embedding generation (offline smoke test)
 - `distill-search --min-lexical-score` lexical floor for precision (default `0.05`)
 - `distill-search --semantic-tail-mode` handling for semantic-only matches: `filter` | `demote` | `allow` (default `filter`)
+- `distill-index-supabase --continuous` keep polling until interrupted
+- `distill-index-supabase --poll-interval-seconds` sleep between successful cycles (default `30`)
+- `distill-index-supabase --error-backoff-seconds` sleep after failed cycles (default `60`)
+- `distill-index-supabase --stale-processing-seconds` reclaim stale `processing` leases after this many seconds (default `3600`, use `0` to disable)
 
 ## Python usage
 

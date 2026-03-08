@@ -5,7 +5,7 @@ BIN := $(VENV)/bin
 COMPOSE ?= docker compose
 ARGS ?=
 
-.PHONY: help install test distill search search-judge search-eval backfill index-supabase docker-build docker-shell docker-test docker-distill docker-search docker-search-judge docker-search-eval docker-backfill docker-index-supabase
+.PHONY: help install test distill search search-judge search-eval backfill index-supabase docker-build docker-shell docker-test docker-distill docker-search docker-search-judge docker-search-eval docker-backfill docker-index-supabase docker-up-indexer docker-logs-indexer docker-stop-indexer
 
 help:
 	@printf "Targets:\n"
@@ -26,6 +26,9 @@ help:
 	@printf "  make docker-search-eval ARGS='...'\n"
 	@printf "  make docker-backfill ARGS='...'\n"
 	@printf "  make docker-index-supabase ARGS='...'\n"
+	@printf "  make docker-up-indexer\n"
+	@printf "  make docker-logs-indexer\n"
+	@printf "  make docker-stop-indexer\n"
 
 install:
 	python3 -m venv $(VENV)
@@ -79,3 +82,12 @@ docker-backfill:
 
 docker-index-supabase:
 	$(COMPOSE) run --rm app distill-index-supabase $(ARGS)
+
+docker-up-indexer:
+	$(COMPOSE) up -d indexer
+
+docker-logs-indexer:
+	$(COMPOSE) logs -f indexer
+
+docker-stop-indexer:
+	$(COMPOSE) stop indexer

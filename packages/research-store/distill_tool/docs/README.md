@@ -179,6 +179,24 @@ distill-index-supabase \
 
 The command loads `.env` by default. Override with `--env-file path/to/.env`.
 
+For unattended operation, run it in continuous mode:
+
+```bash
+distill-index-supabase \
+  --supabase-url "$SUPABASE_URL" \
+  --supabase-key "$SUPABASE_KEY" \
+  --out-dir distill_out \
+  --continuous \
+  --poll-interval-seconds 30 \
+  --error-backoff-seconds 60 \
+  --stale-processing-seconds 3600
+```
+
+In continuous mode the worker:
+- sleeps between successful polls
+- retries after failed cycles instead of exiting
+- reclaims stale `processing` rows using `indexing_batch_id` as a lease timestamp
+
 ## Future extensions
 
 - Pluggable embedding backends (remote APIs, alternative local models)

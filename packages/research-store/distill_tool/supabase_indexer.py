@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -27,6 +27,22 @@ class IndexingStats:
     claimed: int
     indexed: int
     failed: int
+    reclaimed: int = 0
+
+    def __add__(self, other: object) -> IndexingStats:
+        if not isinstance(other, IndexingStats):
+            return NotImplemented
+        return IndexingStats(
+            scanned=self.scanned + other.scanned,
+            claimed=self.claimed + other.claimed,
+            indexed=self.indexed + other.indexed,
+            failed=self.failed + other.failed,
+            reclaimed=self.reclaimed + other.reclaimed,
+        )
+
+
+class TransientSupabaseError(RuntimeError):
+    """Raised for network or service failures that a background worker should retry."""
 
 
 class SupabaseRestClient:
@@ -57,22 +73,23 @@ class SupabaseRestClient:
             },
         )
 
-        docs: list[SupabaseDocument] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            raw_id = row.get("id")
-            if raw_id is None:
-                continue
-            doc_id = int(raw_id)
-            docs.append(
-                SupabaseDocument(
-                    id=doc_id,
-                    parsed_data=row.get("parsed_data"),
-                )
-            )
+        return self._rows_to_documents(rows)
 
-        return docs
+    def fetch_stale_processing_documents(
+        self, *, limit: int, stale_before_batch_id: int
+    ) -> list[SupabaseDocument]:
+        rows = self._request_json(
+            "GET",
+            f"/rest/v1/{self.table}",
+            query={
+                "select": "id,parsed_data",
+                "index_status": "eq.processing",
+                "indexing_batch_id": f"lt.{stale_before_batch_id}",
+                "order": "indexing_batch_id.asc,id.asc",
+                "limit": str(limit),
+            },
+        )
+        return self._rows_to_documents(rows)
 
     def claim_document(self, *, doc_id: int, batch_id: int) -> bool:
         rows = self._request_json(
@@ -81,6 +98,27 @@ class SupabaseRestClient:
             query={
                 "id": f"eq.{doc_id}",
                 "index_status": "eq.pending",
+            },
+            payload={
+                "index_status": "processing",
+                "indexed_at": None,
+                "index_error": None,
+                "indexing_batch_id": batch_id,
+            },
+            return_representation=True,
+        )
+        return bool(rows)
+
+    def reclaim_document(
+        self, *, doc_id: int, batch_id: int, stale_before_batch_id: int
+    ) -> bool:
+        rows = self._request_json(
+            "PATCH",
+            f"/rest/v1/{self.table}",
+            query={
+                "id": f"eq.{doc_id}",
+                "index_status": "eq.processing",
+                "indexing_batch_id": f"lt.{stale_before_batch_id}",
             },
             payload={
                 "index_status": "processing",
@@ -176,10 +214,35 @@ class SupabaseRestClient:
                 return json.loads(raw)
         except HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(
+            error_message = (
                 f"Supabase request failed ({method} {path}{query_string}): "
                 f"HTTP {exc.code} {error_body}"
+            )
+            if exc.code in {408, 425, 429, 500, 502, 503, 504}:
+                raise TransientSupabaseError(error_message) from exc
+            raise RuntimeError(error_message) from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise TransientSupabaseError(
+                f"Supabase request failed ({method} {path}{query_string}): {exc}"
             ) from exc
+
+    @staticmethod
+    def _rows_to_documents(rows: Any) -> list[SupabaseDocument]:
+        docs: list[SupabaseDocument] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            raw_id = row.get("id")
+            if raw_id is None:
+                continue
+            doc_id = int(raw_id)
+            docs.append(
+                SupabaseDocument(
+                    id=doc_id,
+                    parsed_data=row.get("parsed_data"),
+                )
+            )
+        return docs
 
 
 class EmbeddingCorpus:
@@ -287,6 +350,7 @@ def index_pending_documents(
     batch_size: int = 32,
     skip_embeddings: bool = False,
     poll_limit: int = 25,
+    stale_processing_seconds: float = 3600.0,
     index_version: str = "v1",
     table: str = "parsed_research",
     schema: str = "public",
@@ -301,20 +365,49 @@ def index_pending_documents(
         schema=schema,
     )
 
-    pending_docs = client.fetch_pending_documents(limit=poll_limit)
-    scanned = len(pending_docs)
+    stale_docs: list[SupabaseDocument] = []
+    if stale_processing_seconds > 0 and poll_limit > 0:
+        stale_before_batch_id = (
+            int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+            - int(stale_processing_seconds * 1000)
+        )
+        stale_docs = client.fetch_stale_processing_documents(
+            limit=poll_limit,
+            stale_before_batch_id=stale_before_batch_id,
+        )
+    else:
+        stale_before_batch_id = 0
+
+    remaining_slots = max(0, poll_limit - len(stale_docs))
+    pending_docs = (
+        client.fetch_pending_documents(limit=remaining_slots) if remaining_slots > 0 else []
+    )
+    scanned = len(stale_docs) + len(pending_docs)
     claimed = 0
     indexed = 0
     failed = 0
+    reclaimed = 0
 
     batch_id = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
     corpus = EmbeddingCorpus.load(npz_path)
 
-    for doc in pending_docs:
-        if not client.claim_document(doc_id=doc.id, batch_id=batch_id):
+    claim_targets = [(doc, True) for doc in stale_docs] + [(doc, False) for doc in pending_docs]
+
+    for doc, is_reclaim in claim_targets:
+        if is_reclaim:
+            claimed_doc = client.reclaim_document(
+                doc_id=doc.id,
+                batch_id=batch_id,
+                stale_before_batch_id=stale_before_batch_id,
+            )
+        else:
+            claimed_doc = client.claim_document(doc_id=doc.id, batch_id=batch_id)
+        if not claimed_doc:
             continue
 
         claimed += 1
+        if is_reclaim:
+            reclaimed += 1
         try:
             full_text = extract_full_text(
                 {"id": doc.id, "parsed_data": doc.parsed_data}
@@ -355,6 +448,7 @@ def index_pending_documents(
         claimed=claimed,
         indexed=indexed,
         failed=failed,
+        reclaimed=reclaimed,
     )
 
 
