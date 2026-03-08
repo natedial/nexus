@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 PAGE_MARKER_REGEX = r"^--- PAGE (\d+) ---\s*$"
 PAGE_MARKER_RE = re.compile(PAGE_MARKER_REGEX, re.MULTILINE)
+HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S", re.MULTILINE)
 FALLBACK_TARGET_CHARS = 2000
 FALLBACK_MIN_CHARS = 700
 
@@ -62,29 +63,72 @@ def split_fallback_chunks(
                 min_chars=min_chars,
             )
         )
-    paragraphs = normalized_paragraphs
+    sections = _split_sections(normalized_paragraphs)
 
     pages: list[Page] = []
+    page_number = 1
+    for heading, section_paragraphs in sections:
+        chunk_texts = _pack_section_chunks(
+            heading=heading,
+            paragraphs=section_paragraphs,
+            target_chars=target_chars,
+            min_chars=min_chars,
+        )
+        for chunk_text in chunk_texts:
+            pages.append(Page(number=page_number, text=chunk_text))
+            page_number += 1
+
+    return pages
+
+
+def has_structural_headings(text: str) -> bool:
+    return bool(HEADING_RE.search(text))
+
+
+def _pack_section_chunks(
+    heading: str | None,
+    paragraphs: list[str],
+    target_chars: int,
+    min_chars: int,
+) -> list[str]:
+    prefix = f"{heading}\n\n" if heading else ""
+    if not paragraphs:
+        return [heading] if heading else []
+
+    effective_target = max(min_chars, target_chars - len(prefix)) if prefix else target_chars
+    effective_min = min(min_chars, effective_target)
+    packed = _pack_paragraphs(
+        paragraphs=paragraphs,
+        target_chars=effective_target,
+        min_chars=effective_min,
+    )
+    if prefix:
+        return [f"{prefix}{chunk}" for chunk in packed]
+    return packed
+
+
+def _pack_paragraphs(
+    paragraphs: list[str],
+    target_chars: int,
+    min_chars: int,
+) -> list[str]:
+    pages: list[str] = []
     current: list[str] = []
     current_len = 0
-    page_number = 1
 
     for para in paragraphs:
         para_len = len(para)
         if para_len >= target_chars:
             if current:
-                pages.append(Page(number=page_number, text="\n\n".join(current)))
-                page_number += 1
+                pages.append("\n\n".join(current))
                 current = []
                 current_len = 0
-            pages.append(Page(number=page_number, text=para))
-            page_number += 1
+            pages.append(para)
             continue
 
         projected_len = current_len + para_len + (2 if current else 0)
         if current and projected_len > target_chars and current_len >= min_chars:
-            pages.append(Page(number=page_number, text="\n\n".join(current)))
-            page_number += 1
+            pages.append("\n\n".join(current))
             current = [para]
             current_len = para_len
             continue
@@ -94,12 +138,31 @@ def split_fallback_chunks(
 
     if current:
         if pages and current_len < min_chars:
-            merged_text = pages[-1].text + "\n\n" + "\n\n".join(current)
-            pages[-1] = Page(number=pages[-1].number, text=merged_text)
+            pages[-1] = pages[-1] + "\n\n" + "\n\n".join(current)
         else:
-            pages.append(Page(number=page_number, text="\n\n".join(current)))
+            pages.append("\n\n".join(current))
 
     return pages
+
+
+def _split_sections(paragraphs: list[str]) -> list[tuple[str | None, list[str]]]:
+    sections: list[tuple[str | None, list[str]]] = []
+    current_heading: str | None = None
+    current_paragraphs: list[str] = []
+
+    for paragraph in paragraphs:
+        if HEADING_RE.match(paragraph):
+            if current_heading or current_paragraphs:
+                sections.append((current_heading, current_paragraphs))
+            current_heading = paragraph
+            current_paragraphs = []
+            continue
+        current_paragraphs.append(paragraph)
+
+    if current_heading or current_paragraphs:
+        sections.append((current_heading, current_paragraphs))
+
+    return sections
 
 
 def _split_oversized_paragraph(paragraph: str, target_chars: int, min_chars: int) -> list[str]:

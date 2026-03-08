@@ -333,6 +333,7 @@ def index_pending_documents(
                 fallback_min_chars=fallback_min_chars,
                 batch_size=batch_size,
                 skip_embeddings=skip_embeddings,
+                embedding_model=None,
             )
 
             fresh = EmbeddingCorpus.load(npz_path)

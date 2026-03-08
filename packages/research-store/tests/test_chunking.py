@@ -17,3 +17,18 @@ def test_split_fallback_chunks_splits_single_long_paragraph_by_words_when_no_sen
 
     assert len(pages) > 1
     assert max(len(page.text) for page in pages) <= 120
+
+
+def test_split_fallback_chunks_repeats_heading_context_across_section_splits() -> None:
+    text = "\n\n".join(
+        [
+            "# Market Outlook",
+            " ".join([f"Sentence {i}." for i in range(1, 40)]),
+            " ".join([f"Follow up {i}." for i in range(40, 80)]),
+        ]
+    )
+
+    pages = split_fallback_chunks(text, target_chars=180, min_chars=60)
+
+    assert len(pages) > 1
+    assert all(page.text.startswith("# Market Outlook") for page in pages)

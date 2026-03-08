@@ -4,11 +4,23 @@ import argparse
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from distill_tool.chunking import FALLBACK_MIN_CHARS, FALLBACK_TARGET_CHARS, PAGE_MARKER_REGEX
 from distill_tool.supabase_indexer import index_pending_documents
 
 
 def main() -> None:
+    bootstrap = argparse.ArgumentParser(add_help=False)
+    bootstrap.add_argument(
+        "--env-file",
+        type=str,
+        default=".env",
+        help=argparse.SUPPRESS,
+    )
+    bootstrap_args, _ = bootstrap.parse_known_args()
+    load_dotenv(dotenv_path=bootstrap_args.env_file)
+
     parser = argparse.ArgumentParser(
         description=(
             "Index pending parsed_research rows from Supabase by distilling "
@@ -21,6 +33,12 @@ def main() -> None:
     parser.add_argument("--schema", type=str, default="public")
     parser.add_argument("--poll-limit", type=int, default=25)
     parser.add_argument("--index-version", type=str, default="v1")
+    parser.add_argument(
+        "--env-file",
+        type=str,
+        default=".env",
+        help="Path to dotenv file loaded before reading SUPABASE_URL/SUPABASE_KEY.",
+    )
     parser.add_argument("--dict", dest="dictionary", type=str, help="Path to dictionary file.")
     parser.add_argument("--out-dir", type=str, default="distill_out", help="Output directory.")
     parser.add_argument("--db", type=str, help="SQLite database path.")

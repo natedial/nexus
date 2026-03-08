@@ -1,5 +1,8 @@
 .venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
 data/
-distill_tool/__pycache__/
+distill_out/
 distill_tool/out/
-distill_tool.egg-info/
+*.egg-info/

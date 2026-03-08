@@ -19,6 +19,7 @@ Default page marker pattern:
 ```
 
 If no markers exist, fallback paragraph-based chunking is applied.
+Markdown headings are preserved as section context during fallback chunking.
 Oversized single paragraphs are further split by sentence boundaries (with whitespace fallback).
 
 ## CLI
@@ -35,6 +36,23 @@ Offline smoke test (no model download):
 
 ```bash
 distill --file path/to/input.md --out-dir distill_out --no-embeddings
+```
+
+Convenience wrappers:
+
+```bash
+make test
+make search ARGS='--db distill_out/chunks.sqlite --npz distill_out/embeddings.npz --query "risk controls"'
+```
+
+Docker Compose:
+
+```bash
+docker compose build app
+docker compose run --rm app distill-search \
+  --db distill_out/chunks.sqlite \
+  --npz distill_out/embeddings.npz \
+  --query "risk controls"
 ```
 
 ## Python API
@@ -95,12 +113,13 @@ FTS virtual tables:
 ## Keyword extraction
 
 Hybrid approach:
-- dictionary matches (case-insensitive)
+- normalized dictionary matches with optional aliases
 - RAKE-style phrase scoring for additional phrases
 
 Dictionary format:
 - text file: one term per line (`#` for comments)
-- JSON: array of strings, or `{"terms":[...]}`
+- text file with aliases via `canonical|alias1|alias2`
+- JSON: array of strings, `{"terms":[...]}`, or objects containing `term` and `aliases`
 
 ## Embeddings
 
@@ -116,12 +135,27 @@ Use CLI:
 distill-search --db distill_out/chunks.sqlite --npz distill_out/embeddings.npz --query '"risk controls" AND audit'
 ```
 
+Evaluate retrieval quality:
+
+```bash
+distill-search-eval \
+  --db distill_out/chunks.sqlite \
+  --npz distill_out/embeddings.npz \
+  --queries eval/queries.jsonl \
+  --limit 10
+```
+
 This ranks by:
-- lexical score from `chunks_fts` + `keyword_fts`
+- lexical score from `chunks_fts` + normalized `chunk_keywords`
 - semantic score from cosine similarity over embeddings
-- weighted fusion (`--keyword-weight`, `--semantic-weight`)
+- reciprocal-rank fusion with weighted lexical/semantic priors
+- duplicate-aware downranking using `text_hash`
 - lexical precision floor (`--min-lexical-score`, default `0.05`)
 - semantic-only tail handling (`--semantic-tail-mode`: `filter` | `demote` | `allow`)
+
+Judged query JSONL supports:
+- binary relevance with `{"relevant":["chunk-a","chunk-b"]}`
+- graded relevance with `{"relevant":{"chunk-a":2,"chunk-b":1}}`
 
 Backfill an existing DB:
 
@@ -142,6 +176,8 @@ distill-index-supabase \
   --poll-limit 50 \
   --index-version v1
 ```
+
+The command loads `.env` by default. Override with `--env-file path/to/.env`.
 
 ## Future extensions
 

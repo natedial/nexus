@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from distill_tool.embeddings import EmbeddingConfig, EmbeddingModel
+from distill_tool.keywords import normalize_term
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class HybridSearchEngine:
         self._embedding_chunk_ids: np.ndarray | None = None
         self._embedding_matrix: np.ndarray | None = None
         self._last_semantic_error: str | None = None
+        self._table_exists_cache: dict[str, bool] = {}
         self._load_embeddings()
 
     def search(
@@ -57,19 +60,20 @@ class HybridSearchEngine:
             return []
 
         self._last_semantic_error = None
-        candidate_limit = max(limit * 8, 50)
+        lexical_candidate_limit = max(limit * 25, 200)
+        semantic_candidate_limit = max(limit * 40, 400)
 
         lexical_scores: dict[str, float] = {}
         if keyword_weight > 0.0 or semantic_weight <= 0.0:
-            lexical_scores = self._lexical_scores(query, run_id=run_id, limit=candidate_limit)
+            lexical_scores = self._lexical_scores(query, run_id=run_id, limit=lexical_candidate_limit)
 
         semantic_scores: dict[str, float] = {}
         if semantic_weight > 0.0:
-            semantic_scores = self._semantic_scores(query, run_id=run_id, limit=candidate_limit)
+            semantic_scores = self._semantic_scores(query, run_id=run_id, limit=semantic_candidate_limit)
 
         if semantic_weight > 0.0 and not semantic_scores:
             if not lexical_scores:
-                lexical_scores = self._lexical_scores(query, run_id=run_id, limit=candidate_limit)
+                lexical_scores = self._lexical_scores(query, run_id=run_id, limit=lexical_candidate_limit)
             semantic_weight = 0.0
             keyword_weight = 1.0
         elif lexical_scores and not semantic_scores:
@@ -97,12 +101,21 @@ class HybridSearchEngine:
         if semantic_tail_mode not in {"filter", "demote", "allow"}:
             semantic_tail_mode = "filter"
         lexical_constraints_active = keyword_weight > 0.0 and any(score > 0.0 for score in lexical_scores.values())
+        lexical_ranks = _rank_map(lexical_scores)
+        semantic_ranks = _rank_map(semantic_scores)
 
         final_scores: list[tuple[str, float, float, float]] = []
         for chunk_id in all_chunk_ids:
             lexical = lexical_scores.get(chunk_id, 0.0)
             semantic = semantic_scores.get(chunk_id, 0.0)
-            hybrid = (keyword_weight * lexical) + (semantic_weight * semantic)
+            hybrid = _reciprocal_rank_fusion(
+                lexical_rank=lexical_ranks.get(chunk_id),
+                semantic_rank=semantic_ranks.get(chunk_id),
+                keyword_weight=keyword_weight,
+                semantic_weight=semantic_weight,
+            )
+            # Preserve score magnitude as a tiebreaker after reciprocal-rank fusion.
+            hybrid += 0.05 * ((keyword_weight * lexical) + (semantic_weight * semantic))
 
             if lexical_constraints_active and semantic > 0.0 and lexical <= 0.0:
                 if semantic_tail_mode == "filter":
@@ -115,15 +128,38 @@ class HybridSearchEngine:
 
             final_scores.append((chunk_id, lexical, semantic, hybrid))
 
-        final_scores.sort(key=lambda row: row[3], reverse=True)
-        top = final_scores[:limit]
-        metadata = self._load_chunk_metadata([row[0] for row in top])
+        if not final_scores:
+            return []
 
-        results: list[SearchResult] = []
-        for chunk_id, lexical, semantic, hybrid in top:
+        metadata = self._load_chunk_metadata([row[0] for row in final_scores])
+        hash_counts = self._load_text_hash_counts(
+            {
+                chunk["text_hash"]
+                for chunk in metadata.values()
+                if chunk.get("text_hash")
+            }
+        )
+
+        rescored: list[tuple[str, float, float, float]] = []
+        for chunk_id, lexical, semantic, hybrid in final_scores:
             chunk = metadata.get(chunk_id)
             if not chunk:
                 continue
+            hybrid *= _duplicate_penalty(hash_counts.get(chunk["text_hash"], 1))
+            rescored.append((chunk_id, lexical, semantic, hybrid))
+
+        rescored.sort(key=lambda row: row[3], reverse=True)
+
+        results: list[SearchResult] = []
+        seen_hashes: set[str] = set()
+        for chunk_id, lexical, semantic, hybrid in rescored:
+            chunk = metadata.get(chunk_id)
+            if not chunk:
+                continue
+            text_hash = chunk["text_hash"]
+            if text_hash in seen_hashes:
+                continue
+            seen_hashes.add(text_hash)
             results.append(
                 SearchResult(
                     chunk_id=chunk_id,
@@ -138,48 +174,52 @@ class HybridSearchEngine:
                     hybrid_score=hybrid,
                 )
             )
+            if len(results) >= limit:
+                break
 
         return results
 
     def _lexical_scores(self, query: str, run_id: str | None, limit: int) -> dict[str, float]:
-        text_query, keyword_query, phrase_query = self._build_lexical_queries(query)
+        text_query, phrase_queries = self._build_text_queries(query)
         text_rows = self._fts_query(
             table="chunks_fts",
             query=text_query,
             run_id=run_id,
             limit=limit,
         )
-        keyword_rows = self._fts_query(
-            table="keyword_fts",
-            query=keyword_query,
-            run_id=run_id,
-            limit=limit,
-        )
-        phrase_rows: list[tuple[str, float]] = []
-        if phrase_query:
+        keyword_scores = self._keyword_scores(query, run_id=run_id)
+        if not keyword_scores and self._table_exists("keyword_fts"):
+            keyword_rows = self._fts_query(
+                table="keyword_fts",
+                query=self._to_keyword_query(query),
+                run_id=run_id,
+                limit=limit,
+            )
+            keyword_scores = _normalize_bm25(keyword_rows)
+
+        phrase_scores: dict[str, float] = {}
+        for phrase_query in phrase_queries:
             phrase_rows = self._fts_query(
                 table="chunks_fts",
                 query=phrase_query,
                 run_id=run_id,
                 limit=limit,
             )
+            for chunk_id, score in _normalize_bm25(phrase_rows).items():
+                phrase_scores[chunk_id] = max(phrase_scores.get(chunk_id, 0.0), score)
 
         text_scores = _normalize_bm25(text_rows)
-        keyword_scores = _normalize_bm25(keyword_rows)
-        phrase_scores = _normalize_bm25(phrase_rows)
         chunk_ids = set(text_scores) | set(keyword_scores) | set(phrase_scores)
 
         combined: dict[str, float] = {}
         for chunk_id in chunk_ids:
-            if phrase_query:
-                # Natural-language queries benefit from giving phrase matches extra lift.
+            if phrase_scores:
                 score = (
                     0.50 * keyword_scores.get(chunk_id, 0.0)
                     + 0.30 * text_scores.get(chunk_id, 0.0)
                     + 0.20 * phrase_scores.get(chunk_id, 0.0)
                 )
             else:
-                # Favor explicit keyword hits while still considering full-text syntax matches.
                 score = 0.65 * keyword_scores.get(chunk_id, 0.0) + 0.35 * text_scores.get(chunk_id, 0.0)
             if score > 0.0:
                 combined[chunk_id] = score
@@ -255,7 +295,6 @@ class HybridSearchEngine:
             key=lambda row: row[1],
             reverse=True,
         )
-        # Dot-product for normalized vectors is cosine in [-1, 1].
         return {
             str(self._embedding_chunk_ids[i]): max(0.0, min(1.0, (score + 1.0) / 2.0))
             for i, score in top_pairs
@@ -272,7 +311,7 @@ class HybridSearchEngine:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
                 f"""
-                SELECT chunk_id, run_id, source_path, page_number, chunk_index, text, keywords_json
+                SELECT chunk_id, run_id, source_path, page_number, chunk_index, text, keywords_json, text_hash
                 FROM chunks
                 WHERE chunk_id IN ({placeholders})
                 """,
@@ -288,13 +327,66 @@ class HybridSearchEngine:
                 "chunk_index": int(row[4]),
                 "text": str(row[5]),
                 "keywords": json.loads(row[6]),
+                "text_hash": str(row[7]),
             }
         return metadata
+
+    def _load_text_hash_counts(self, text_hashes: set[str]) -> dict[str, int]:
+        if not text_hashes:
+            return {}
+        placeholders = ",".join("?" for _ in text_hashes)
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT text_hash, COUNT(*)
+                FROM chunks
+                WHERE text_hash IN ({placeholders})
+                GROUP BY text_hash
+                """,
+                list(text_hashes),
+            ).fetchall()
+        return {str(row[0]): int(row[1]) for row in rows}
 
     def _chunk_ids_for_run(self, run_id: str) -> set[str]:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute("SELECT chunk_id FROM chunks WHERE run_id = ?", (run_id,)).fetchall()
         return {str(row[0]) for row in rows}
+
+    def _keyword_scores(self, query: str, run_id: str | None) -> dict[str, float]:
+        if not self._table_exists("chunk_keywords"):
+            return {}
+
+        candidates = _query_keyword_candidates(query)
+        if not candidates:
+            return {}
+
+        placeholders = ",".join("?" for _ in candidates)
+        sql = (
+            "SELECT ck.chunk_id, ck.term, ck.source, ck.score "
+            "FROM chunk_keywords ck "
+            "JOIN chunks c ON c.chunk_id = ck.chunk_id "
+            f"WHERE ck.term IN ({placeholders})"
+        )
+        params: list[object] = list(candidates)
+        if run_id:
+            sql += " AND c.run_id = ?"
+            params.append(run_id)
+
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        if not rows:
+            return {}
+
+        raw_scores: dict[str, float] = {}
+        for chunk_id, term, source, score in rows:
+            source_key = str(source).strip().lower()
+            source_weight = 1.8 if source_key in {"dictionary", "dict"} else 1.0
+            term_weight = candidates.get(str(term), 1.0)
+            raw_scores[str(chunk_id)] = raw_scores.get(str(chunk_id), 0.0) + (
+                max(float(score), 1.0) * source_weight * term_weight
+            )
+        return _normalize_positive_scores(raw_scores)
 
     def _to_keyword_query(self, query: str) -> str:
         tokens = re.findall(r'"[^"]+"|\w[\w\-]*', query.lower())
@@ -314,22 +406,20 @@ class HybridSearchEngine:
             normalized.append(token)
         return " ".join(normalized)
 
-    def _build_lexical_queries(self, query: str) -> tuple[str, str, str | None]:
+    def _build_text_queries(self, query: str) -> tuple[str, list[str]]:
         if _is_structured_fts_query(query):
-            return query, self._to_keyword_query(query), None
+            return query, []
 
         tokens = _extract_query_tokens(query, drop_stopwords=True)
         if not tokens:
             tokens = _extract_query_tokens(query, drop_stopwords=False)
         if not tokens:
             normalized = self._to_keyword_query(query)
-            return normalized, normalized, None
+            return normalized, []
 
         text_query = " AND ".join(tokens)
-        keyword_query = " ".join(tokens)
-        phrase = _best_query_phrase(query)
-        phrase_query = f'"{phrase}"' if phrase else None
-        return text_query, keyword_query, phrase_query
+        phrase_queries = [f'"{phrase}"' for phrase in _query_phrase_candidates(query)]
+        return text_query, phrase_queries
 
     def _get_model(self) -> EmbeddingModel:
         if self._model is None:
@@ -345,21 +435,47 @@ class HybridSearchEngine:
         self._embedding_chunk_ids = data["chunk_ids"].astype(str)
         self._embedding_matrix = data["embeddings"].astype("float32")
 
+    def _table_exists(self, table_name: str) -> bool:
+        cached = self._table_exists_cache.get(table_name)
+        if cached is not None:
+            return cached
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = ? LIMIT 1",
+                (table_name,),
+            ).fetchone()
+        exists = row is not None
+        self._table_exists_cache[table_name] = exists
+        return exists
+
 
 def _normalize_bm25(rows: list[tuple[str, float]]) -> dict[str, float]:
     if not rows:
         return {}
-    # SQLite bm25: lower score is better; map best->1 and worst->0.
     values = [row[1] for row in rows]
     best = min(values)
     worst = max(values)
     if abs(worst - best) < 1e-9:
         return {chunk_id: 1.0 for chunk_id, _ in rows}
 
-    normalized: dict[str, float] = {}
-    for chunk_id, value in rows:
-        normalized[chunk_id] = (worst - value) / (worst - best)
-    return normalized
+    return {
+        chunk_id: (worst - value) / (worst - best)
+        for chunk_id, value in rows
+    }
+
+
+def _normalize_positive_scores(scores: dict[str, float]) -> dict[str, float]:
+    if not scores:
+        return {}
+    values = list(scores.values())
+    best = max(values)
+    worst = min(values)
+    if abs(best - worst) < 1e-9:
+        return {chunk_id: 1.0 for chunk_id in scores}
+    return {
+        chunk_id: (value - worst) / (best - worst)
+        for chunk_id, value in scores.items()
+    }
 
 
 def _sanitize_fts_query(query: str) -> str:
@@ -406,7 +522,7 @@ def _is_structured_fts_query(query: str) -> bool:
 
 
 def _extract_query_tokens(query: str, drop_stopwords: bool) -> list[str]:
-    raw_tokens = re.findall(r"\w[\w\-]*", query.lower())
+    raw_tokens = normalize_term(query).split()
     tokens: list[str] = []
     for token in raw_tokens:
         if token in _FTS_BOOLEAN_TERMS:
@@ -417,8 +533,8 @@ def _extract_query_tokens(query: str, drop_stopwords: bool) -> list[str]:
     return tokens
 
 
-def _best_query_phrase(query: str) -> str | None:
-    raw_tokens = re.findall(r"\w[\w\-]*", query.lower())
+def _query_phrase_candidates(query: str) -> list[str]:
+    raw_tokens = normalize_term(query).split()
     runs: list[list[str]] = []
     current: list[str] = []
     for token in raw_tokens:
@@ -430,7 +546,68 @@ def _best_query_phrase(query: str) -> str | None:
         current.append(token)
     if len(current) >= 2:
         runs.append(current)
-    if not runs:
-        return None
-    longest = max(runs, key=len)
-    return " ".join(longest)
+
+    phrases = [" ".join(run) for run in runs if len(run) >= 2]
+    phrases.sort(key=lambda value: (-len(value.split()), value))
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for phrase in phrases:
+        if phrase in seen:
+            continue
+        seen.add(phrase)
+        deduped.append(phrase)
+    return deduped[:3]
+
+
+def _query_keyword_candidates(query: str) -> dict[str, float]:
+    raw_tokens = normalize_term(query).split()
+    if not raw_tokens:
+        return {}
+
+    filtered_tokens = [token for token in raw_tokens if token not in _QUERY_STOPWORDS]
+    tokens = filtered_tokens or raw_tokens
+    candidates: dict[str, float] = {}
+
+    for token in tokens:
+        candidates[token] = max(candidates.get(token, 0.0), 1.0)
+
+    max_ngram = min(4, len(tokens))
+    for ngram_size in range(2, max_ngram + 1):
+        for idx in range(len(tokens) - ngram_size + 1):
+            phrase = " ".join(tokens[idx : idx + ngram_size])
+            candidates[phrase] = max(candidates.get(phrase, 0.0), 1.0 + (0.35 * (ngram_size - 1)))
+
+    for phrase in _query_phrase_candidates(query):
+        candidates[phrase] = max(
+            candidates.get(phrase, 0.0),
+            1.25 + (0.25 * (len(phrase.split()) - 1)),
+        )
+
+    return candidates
+
+
+def _rank_map(scores: dict[str, float]) -> dict[str, int]:
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    return {chunk_id: idx for idx, (chunk_id, _) in enumerate(ranked, start=1)}
+
+
+def _reciprocal_rank_fusion(
+    lexical_rank: int | None,
+    semantic_rank: int | None,
+    keyword_weight: float,
+    semantic_weight: float,
+    rrf_k: int = 60,
+) -> float:
+    score = 0.0
+    if lexical_rank is not None:
+        score += keyword_weight / (rrf_k + lexical_rank)
+    if semantic_rank is not None:
+        score += semantic_weight / (rrf_k + semantic_rank)
+    return score
+
+
+def _duplicate_penalty(duplicate_count: int) -> float:
+    if duplicate_count <= 1:
+        return 1.0
+    return 1.0 / (1.0 + math.log10(float(duplicate_count)))

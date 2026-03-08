@@ -5,12 +5,12 @@ Standalone markdown distillation tool for keyword extraction and embeddings.
 ## What it does
 
 - Splits markdown into page chunks using `--- PAGE N ---` markers.
-- Falls back to paragraph-based chunking when page markers are absent.
-- Extracts keywords using a hybrid dictionary + RAKE approach.
+- Falls back to heading-aware paragraph chunking when page markers are absent, and further refines oversized pages.
+- Extracts keywords using a normalized dictionary + RAKE approach.
 - Generates local embeddings (sentence-transformers) and writes a `.npz` sidecar.
 - Stores chunk metadata and keywords in SQLite for later search pipelines.
 - Maintains FTS indexes for fast syntax-based lexical search.
-- Supports hybrid querying that fuses keyword/FTS relevance with semantic similarity.
+- Supports hybrid querying that fuses keyword/FTS relevance with semantic similarity, duplicate suppression, and deeper candidate recall.
 
 ## Page markers
 
@@ -26,7 +26,8 @@ You can override the regex with `--page-marker-regex`.
 
 Provide a domain dictionary as either:
 - Plain text file (one term per line, `#` for comments)
-- JSON array of strings (or `{"terms": [...]}`)
+- Plain text with aliases using `canonical|alias1|alias2`
+- JSON array of strings, or `{"terms": [...]}`, or objects like `{"term": "...", "aliases": ["..."]}`
 
 ## CLI usage
 
@@ -43,6 +44,35 @@ Skip embeddings (offline smoke test):
 ```bash
 distill --file path/to/input.md --out-dir distill_out --no-embeddings
 ```
+
+## Run modes
+
+Raw CLI from the local virtualenv:
+
+```bash
+source .venv/bin/activate
+distill --file path/to/input.md --out-dir distill_out
+distill-search --db distill_out/chunks.sqlite --npz distill_out/embeddings.npz --query "risk controls"
+```
+
+Convenience wrappers via `make`:
+
+```bash
+make test
+make search ARGS='--db distill_out/chunks.sqlite --npz distill_out/embeddings.npz --query "risk controls"'
+```
+
+Containerized via Docker Compose:
+
+```bash
+docker compose build app
+docker compose run --rm app distill-search \
+  --db distill_out/chunks.sqlite \
+  --npz distill_out/embeddings.npz \
+  --query "risk controls"
+```
+
+The compose setup bind-mounts the repository into `/app` and keeps Hugging Face caches in a named volume.
 
 Outputs:
 - `distill_out/chunks.sqlite` (metadata + keywords)
@@ -66,6 +96,28 @@ JSON output:
 distill-search --db distill_out/chunks.sqlite --npz distill_out/embeddings.npz --query "kyc risk" --json
 ```
 
+Evaluate retrieval on a judged query set:
+
+```bash
+distill-search-eval \
+  --db distill_out/chunks.sqlite \
+  --npz distill_out/embeddings.npz \
+  --queries eval/queries.jsonl \
+  --limit 10
+```
+
+Judged queries use JSONL. Each line should contain `query` plus either binary relevance:
+
+```json
+{"query_id":"q1","query":"impact on fiscal deficit","relevant":["chunk-a","chunk-b"]}
+```
+
+or graded relevance:
+
+```json
+{"query_id":"q2","query":"energy prices","relevant":{"chunk-c":2,"chunk-d":1}}
+```
+
 Backfill indexes for an existing corpus (no re-distillation):
 
 ```bash
@@ -85,6 +137,8 @@ distill-index-supabase \
   --poll-limit 50 \
   --index-version v1
 ```
+
+`distill-index-supabase` loads `.env` by default. Use `--env-file` to override.
 
 Status behavior:
 - Claims work with `index_status='pending'` and moves rows to `processing`.

@@ -14,6 +14,7 @@ from distill_tool.chunking import (
     PAGE_MARKER_REGEX,
     Page,
     apply_page_overlap,
+    has_structural_headings,
     split_fallback_chunks,
     split_pages,
 )
@@ -78,6 +79,7 @@ def distill_markdown(
     batch_size: int = 32,
     source_path: str | None = None,
     skip_embeddings: bool = False,
+    embedding_model: EmbeddingModel | None = None,
 ) -> DistillResult:
     marker_re = None
     if page_marker_regex:
@@ -96,6 +98,24 @@ def distill_markdown(
             target_chars=fallback_target_chars,
             min_chars=fallback_min_chars,
         )
+    else:
+        refined_pages: list[Page] = []
+        for page in pages:
+            if len(page.text) <= fallback_target_chars and not has_structural_headings(page.text):
+                refined_pages.append(page)
+                continue
+
+            split_page_chunks = split_fallback_chunks(
+                page.text,
+                target_chars=fallback_target_chars,
+                min_chars=fallback_min_chars,
+            )
+            if len(split_page_chunks) <= 1:
+                refined_pages.append(page)
+                continue
+
+            refined_pages.extend(Page(number=page.number, text=chunk.text) for chunk in split_page_chunks)
+        pages = refined_pages
     pages = apply_page_overlap(pages, overlap_paragraphs=overlap_paragraphs)
 
     dictionary = load_dictionary(dictionary_path)
@@ -113,8 +133,10 @@ def distill_markdown(
         embeddings = np.empty((len(texts), 0), dtype="float32")
         embedding_dim = 0
     else:
-        embedding_config = EmbeddingConfig(model_name=model_name, batch_size=batch_size)
-        model = EmbeddingModel(embedding_config)
+        model = embedding_model
+        if model is None:
+            embedding_config = EmbeddingConfig(model_name=model_name, batch_size=batch_size)
+            model = EmbeddingModel(embedding_config)
         embeddings = model.embed(texts)
         embedding_dim = embeddings.shape[1] if embeddings.size else 0
 

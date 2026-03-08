@@ -8,6 +8,8 @@ from typing import Iterable
 
 import numpy as np
 
+from distill_tool.keywords import normalize_term
+
 
 @dataclass(frozen=True)
 class RunInfo:
@@ -86,6 +88,12 @@ def init_db(db_path: str | Path) -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_chunk_keywords_chunk_id
             ON chunk_keywords(chunk_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chunks_text_hash
+            ON chunks(text_hash)
             """
         )
         conn.execute(
@@ -172,7 +180,7 @@ def store_chunks(db_path: str | Path, chunks: Iterable[ChunkRecord]) -> None:
             parsed = json.loads(chunk.keywords_json)
             terms_for_fts: list[str] = []
             for item in parsed:
-                term = str(item.get("term", "")).strip().lower()
+                term = normalize_term(str(item.get("term", "")))
                 source = str(item.get("source", "")).strip()
                 try:
                     score = float(item.get("score", 0.0))
@@ -266,7 +274,7 @@ def backfill_search_indexes(
                     parsed_keywords = []
 
                 for item in parsed_keywords:
-                    term = str(item.get("term", "")).strip().lower()
+                    term = normalize_term(str(item.get("term", "")))
                     source = str(item.get("source", "")).strip()
                     try:
                         score = float(item.get("score", 0.0))

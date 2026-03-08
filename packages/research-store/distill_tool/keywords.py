@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import html
 import json
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,7 +46,24 @@ class Keyword:
     score: float
 
 
-def load_dictionary(path: str | Path | None) -> list[str]:
+@dataclass(frozen=True)
+class DictionaryEntry:
+    term: str
+    aliases: tuple[str, ...] = ()
+
+
+def normalize_term(text: str) -> str:
+    text = html.unescape(text or "")
+    text = text.replace("&", " and ")
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"['’]", "", text)
+    text = re.sub(r"[^a-z0-9\s\-]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def load_dictionary(path: str | Path | None) -> list[DictionaryEntry]:
     if not path:
         return []
     path = Path(path)
@@ -53,22 +72,22 @@ def load_dictionary(path: str | Path | None) -> list[str]:
     if path.suffix.lower() == ".json":
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
-            terms = data.get("terms", [])
+            terms = data.get("terms", data.get("entries", []))
         else:
             terms = data
-        return [str(term).strip() for term in terms if str(term).strip()]
-    terms = []
+        return _parse_dictionary_entries(terms)
+    terms: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         terms.append(line)
-    return terms
+    return _parse_dictionary_entries(terms)
 
 
 def extract_keywords(
     text: str,
-    dictionary: list[str] | None = None,
+    dictionary: list[str] | list[DictionaryEntry] | None = None,
     max_keywords: int = 20,
 ) -> list[Keyword]:
     dictionary = dictionary or []
@@ -88,23 +107,27 @@ def extract_keywords(
     return keywords[:max_keywords]
 
 
-def _dictionary_matches(text: str, dictionary: list[str]) -> Counter:
+def _dictionary_matches(text: str, dictionary: list[str] | list[DictionaryEntry]) -> Counter:
     counter: Counter = Counter()
-    text_lower = text.lower()
-    for term in dictionary:
-        cleaned = term.strip().lower()
-        if not cleaned:
+    text_normalized = normalize_term(text)
+    for entry in _coerce_dictionary_entries(dictionary):
+        canonical = normalize_term(entry.term)
+        if not canonical:
             continue
-        pattern = r"\b" + re.escape(cleaned).replace(r"\ ", r"\s+") + r"\b"
-        count = len(re.findall(pattern, text_lower))
-        if count:
-            counter[cleaned] += count
+        total = 0
+        variants = {canonical, *(normalize_term(alias) for alias in entry.aliases)}
+        for variant in variants:
+            if not variant:
+                continue
+            pattern = r"\b" + re.escape(variant).replace(r"\ ", r"\s+") + r"\b"
+            total += len(re.findall(pattern, text_normalized))
+        if total:
+            counter[canonical] += total
     return counter
 
 
 def _rake_keywords(text: str, max_phrases: int = 40) -> list[tuple[str, float]]:
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9\s\-]", " ", text)
+    text = normalize_term(text)
     words = [w for w in text.split() if w]
 
     phrases: list[list[str]] = []
@@ -142,3 +165,50 @@ def _rake_keywords(text: str, max_phrases: int = 40) -> list[tuple[str, float]]:
 
     ranked = sorted(phrase_scores.items(), key=lambda item: item[1], reverse=True)
     return ranked[:max_phrases]
+
+
+def _coerce_dictionary_entries(
+    dictionary: list[str] | list[DictionaryEntry],
+) -> list[DictionaryEntry]:
+    entries: list[DictionaryEntry] = []
+    for item in dictionary:
+        if isinstance(item, DictionaryEntry):
+            entries.append(item)
+            continue
+        parsed = _parse_dictionary_entry(item)
+        if parsed is not None:
+            entries.append(parsed)
+    return entries
+
+
+def _parse_dictionary_entries(items: list[object]) -> list[DictionaryEntry]:
+    entries: list[DictionaryEntry] = []
+    for item in items:
+        parsed = _parse_dictionary_entry(item)
+        if parsed is not None:
+            entries.append(parsed)
+    return entries
+
+
+def _parse_dictionary_entry(item: object) -> DictionaryEntry | None:
+    if isinstance(item, dict):
+        raw_term = str(item.get("term", "")).strip()
+        if not raw_term:
+            return None
+        aliases = tuple(
+            normalized
+            for normalized in (normalize_term(str(alias)) for alias in item.get("aliases", []))
+            if normalized and normalized != normalize_term(raw_term)
+        )
+        return DictionaryEntry(term=normalize_term(raw_term), aliases=aliases)
+
+    raw = str(item).strip()
+    if not raw:
+        return None
+    parts = [normalize_term(part) for part in raw.split("|")]
+    parts = [part for part in parts if part]
+    if not parts:
+        return None
+    canonical = parts[0]
+    aliases = tuple(alias for alias in parts[1:] if alias != canonical)
+    return DictionaryEntry(term=canonical, aliases=aliases)
