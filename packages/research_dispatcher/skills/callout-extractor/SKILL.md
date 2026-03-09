@@ -12,6 +12,7 @@ Use this skill when the task includes selecting quotable highlights from a synth
 2. Ensure each callout is punchy, specific, and standalone.
 3. Attribute each callout to the sources that support it.
 4. Do not invent facts; only use statements present in the synthesis.
+5. Prefer callouts that reveal fragility in the dominant market belief rather than simply restating the base case.
 
 ## Reference
 - `references/callout_rubric.md`

@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, date
 from collections import defaultdict
 import hashlib
 
+from .trade_normalization import dedupe_text_items, normalize_trade_expression
+
 
 class ReportFormatter:
     """Formats query results into structured report data for parsed_research."""
@@ -250,7 +252,9 @@ class ReportFormatter:
                 conviction = raw_conviction.strip().lower() if isinstance(raw_conviction, str) else 'n/a'
 
                 all_trades.append({
-                    'text': trade.get('text', 'N/A'),
+                    'text': normalize_trade_expression(
+                        trade.get('exposure') or trade.get('text', 'N/A')
+                    ) or 'N/A',
                     'exposure': trade.get('exposure', 'N/A'),
                     'rationale': trade.get('rationale', ''),
                     'timeframe': trade.get('timeframe', 'N/A'),
@@ -285,11 +289,18 @@ class ReportFormatter:
                     continue
 
                 lead = tl.get('lead', '')
+                raw_supporting_trades = tl.get('supporting_trades', [])
                 all_through_lines.append({
                     'lead': lead,
                     'key_insight': tl.get('key_insight', ''),
-                    'supporting_themes': tl.get('supporting_themes', []),
-                    'supporting_trades': tl.get('supporting_trades', []),
+                    'supporting_themes': dedupe_text_items(tl.get('supporting_themes'), limit=6),
+                    'supporting_trades': dedupe_text_items(
+                        [
+                            normalize_trade_expression(item)
+                            for item in raw_supporting_trades
+                        ] if isinstance(raw_supporting_trades, list) else [],
+                        limit=2,
+                    ),
                     'document': doc_name,
                     'doc_id': doc_id,
                     'item_id': self._generate_item_id(f"{doc_id}:{lead[:50]}"),

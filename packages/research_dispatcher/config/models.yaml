@@ -6,7 +6,7 @@ synthesis:
   # Cross-document synthesis - needs deep reasoning (monolithic fallback)
   # Recommended: Best model with extended thinking
   provider: openai
-  model: gpt-5.2
+  model: gpt-5-mini
   max_tokens: 16000
   temperature: 0
   extended_thinking:
@@ -16,18 +16,82 @@ synthesis:
 # Skill-specific configurations (used when USE_SKILL_PIPELINE=true)
 skills:
   throughline_synthesizer:
-    # Stage 1: Extract through-lines from themes+trades
+    # Stage 1 primary: preferred DeepInfra path
+    provider: deepinfra
+    model: moonshotai/Kimi-K2-Instruct-0905
+    max_tokens: 1400
+    temperature: 0
+    request_timeout_seconds: 90
+    max_retries: 0
+    retry_backoff_seconds: 2
+    response_format:
+      type: json_object
+    drop_response_format_on_retry: false
+    prompt_profile: lean
+    throughline_count: 4
+    max_key_insight_words: 100
+    max_supporting_themes: 4
+    max_supporting_trades: 1
+    payload_theme_limit: 24
+    payload_trade_limit: 8
+
+  throughline_synthesizer_fallback:
+    # Stage 1 fallback: stable baseline if primary times out or returns bad JSON
     provider: openai
-    model: gpt-5.2
+    model: gpt-5-mini
     max_tokens: 16000
     temperature: 0
+
+  throughline_synthesizer_secondary_fallback:
+    # Stage 1 secondary fallback: compact DeepInfra path if primary and OpenAI both fail
+    provider: deepinfra
+    model: MiniMaxAI/MiniMax-M2.5
+    max_tokens: 2200
+    temperature: 0
+    request_timeout_seconds: 90
+    max_retries: 0
+    retry_backoff_seconds: 2
+    response_format:
+      type: json_object
+    drop_response_format_on_retry: true
+    prompt_profile: lean
+    throughline_count: 3
+    max_key_insight_words: 80
+    max_supporting_themes: 4
+    max_supporting_trades: 1
+    payload_theme_limit: 18
+    payload_trade_limit: 6
+
+  throughline_editor:
+    # Stage 1B editor: required canonical editorial pass when configured
+    # Rewrites stage-one output for readability and schema discipline without adding claims
+    provider: openai
+    model: gpt-5-mini
+    max_tokens: 6000
+    temperature: 0
+    request_timeout_seconds: 90
+    max_retries: 0
 
   callout_extractor:
     # Stage 2: Extract callouts from through-lines (lighter task)
     provider: openai
-    model: gpt-5.2
+    model: gpt-5-mini
     max_tokens: 16000
     temperature: 0
+
+# DeepInfra can be selected anywhere above via:
+# provider: deepinfra
+# model: moonshotai/Kimi-K2.5
+# model: moonshotai/Kimi-K2-Instruct-0905
+# model: MiniMaxAI/MiniMax-M2.5
+# request_timeout_seconds: 90
+# max_retries: 1
+# retry_backoff_seconds: 3
+# response_format:
+#   type: json_object
+# drop_response_format_on_retry: true
+# tool_choice: none
+# reasoning_effort: none
 
 
 # Available Models Reference
@@ -59,3 +123,13 @@ available_models:
 
     - id: o1-mini
       description: "Faster reasoning model"
+
+  deepinfra:
+    - id: moonshotai/Kimi-K2.5
+      description: "Moonshot non-instruct model on DeepInfra; likely needs tool_choice=none, reasoning_effort=none"
+
+    - id: moonshotai/Kimi-K2-Instruct-0905
+      description: "Moonshot K2 instruct variant on DeepInfra; use json_object response_format first"
+
+    - id: MiniMaxAI/MiniMax-M2.5
+      description: "MiniMax general-purpose model on DeepInfra; likely needs tool_choice=none, reasoning_effort=none"

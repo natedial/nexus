@@ -41,6 +41,11 @@ EMAIL_TO=recipient@example.com
 # Report
 REPORT_TITLE=Research Dispatch
 
+# Optional LLM providers for synthesis
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+DEEPINFRA_API_KEY=
+
 # Mode: debug (no DB updates) or production (marks docs as synthesized)
 MODE=debug
 
@@ -91,6 +96,43 @@ FILTER_SOURCES=Goldman Sachs,JP Morgan
 # Last 3 days only
 DATE_RANGE_DAYS=3
 ```
+
+To route synthesis through DeepInfra, set `DEEPINFRA_API_KEY` and change the target entries in [`config/models.yaml`](/Users/ncdial/devwork/research_dispatcher/config/models.yaml) to `provider: deepinfra` with a supported model id such as `moonshotai/Kimi-K2.5` or `MiniMaxAI/MiniMax-M2.5`.
+
+The cross-document synthesis workflow automatically appends the shared market analysis meta-lens in [`prompts/components/market_edge_lens.md`](/Users/ncdial/devwork/research_dispatcher/prompts/components/market_edge_lens.md) to monolithic synthesis and stage-one throughline generation, with a lighter callout lens in [`prompts/components/callout_selection_lens.md`](/Users/ncdial/devwork/research_dispatcher/prompts/components/callout_selection_lens.md).
+
+The current stage-one priority order is:
+- Stage 1 throughlines primary: `deepinfra:moonshotai/Kimi-K2-Instruct-0905`
+- Fallback on request failure or bad JSON: `openai:gpt-5-mini`
+- Secondary fallback if both above fail: `deepinfra:MiniMaxAI/MiniMax-M2.5`
+- Stage 1B editor: `openai:gpt-5-mini` is the canonical editorial pass, rewriting stage-one output for readability and schema discipline without adding claims
+- Stage 2 callouts: `openai:gpt-5-mini`
+
+The canonical happy path is:
+1. `Kimi-K2-Instruct` extracts the through-lines
+2. `gpt-5-mini` edits those through-lines
+3. `gpt-5-mini` extracts callouts
+4. Fallbacks only apply when an earlier stage fails
+
+The live stage-one workflow also honors compact request-shaping knobs in [`config/models.yaml`](/Users/ncdial/devwork/research_dispatcher/config/models.yaml): `prompt_profile`, `throughline_count`, `max_key_insight_words`, `max_supporting_themes`, `max_supporting_trades`, `payload_theme_limit`, and `payload_trade_limit`. This is how the tuned DeepInfra stage-one profiles are promoted into the actual workflow.
+
+For the full migration record and model-role rationale, see [`docs/LLM_WORKFLOW_MIGRATION.md`](/Users/ncdial/devwork/research_dispatcher/docs/LLM_WORKFLOW_MIGRATION.md).
+
+For quick provider checks without touching the database or full report pipeline, run [`smoke_test_deepinfra.py`](/Users/ncdial/devwork/research_dispatcher/smoke_test_deepinfra.py):
+
+```bash
+.venv/bin/python smoke_test_deepinfra.py --mode raw
+.venv/bin/python smoke_test_deepinfra.py --mode throughline --model moonshotai/Kimi-K2.5 --timeout 90 --retries 1
+.venv/bin/python smoke_test_deepinfra.py --mode throughline --model moonshotai/Kimi-K2.5 --json-object --drop-response-format-on-retry --tool-choice none --reasoning-effort none
+```
+
+For non-instruct / more agentic DeepInfra models such as `moonshotai/Kimi-K2.5` or `MiniMaxAI/MiniMax-M2.5`, prefer:
+- `response_format: {type: json_object}`
+- `tool_choice: none`
+- `reasoning_effort: none`
+- `drop_response_format_on_retry: true`
+
+For instruct models such as `moonshotai/Kimi-K2-Instruct-0905`, prefer `response_format: {type: json_object}` first, but do not force the extra agentic flags unless testing shows they help.
 
 Filter options:
 - `FILTER_REGION`: US, EU, UK, Japan, China, EM, Global

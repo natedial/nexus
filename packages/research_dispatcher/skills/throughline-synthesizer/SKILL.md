@@ -16,6 +16,7 @@ Use this skill when the task is to synthesize multiple sources into a small set 
    - links to causal mechanisms or transmission paths
    - ends with a clear positioning or monitoring takeaway
 4. Attribute every substantive claim to its supporting sources.
+5. Apply the market-edge lens: look for fragile consensus, conditional flip points, hidden contradictions, underweighted risks, implied positioning, horizon mismatches, cross-domain spillovers, sequencing, and shared assumptions that could break.
 
 ## References
 - `references/throughline_rubric.md` for selection criteria

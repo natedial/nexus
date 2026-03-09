@@ -9,6 +9,7 @@ Return EXACTLY ONE JSON object. No explanations outside the JSON.
       "lead": "one-line summary",
       "supporting_sources": ["Goldman Sachs", "JPMorgan"],
       "consensus_level": "moderate_consensus",
+      "consensus_anchor": "dominant market belief this through-line supports, fractures, or challenges",
       "supporting_themes": ["theme label 1", "theme label 2"],
       "supporting_trades": ["trade description 1"],
       "key_insight": "synthesis paragraph with source attribution"

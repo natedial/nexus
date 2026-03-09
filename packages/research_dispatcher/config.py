@@ -25,6 +25,7 @@ class Config:
     # LLM API Keys (for cross-document synthesis)
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')  # Optional
+    DEEPINFRA_API_KEY = os.getenv('DEEPINFRA_API_KEY')  # Optional
 
     # Synthesis toggle
     ENABLE_SYNTHESIS = os.getenv('ENABLE_SYNTHESIS', 'true').lower() in ('true', '1', 'yes')

@@ -42,6 +42,8 @@ Extract callouts in this priority order:
 4. Novel contrarian view
    - Single source challenging market assumption with specificity
 
+Within those buckets, prefer callouts that expose where the market's current belief looks fragile: hidden disagreement, flip signposts, underweighted risks, sequencing risk, or second-order spillovers.
+
 ---
 
 WHAT NOT TO EXTRACT
