@@ -2,7 +2,8 @@
 
 import json
 import re
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
@@ -37,7 +38,7 @@ def _load_prompt(filename: str = "synthesis.md") -> str:
     else:
         prompt = (SKILL_PROMPTS_PATH / filename).read_text().strip()
 
-    if filename in {"synthesis.md", "throughline_synthesizer.md"}:
+    if filename in {"synthesis.md", "throughline_synthesizer.md", "throughline_analyst.md"}:
         lens = MARKET_EDGE_LENS_PATH.read_text().strip()
         return f"{prompt}\n\n---\n\n{lens}"
 
@@ -82,6 +83,7 @@ class SynthesisResult:
     document_count: int
     through_lines: list[dict]
     callouts: list[dict]
+    analysis_paragraphs: list[dict[str, Any]] = field(default_factory=list)
     raw_response: str | None = None
 
     def to_dict(self) -> dict:
@@ -91,6 +93,7 @@ class SynthesisResult:
             "document_count": self.document_count,
             "through_lines": self.through_lines,
             "callouts": self.callouts,
+            "analysis_paragraphs": self.analysis_paragraphs,
         }
 
 
@@ -121,6 +124,10 @@ class Synthesizer:
         self._callout_config: ModelConfig | None = None
         self._throughline_prompt: str | None = None
         self._callout_prompt: str | None = None
+        self._throughline_analyst_config: ModelConfig | None = None
+        self._throughline_analyst_prompt: str | None = None
+        self._throughline_analyst_editor_config: ModelConfig | None = None
+        self._throughline_analyst_editor_prompt: str | None = None
 
     @property
     def throughline_config(self) -> ModelConfig:
@@ -135,6 +142,24 @@ class Synthesizer:
         if self._callout_config is None:
             self._callout_config = load_skill_config("callout_extractor")
         return self._callout_config
+
+    @property
+    def throughline_analyst_config(self) -> ModelConfig | None:
+        """Optional config for a PM-facing analyst writeup after through-lines are edited."""
+        if not hasattr(self, "_throughline_analyst_config_loaded"):
+            self._throughline_analyst_config = load_optional_skill_config("throughline_analyst")
+            self._throughline_analyst_config_loaded = True
+        return self._throughline_analyst_config
+
+    @property
+    def throughline_analyst_editor_config(self) -> ModelConfig | None:
+        """Optional config for a post-processing editor on the PM-facing analysis writeup."""
+        if not hasattr(self, "_throughline_analyst_editor_config_loaded"):
+            self._throughline_analyst_editor_config = load_optional_skill_config(
+                "throughline_analyst_editor"
+            )
+            self._throughline_analyst_editor_config_loaded = True
+        return self._throughline_analyst_editor_config
 
     @property
     def throughline_editor_config(self) -> ModelConfig | None:
@@ -179,9 +204,24 @@ class Synthesizer:
             self._throughline_editor_prompt = _load_prompt("throughline_editor.md")
         return self._throughline_editor_prompt
 
+    @property
+    def throughline_analyst_prompt(self) -> str:
+        """Lazy-load through-line analyst prompt."""
+        if self._throughline_analyst_prompt is None:
+            self._throughline_analyst_prompt = _load_prompt("throughline_analyst.md")
+        return self._throughline_analyst_prompt
+
+    @property
+    def throughline_analyst_editor_prompt(self) -> str:
+        """Lazy-load through-line analyst editor prompt."""
+        if self._throughline_analyst_editor_prompt is None:
+            self._throughline_analyst_editor_prompt = _load_prompt("throughline_analyst_editor.md")
+        return self._throughline_analyst_editor_prompt
+
     def synthesize(
         self,
         documents: list[dict[str, Any]],
+        scope: dict[str, Any] | None = None,
     ) -> SynthesisResult | None:
         """
         Synthesize themes and trades across multiple documents.
@@ -208,7 +248,7 @@ class Synthesizer:
         print(f"Synthesizing {len(input_data['themes'])} themes and {len(input_data['trades'])} trades from {input_data['document_count']} documents...")
 
         if self.use_skill_pipeline:
-            return self._synthesize_with_skills(input_data, len(documents))
+            return self._synthesize_with_skills(input_data, len(documents), scope or {})
         else:
             return self._synthesize_monolithic(input_data, len(documents))
 
@@ -254,6 +294,7 @@ class Synthesizer:
         self,
         input_data: dict,
         document_count: int,
+        scope: dict[str, Any],
     ) -> SynthesisResult | None:
         """Multi-stage synthesis using extractor, editorial pass, and callout skills."""
         print("  Using skill-based pipeline...")
@@ -292,6 +333,45 @@ class Synthesizer:
         else:
             print("  Stage 1B skipped: no through-line editor configured")
 
+        analysis_paragraphs: list[dict[str, Any]] = []
+        if self.throughline_analyst_config is not None:
+            print(f"  Stage 1C: Writing PM analysis from {len(through_lines)} through-lines...")
+            analysis_result = self._stage1c_analyze_throughlines(
+                title=title,
+                through_lines=through_lines,
+                input_data=input_data,
+                scope=scope,
+            )
+            if analysis_result is not None:
+                analysis_paragraphs = analysis_result.get("analysis_paragraphs", [])
+                print(f"  Stage 1C complete: {len(analysis_paragraphs)} analysis paragraphs")
+                if self.throughline_analyst_editor_config is not None:
+                    print(f"  Stage 1D: Editing {len(analysis_paragraphs)} analysis paragraphs...")
+                    edited_analysis_result = self._stage1d_edit_analysis(
+                        title=title,
+                        through_lines=through_lines,
+                        input_data=input_data,
+                        scope=scope,
+                        analysis_paragraphs=analysis_paragraphs,
+                    )
+                    if edited_analysis_result is not None:
+                        analysis_paragraphs = edited_analysis_result.get(
+                            "analysis_paragraphs",
+                            analysis_paragraphs,
+                        )
+                        print(
+                            "  Stage 1D complete: "
+                            f"{len(analysis_paragraphs)} edited analysis paragraphs"
+                        )
+                    else:
+                        print("  Stage 1D failed validation, keeping Stage 1C analysis")
+                else:
+                    print("  Stage 1D skipped: no through-line analyst editor configured")
+            else:
+                print("  Stage 1C failed validation, continuing without analysis writeup")
+        else:
+            print("  Stage 1C skipped: no through-line analyst configured")
+
         print(f"  Stage 1 complete: {len(through_lines)} edited through-lines ready for callouts")
 
         # Stage 2: Extract callouts
@@ -313,10 +393,12 @@ class Synthesizer:
             document_count=document_count,
             through_lines=through_lines,
             callouts=callouts,
+            analysis_paragraphs=analysis_paragraphs,
             raw_response=None,
         )
         print(f"Synthesis complete: {result.title}")
         print(f"  Through-lines: {len(result.through_lines)}")
+        print(f"  Analysis paragraphs: {len(result.analysis_paragraphs)}")
         print(f"  Callouts: {len(result.callouts)}")
         return result
 
@@ -406,6 +488,79 @@ class Synthesizer:
             print(f"  Stage 2 error: {e}")
             return None
 
+    def _stage1c_analyze_throughlines(
+        self,
+        title: str,
+        through_lines: list[dict[str, Any]],
+        input_data: dict[str, Any],
+        scope: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Generate a PM-facing narrative writeup grounded in edited through-lines."""
+        analyst_config = self.throughline_analyst_config
+        if analyst_config is None:
+            return None
+
+        try:
+            analyst_input = self._build_analysis_payload(
+                title=title,
+                through_lines=through_lines,
+                input_data=input_data,
+                scope=scope,
+            )
+            raw_response = self.client.generate(
+                config=analyst_config,
+                system=self.throughline_analyst_prompt,
+                user=_dump_json_payload(analyst_input),
+            )
+            cleaned = _clean_json_response(raw_response)
+            if not cleaned:
+                raise ValueError("Empty analyst response body")
+            return self._coerce_analysis_result(
+                json.loads(cleaned),
+                through_lines=through_lines,
+            )
+        except Exception as e:
+            print(f"  Stage 1C analyst error: {e}")
+            return None
+
+    def _stage1d_edit_analysis(
+        self,
+        title: str,
+        through_lines: list[dict[str, Any]],
+        input_data: dict[str, Any],
+        scope: dict[str, Any],
+        analysis_paragraphs: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Edit the Stage 1C writeup without loosening its grounding or coverage."""
+        analyst_editor_config = self.throughline_analyst_editor_config
+        if analyst_editor_config is None:
+            return None
+
+        try:
+            analyst_editor_input = self._build_analysis_payload(
+                title=title,
+                through_lines=through_lines,
+                input_data=input_data,
+                scope=scope,
+            )
+            analyst_editor_input["analysis_paragraphs"] = analysis_paragraphs
+            raw_response = self.client.generate(
+                config=analyst_editor_config,
+                system=self.throughline_analyst_editor_prompt,
+                user=_dump_json_payload(analyst_editor_input),
+            )
+            cleaned = _clean_json_response(raw_response)
+            if not cleaned:
+                raise ValueError("Empty analyst editor response body")
+            return self._coerce_analysis_result(
+                json.loads(cleaned),
+                through_lines=through_lines,
+                expected_count=len(analysis_paragraphs),
+            )
+        except Exception as e:
+            print(f"  Stage 1D analyst editor error: {e}")
+            return None
+
     def _normalize_through_lines(self, through_lines: list[dict[str, Any]]) -> None:
         """Ensure through-lines have displayable source metadata."""
         for tl in through_lines:
@@ -445,6 +600,98 @@ class Synthesizer:
         return {
             "title": title,
             "through_lines": through_lines,
+        }
+
+    def _coerce_analysis_result(
+        self,
+        data: Any,
+        through_lines: list[dict[str, Any]],
+        expected_count: int | None = None,
+    ) -> dict[str, Any]:
+        """Validate Stage 1C/1D output so only grounded analysis reaches the report."""
+        if not isinstance(data, dict):
+            raise ValueError("Analysis response must be a JSON object")
+
+        raw_paragraphs = data.get("analysis_paragraphs", [])
+        if isinstance(raw_paragraphs, dict):
+            raw_paragraphs = [raw_paragraphs]
+        if not isinstance(raw_paragraphs, list):
+            raise ValueError("analysis_paragraphs must be a list")
+        if not 1 <= len(raw_paragraphs) <= 8:
+            raise ValueError("analysis_paragraphs must contain 1 to 8 items")
+        if expected_count is not None and len(raw_paragraphs) != expected_count:
+            raise ValueError("analysis_paragraph count changed unexpectedly")
+
+        allowed_leads = {
+            self._clean_text(tl.get("lead"))
+            for tl in through_lines
+            if self._clean_text(tl.get("lead"))
+        }
+        allowed_theme_labels = {
+            self._clean_text(label)
+            for tl in through_lines
+            for label in tl.get("supporting_themes", [])
+            if self._clean_text(label)
+        }
+
+        paragraphs: list[dict[str, Any]] = []
+        seen_texts: set[str] = set()
+        covered_questions: set[int] = set()
+        for raw_paragraph in raw_paragraphs:
+            paragraph = self._coerce_analysis_paragraph(
+                raw_paragraph,
+                allowed_leads=allowed_leads,
+                allowed_theme_labels=allowed_theme_labels,
+            )
+            normalized_text = paragraph["text"].lower()
+            if normalized_text in seen_texts:
+                raise ValueError("analysis_paragraphs contains duplicate text")
+            seen_texts.add(normalized_text)
+            covered_questions.update(paragraph["question_ids"])
+            paragraphs.append(paragraph)
+
+        if covered_questions != set(range(1, 11)):
+            raise ValueError("analysis writeup must cover all ten market-edge questions")
+
+        return {"analysis_paragraphs": paragraphs}
+
+    def _coerce_analysis_paragraph(
+        self,
+        value: Any,
+        allowed_leads: set[str],
+        allowed_theme_labels: set[str],
+    ) -> dict[str, Any]:
+        """Normalize one analysis paragraph into the canonical renderable form."""
+        if not isinstance(value, dict):
+            raise ValueError("Each analysis paragraph must be an object")
+
+        text = self._clean_text(value.get("text"))
+        if not text:
+            raise ValueError("Analysis paragraph text cannot be empty")
+
+        through_line_leads = [
+            lead for lead in self._coerce_string_list(value.get("through_line_leads"), limit=8)
+            if lead in allowed_leads
+        ]
+        if not through_line_leads:
+            raise ValueError("Analysis paragraph must reference at least one valid through-line lead")
+
+        theme_labels = [
+            label for label in self._coerce_string_list(value.get("theme_labels"), limit=10)
+            if label in allowed_theme_labels
+        ]
+        if not theme_labels:
+            raise ValueError("Analysis paragraph must reference at least one valid theme label")
+
+        question_ids = self._coerce_question_ids(value.get("question_ids"))
+        if not question_ids:
+            raise ValueError("Analysis paragraph must reference at least one question id")
+
+        return {
+            "text": text,
+            "through_line_leads": through_line_leads,
+            "theme_labels": theme_labels,
+            "question_ids": question_ids,
         }
 
     def _coerce_through_line(self, raw_line: Any) -> dict[str, Any] | None:
@@ -578,6 +825,29 @@ class Synthesizer:
 
         return dedupe_text_items(normalized, limit=2)
 
+    def _coerce_question_ids(self, value: Any) -> list[int]:
+        """Normalize question ids from strings or ints into the canonical 1-10 set."""
+        if value is None:
+            return []
+
+        raw_items = value if isinstance(value, list) else [value]
+        question_ids: list[int] = []
+        for item in raw_items:
+            if isinstance(item, int):
+                candidate = item
+            else:
+                text = self._clean_text(item).upper()
+                if text.startswith("Q"):
+                    text = text[1:]
+                if not text.isdigit():
+                    continue
+                candidate = int(text)
+
+            if 1 <= candidate <= 10:
+                question_ids.append(candidate)
+
+        return sorted(set(question_ids))
+
     def _clean_text(self, value: Any) -> str:
         """Collapse arbitrary values into a single line of text."""
         return " ".join(str(value or "").split()).strip()
@@ -658,6 +928,75 @@ class Synthesizer:
         if len(parts) <= 1:
             return cleaned
         return "".join(part[0].upper() for part in parts if part)
+
+    def _build_analysis_payload(
+        self,
+        title: str,
+        through_lines: list[dict[str, Any]],
+        input_data: dict[str, Any],
+        scope: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Assemble a compact, grounded payload for the PM-facing Stage 1C analyst pass."""
+        theme_index: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for theme in input_data.get("themes", []):
+            if not isinstance(theme, dict):
+                continue
+            label = self._clean_text(theme.get("label"))
+            if label:
+                theme_index[label].append(theme)
+
+        theme_clusters = []
+        for through_line in through_lines:
+            labels = through_line.get("supporting_themes") or []
+            theme_entries = []
+            for label in labels:
+                evidence = []
+                for theme in theme_index.get(label, [])[:3]:
+                    evidence.append({
+                        "source": self._clean_text(theme.get("source")),
+                        "document": self._truncate_text(theme.get("document", ""), 72),
+                        "context": self._truncate_text(theme.get("context", ""), 220),
+                        "strength": self._clean_text(theme.get("strength")),
+                        "confidence": self._clean_text(theme.get("confidence")),
+                    })
+                if evidence:
+                    theme_entries.append({
+                        "label": label,
+                        "evidence": evidence,
+                    })
+
+            theme_clusters.append({
+                "lead": through_line.get("lead", ""),
+                "consensus_level": through_line.get("consensus_level", ""),
+                "consensus_anchor": through_line.get("consensus_anchor", ""),
+                "supporting_sources": through_line.get("supporting_sources", []),
+                "supporting_themes": labels,
+                "key_insight": through_line.get("key_insight", ""),
+                "themes": theme_entries,
+            })
+
+        return {
+            "scope": self._build_scope_context(scope, input_data),
+            "title": title,
+            "through_lines": through_lines,
+            "theme_clusters": theme_clusters,
+        }
+
+    def _build_scope_context(
+        self,
+        scope: dict[str, Any],
+        input_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Normalize report scope so the analyst stage stays aware of the active filter envelope."""
+        return {
+            "region": self._clean_text(scope.get("region")) or "All",
+            "asset_focus": self._clean_text(scope.get("asset_focus")) or "All",
+            "sources_filter": self._clean_text(scope.get("sources")) or "All",
+            "date_range_days": int(scope.get("date_range_days") or 0),
+            "source_date_range": self._clean_text(input_data.get("date_range")),
+            "source_count": len(input_data.get("sources", [])),
+            "document_count": int(input_data.get("document_count") or 0),
+        }
 
     def _prepare_input(self, documents: list[dict[str, Any]]) -> dict:
         """

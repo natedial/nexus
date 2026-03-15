@@ -27,11 +27,12 @@ class DatabaseClient:
         # Calculate date range based on config
         date_threshold = (datetime.now() - timedelta(days=Config.DATE_RANGE_DAYS)).strftime('%Y-%m-%d')
 
-        # Build query
+        # Build query (exclude already-synthesized documents)
         query = (
             self.client.table('parsed_research')
             .select('*')
             .gte('source_date', date_threshold)
+            .eq('synthesized', False)
         )
 
         # Apply source filter if configured
@@ -76,6 +77,47 @@ class DatabaseClient:
         except Exception as e:
             print(f"Error marking documents as synthesized: {e}")
             return False
+
+    def reset_synthesized_by_source_date(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        preview_only: bool = False,
+    ) -> list[dict]:
+        """Reset synthesized=false for documents whose source_date falls in a date range.
+
+        Args:
+            start_date: Inclusive start date in YYYY-MM-DD format
+            end_date: Inclusive end date in YYYY-MM-DD format
+            preview_only: When True, return matching rows without updating
+
+        Returns:
+            Matching rows, either previewed or updated
+        """
+        query = (
+            self.client.table('parsed_research')
+            .select('id, document_name, source, source_date, synthesized')
+            .gte('source_date', start_date)
+            .lte('source_date', end_date)
+            .order('source_date')
+            .order('source')
+        )
+
+        if preview_only:
+            return query.execute().data
+
+        response = (
+            self.client.table('parsed_research')
+            .update({'synthesized': False})
+            .gte('source_date', start_date)
+            .lte('source_date', end_date)
+            .select('id, document_name, source, source_date, synthesized')
+            .order('source_date')
+            .order('source')
+            .execute()
+        )
+        return response.data
 
     def _get_upcoming_week_range(self):
         """Get the Monday-Friday date range for the relevant week.

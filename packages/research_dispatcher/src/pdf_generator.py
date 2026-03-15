@@ -2,7 +2,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
 from typing import Dict, Any
@@ -231,6 +231,53 @@ class PDFGenerator:
             spaceBefore=0
         ))
 
+        # Theme source attribution — inline after context
+        theme_source_config = self.format_rules.get('THEME_SOURCE', [{}])[0]
+        self.styles.add(ParagraphStyle(
+            name='ThemeSource',
+            parent=self.styles['Normal'],
+            fontSize=theme_source_config.get('font_size', 9),
+            textColor=colors.HexColor(theme_source_config.get('font_color', '#888888')),
+            fontName=self._get_font('italic'),
+            leftIndent=indented_config.get('left_indent', 18),
+            spaceAfter=2,
+            spaceBefore=0
+        ))
+
+        # Theme density bar styles
+        density_config = self.format_rules.get('THEME_DENSITY_BAR', [{}])[0]
+        self.styles.add(ParagraphStyle(
+            name='DensityValue',
+            parent=self.styles['Normal'],
+            fontSize=density_config.get('font_size', 10),
+            textColor=colors.HexColor(density_config.get('font_color', '#333333')),
+            fontName=self._get_font('bold'),
+            alignment=TA_CENTER,
+            spaceAfter=0,
+            spaceBefore=0
+        ))
+
+        self.styles.add(ParagraphStyle(
+            name='DensityLabel',
+            parent=self.styles['Normal'],
+            fontSize=density_config.get('label_font_size', 7),
+            textColor=colors.HexColor(density_config.get('label_color', '#999999')),
+            alignment=TA_CENTER,
+            spaceAfter=0,
+            spaceBefore=0
+        ))
+
+        # Overflow summary style (for "Other Themes" cap)
+        self.styles.add(ParagraphStyle(
+            name='OverflowSummary',
+            parent=self.styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#999999'),
+            fontName=self._get_font('italic'),
+            spaceBefore=8,
+            spaceAfter=4
+        ))
+
         # Summary stat styles
         self.styles.add(ParagraphStyle(
             name='SummaryStat',
@@ -309,6 +356,12 @@ class PDFGenerator:
         ).digest()
         signature_b64 = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
         return f"{payload_b64}.{signature_b64}"
+
+    def _get_content_width(self) -> float:
+        """Return available content width in inches based on page margins."""
+        margins = self.format_rules.get('PAGE_MARGINS', {})
+        page_width = letter[0] / 72  # letter width in inches
+        return page_width - margins.get('left', 0.75) - margins.get('right', 0.75)
 
     def _get_conviction_style(self, conviction: str) -> str:
         """Map conviction string to a style name."""
@@ -542,6 +595,158 @@ class PDFGenerator:
 
         return elements
 
+    def _get_strength_indicator(self, strength: str) -> str:
+        """Return a colored Unicode dot based on theme strength."""
+        s = strength.strip().lower() if strength else ''
+        strong_color = self.format_rules.get('STRENGTH_STRONG', [{}])[0].get('color', '#FF4458')
+        moderate_color = self.format_rules.get('STRENGTH_MODERATE', [{}])[0].get('color', '#FFB3BA')
+        weak_color = self.format_rules.get('STRENGTH_WEAK', [{}])[0].get('color', '#D0D0D0')
+
+        if s in ('strong', 'high'):
+            return f'<font color="{strong_color}">\u25cf</font>'
+        elif s in ('moderate', 'medium'):
+            return f'<font color="{moderate_color}">\u25cf</font>'
+        return f'<font color="{weak_color}">\u25cb</font>'
+
+    def _create_theme_density_bar(self, themes_by_through_line: list) -> list:
+        """Create a compact horizontal bar summarizing top theme clusters."""
+        elements = []
+        density_bg = self.format_rules.get('THEME_DENSITY_BAR', [{}])[0].get('background_color', '#F5F5F5')
+
+        cells = []
+        for group in themes_by_through_line:
+            lead = group.get('lead', 'Cluster')
+            theme_count = len(group.get('themes', []))
+            if theme_count == 0:
+                continue
+            # Truncate long leads
+            display_lead = lead[:35] + ('...' if len(lead) > 35 else '')
+            val_para = Paragraph(str(theme_count), self.styles['DensityValue'])
+            label_para = Paragraph(display_lead, self.styles['DensityLabel'])
+            cell_table = Table([[val_para], [label_para]], colWidths=[1.6 * inch])
+            cell_table.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            cells.append(cell_table)
+
+        if not cells:
+            return elements
+
+        # Limit to 4 clusters to keep bar compact
+        cells = cells[:4]
+        col_width = 1.6 * inch
+        bar_table = Table([cells], colWidths=[col_width] * len(cells))
+        bar_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(density_bg)),
+            ('LINEAFTER', (0, 0), (-2, -1), 0.5, colors.HexColor('#DDDDDD')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ]))
+
+        elements.append(Spacer(1, 0.1 * inch))
+        elements.append(bar_table)
+        elements.append(Spacer(1, 0.15 * inch))
+        return elements
+
+    def _create_theme_block(self, theme: Dict[str, Any]) -> list:
+        """Render a single theme as a clean block with divider."""
+        elements = []
+        card_config = self.format_rules.get('THEME_CARD', [{}])[0]
+        card_bg = card_config.get('background_color', '#FAFAFA')
+        divider_config = self.format_rules.get('THEME_DIVIDER', [{}])[0]
+
+        card_rows = []
+
+        # Theme header with optional strength indicator
+        count = theme.get('count', 1)
+        label = theme.get('label', '')
+        examples = theme.get('examples', [])
+
+        # Get strength from first example if available
+        first_strength = ''
+        if examples:
+            first_strength = examples[0].get('strength', '')
+        strength_dot = self._get_strength_indicator(first_strength)
+
+        header_text = f"{strength_dot} <b>{label}</b>"
+        if count >= 2:
+            header_text += f"  <font color='#999999' size='9'>({count}x)</font>"
+        header_para = Paragraph(header_text, self.styles['ThemeHeader'])
+        card_rows.append([header_para])
+
+        # Examples — single column, source as inline attribution
+        for example in examples:
+            context = example.get('context', '')
+            if not context:
+                continue
+
+            ctx_para = Paragraph(context, self.styles['IndentedBody'])
+            card_rows.append([ctx_para])
+
+            # Source attribution inline (replaces two-column layout)
+            if example.get('show_document', True):
+                doc_name = example.get('document', '')
+                if doc_name:
+                    source_para = Paragraph(f"\u2014 {doc_name}", self.styles['ThemeSource'])
+                    card_rows.append([source_para])
+
+        # Feedback links — one set per theme, not per example
+        doc_ids_seen = set()
+        feedback_parts = []
+        for example in examples:
+            doc_id = example.get('doc_id', '')
+            item_id = example.get('item_id', '')
+            if doc_id and item_id and doc_id not in doc_ids_seen:
+                doc_ids_seen.add(doc_id)
+                links = self._create_feedback_links(doc_id, item_id)
+                if links:
+                    feedback_parts.append(links)
+        if feedback_parts:
+            # Show just the first set of feedback links per theme
+            card_rows.append([Paragraph(feedback_parts[0], self.styles['FeedbackLinks'])])
+
+        if not card_rows:
+            return elements
+
+        margins = self.format_rules.get('PAGE_MARGINS', {})
+        page_width = letter[0] / 72
+        available = page_width - margins.get('left', 0.75) - margins.get('right', 0.75)
+        content_width = available * inch
+
+        content_table = Table(card_rows, colWidths=[content_width])
+        content_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), card_config.get('left_padding', 14)),
+            ('RIGHTPADDING', (0, 0), (-1, -1), card_config.get('right_padding', 14)),
+            ('TOPPADDING', (0, 0), (0, 0), card_config.get('top_padding', 10)),
+            ('BOTTOMPADDING', (0, -1), (0, -1), card_config.get('bottom_padding', 10)),
+            ('TOPPADDING', (0, 1), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -2), 2),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(card_bg)),
+        ]))
+
+        divider = HRFlowable(
+            width="100%",
+            thickness=divider_config.get('thickness', 0.5),
+            color=colors.HexColor(divider_config.get('color', '#E8E8E8')),
+            spaceBefore=6,
+            spaceAfter=6
+        )
+
+        # Wrap card + divider in KeepTogether to prevent orphaned cards
+        elements.append(KeepTogether([content_table, divider]))
+
+        return elements
+
     def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
         """Generate PDF from report data."""
         filepath = os.path.join(self.output_dir, filename)
@@ -617,13 +822,26 @@ class PDFGenerator:
             story.append(Paragraph('Through Lines', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
-            for tl in through_lines:
-                # Render through-line as a card block
-                story.extend(self._create_through_line_card(tl))
+            analysis_paragraphs = report_data.get('analysis_paragraphs', [])
+            for paragraph in analysis_paragraphs:
+                if isinstance(paragraph, dict):
+                    text = paragraph.get('text', '')
+                else:
+                    text = str(paragraph)
+                if text:
+                    story.append(Paragraph(text, self.styles['Normal']))
+                    story.append(Spacer(1, 0.08 * inch))
 
-                # Insert callout if one is associated with this through-line
+            if analysis_paragraphs:
+                story.append(Spacer(1, 0.08 * inch))
+
+            for tl in through_lines:
+                # Render through-line card + its callout as a KeepTogether group
+                tl_elements = self._create_through_line_card(tl)
                 if tl.get('lead'):
-                    story.extend(get_callout_for_through_line(tl['lead']))
+                    tl_elements.extend(get_callout_for_through_line(tl['lead']))
+                if tl_elements:
+                    story.append(KeepTogether(tl_elements))
 
             story.append(Spacer(1, 0.2 * inch))
 
@@ -635,101 +853,51 @@ class PDFGenerator:
             story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
+            # Theme density bar — compact summary of clusters
+            story.extend(self._create_theme_density_bar(themes_by_through_line))
+
+            h2_bg = self.format_rules.get('H2_BACKGROUND', [{}])[0].get('color', '#F5F5F5')
+
             for group in themes_by_through_line:
                 lead = group.get('lead', 'Theme Cluster')
-                story.append(Paragraph(lead, self.styles['SubsectionHeader']))
 
+                # Through-line cluster header with background band
+                header_para = Paragraph(lead, self.styles['SubsectionHeader'])
+                header_table = Table([[header_para]], colWidths=[self._get_content_width() * inch])
+                header_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(h2_bg)),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]))
+                story.append(header_table)
+                story.append(Spacer(1, 0.08 * inch))
+
+                # Render each theme as a card block
                 for theme in group.get('themes', []):
-                    count = theme['count']
-                    if count >= 2:
-                        theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
-                    else:
-                        theme_title = f"<b>{theme['label']}</b>"
-                    story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
+                    theme_elements = self._create_theme_block(theme)
+                    story.extend(theme_elements)
 
-                    examples = theme.get('examples', [])
-                    for example in examples:
-                        context = example.get('context', '')
-                        if context:
-                            if example.get('show_document', True):
-                                doc_name = example.get('document', 'Unknown')
-                                # Two-column: context left, doc name right
-                                ctx_para = Paragraph(context, self.styles['IndentedBody'])
-                                doc_para = Paragraph(f"<i>{doc_name}</i>", self.styles['Minimalist'])
-                                attr_table = Table(
-                                    [[ctx_para, doc_para]],
-                                    colWidths=[5.0 * inch, 1.5 * inch]
-                                )
-                                attr_table.setStyle(TableStyle([
-                                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                                    ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
-                                    ('LEFTPADDING', (0, 0), (0, 0), 18),
-                                    ('LEFTPADDING', (1, 0), (1, 0), 4),
-                                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-                                    ('TOPPADDING', (0, 0), (-1, -1), 2),
-                                    ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-                                ]))
-                                story.append(attr_table)
-                            else:
-                                story.append(Paragraph(context, self.styles['IndentedBody']))
+                # Overflow message for capped "Other Themes"
+                overflow = group.get('overflow_count', 0)
+                if overflow > 0:
+                    total_docs = sum(t.get('count', 0) for t in group.get('themes', []))
+                    story.append(Paragraph(
+                        f"+ {overflow} additional themes across documents",
+                        self.styles['OverflowSummary']
+                    ))
 
-                            # Add feedback links
-                            doc_id = example.get('doc_id', '')
-                            item_id = example.get('item_id', '')
-                            if doc_id and item_id:
-                                feedback_links = self._create_feedback_links(doc_id, item_id)
-                                if feedback_links:
-                                    story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
+                story.append(Spacer(1, 0.15 * inch))
 
-                    story.append(Spacer(1, 0.15 * inch))
-
-                story.append(Spacer(1, 0.2 * inch))
         elif themes_analysis:
             story.append(PageBreak())
             story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
 
             for theme in themes_analysis:
-                count = theme['count']
-                if count >= 2:
-                    theme_title = f"<b>{theme['label']}</b> ({count} occurrences)"
-                else:
-                    theme_title = f"<b>{theme['label']}</b>"
-                story.append(Paragraph(theme_title, self.styles['ThemeHeader']))
-
-                examples = theme.get('examples', [])
-                for example in examples:
-                    context = example.get('context', '')
-                    if context:
-                        if example.get('show_document', True):
-                            doc_name = example.get('document', 'Unknown')
-                            ctx_para = Paragraph(context, self.styles['IndentedBody'])
-                            doc_para = Paragraph(f"<i>{doc_name}</i>", self.styles['Minimalist'])
-                            attr_table = Table(
-                                [[ctx_para, doc_para]],
-                                colWidths=[5.0 * inch, 1.5 * inch]
-                            )
-                            attr_table.setStyle(TableStyle([
-                                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                                ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
-                                ('LEFTPADDING', (0, 0), (0, 0), 18),
-                                ('LEFTPADDING', (1, 0), (1, 0), 4),
-                                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-                                ('TOPPADDING', (0, 0), (-1, -1), 2),
-                                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-                            ]))
-                            story.append(attr_table)
-                        else:
-                            story.append(Paragraph(context, self.styles['IndentedBody']))
-
-                        doc_id = example.get('doc_id', '')
-                        item_id = example.get('item_id', '')
-                        if doc_id and item_id:
-                            feedback_links = self._create_feedback_links(doc_id, item_id)
-                            if feedback_links:
-                                story.append(Paragraph(feedback_links, self.styles['FeedbackLinks']))
-
-                story.append(Spacer(1, 0.15 * inch))
+                theme_elements = self._create_theme_block(theme)
+                story.extend(theme_elements)
 
             story.append(Spacer(1, 0.2 * inch))
 

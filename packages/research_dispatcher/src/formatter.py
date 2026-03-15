@@ -169,7 +169,9 @@ class ReportFormatter:
                         'doc_id': doc_id,
                         'item_id': self._generate_item_id(f"{doc_id}:{label}:{context[:50]}"),
                         'context': context,  # Full context, no truncation
-                        'show_document': doc_name not in seen_documents  # Only show if not seen before
+                        'show_document': doc_name not in seen_documents,  # Only show if not seen before
+                        'strength': theme.get('strength', ''),
+                        'confidence': theme.get('confidence', ''),
                     })
                     seen_documents.add(doc_name)
 
@@ -219,10 +221,21 @@ class ReportFormatter:
                 })
 
         if remaining:
-            grouped.append({
+            remaining_list = sorted(
+                remaining.values(),
+                key=lambda t: t.get("count", 0),
+                reverse=True,
+            )
+            cap = 6
+            shown = remaining_list[:cap]
+            overflow = len(remaining_list) - cap
+            group = {
                 "lead": "Other Themes",
-                "themes": list(remaining.values()),
-            })
+                "themes": shown,
+            }
+            if overflow > 0:
+                group["overflow_count"] = overflow
+            grouped.append(group)
 
         return grouped
 

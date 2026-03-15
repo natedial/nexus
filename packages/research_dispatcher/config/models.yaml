@@ -72,6 +72,24 @@ skills:
     request_timeout_seconds: 90
     max_retries: 0
 
+  throughline_analyst:
+    # Stage 1C analyst: PM-facing writeup grounded in edited through-lines and scoped theme evidence
+    provider: openai
+    model: gpt-5-mini
+    max_tokens: 5000
+    temperature: 0
+    request_timeout_seconds: 90
+    max_retries: 0
+
+  throughline_analyst_editor:
+    # Stage 1D analyst editor: tighten the PM writeup while preserving grounding and coverage
+    provider: openai
+    model: gpt-5-mini
+    max_tokens: 4000
+    temperature: 0
+    request_timeout_seconds: 90
+    max_retries: 0
+
   callout_extractor:
     # Stage 2: Extract callouts from through-lines (lighter task)
     provider: openai

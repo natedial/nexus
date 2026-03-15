@@ -32,12 +32,12 @@ H1_HEADING:
     leading: 34
 
 H2_HEADING:
-  - font_size: 20
+  - font_size: 16
     font_color: '#000000'
-    space_after: 16
-    space_before: 16
+    space_after: 10
+    space_before: 10
     font_weight: bold
-    leading: 26
+    leading: 22
 
 H1_BACKGROUND:
   - color: '#FFFFFF'
@@ -142,3 +142,43 @@ SUMMARY_STAT_LABEL:
 # Through-line card background
 THROUGH_LINE_CARD:
   - background_color: '#F9F9F9'
+
+# Theme card styling (lighter than through-line cards)
+THEME_CARD:
+  - background_color: '#FAFAFA'
+    left_padding: 14
+    right_padding: 14
+    top_padding: 10
+    bottom_padding: 10
+
+# Thin divider between themes
+THEME_DIVIDER:
+  - color: '#E8E8E8'
+    thickness: 0.5
+
+# Theme density bar (compact summary at top of Thematic Analysis)
+THEME_DENSITY_BAR:
+  - background_color: '#F5F5F5'
+    font_size: 10
+    label_font_size: 7
+    font_color: '#333333'
+    label_color: '#999999'
+
+# Theme source attribution (inline after context)
+THEME_SOURCE:
+  - font_size: 9
+    font_color: '#888888'
+    font_style: italic
+
+# Strength indicator colors
+STRENGTH_STRONG:
+  - color: '#FF4458'
+
+STRENGTH_MODERATE:
+  - color: '#FFB3BA'
+
+STRENGTH_WEAK:
+  - color: '#D0D0D0'
+
+# "Other Themes" cap — max items before collapsing
+OTHER_THEMES_CAP: 6

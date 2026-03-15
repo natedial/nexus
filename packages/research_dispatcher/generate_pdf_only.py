@@ -35,6 +35,16 @@ try:
 
     # Run cross-document synthesis
     synthesis_result = None
+    active_filters = {}
+    if Config.FILTER_REGION:
+        active_filters['region'] = Config.FILTER_REGION
+    if Config.FILTER_ASSET_FOCUS:
+        active_filters['asset_focus'] = Config.FILTER_ASSET_FOCUS
+    if Config.FILTER_SOURCES:
+        active_filters['sources'] = Config.FILTER_SOURCES
+    if Config.DATE_RANGE_DAYS != 7:  # Only show if not default
+        active_filters['date_range_days'] = Config.DATE_RANGE_DAYS
+
     if Config.ENABLE_SYNTHESIS and (
         Config.ANTHROPIC_API_KEY or Config.OPENAI_API_KEY or Config.DEEPINFRA_API_KEY
     ):
@@ -47,7 +57,7 @@ try:
             deepinfra_api_key=Config.DEEPINFRA_API_KEY,
             use_skill_pipeline=Config.USE_SKILL_PIPELINE,
         )
-        synthesis_result = synthesizer.synthesize(data)
+        synthesis_result = synthesizer.synthesize(data, scope=active_filters)
         if synthesis_result:
             print(f"✓ Synthesis complete: {synthesis_result.title}")
         else:
@@ -60,17 +70,6 @@ try:
     print("Formatting report...")
     formatter = ReportFormatter()
 
-    # Build active filters for display in report
-    active_filters = {}
-    if Config.FILTER_REGION:
-        active_filters['region'] = Config.FILTER_REGION
-    if Config.FILTER_ASSET_FOCUS:
-        active_filters['asset_focus'] = Config.FILTER_ASSET_FOCUS
-    if Config.FILTER_SOURCES:
-        active_filters['sources'] = Config.FILTER_SOURCES
-    if Config.DATE_RANGE_DAYS != 7:  # Only show if not default
-        active_filters['date_range_days'] = Config.DATE_RANGE_DAYS
-
     report_data = formatter.format_report(data, active_filters=active_filters)
 
     # Add cross-document synthesis to report (replaces per-document through_lines)
@@ -78,6 +77,7 @@ try:
         report_data['synthesis'] = synthesis_result.to_dict()
         report_data['through_lines'] = synthesis_result.through_lines
         report_data['callouts'] = synthesis_result.callouts
+        report_data['analysis_paragraphs'] = synthesis_result.analysis_paragraphs
         report_data['themes_by_through_line'] = formatter.group_themes_by_through_lines(
             report_data.get('themes_analysis', []),
             synthesis_result.through_lines,
