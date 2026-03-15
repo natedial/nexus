@@ -17,6 +17,7 @@ class RunInfo:
     model_name: str
     embedding_dim: int
     source: str
+    source_date: str | None
     dictionary_path: str | None
     params: dict
 
@@ -26,6 +27,7 @@ class ChunkRecord:
     chunk_id: str
     run_id: str
     source_path: str | None
+    source_date: str | None
     page_number: int
     chunk_index: int
     text: str
@@ -45,6 +47,7 @@ def init_db(db_path: str | Path) -> None:
                 model_name TEXT NOT NULL,
                 embedding_dim INTEGER NOT NULL,
                 source TEXT NOT NULL,
+                source_date TEXT,
                 dictionary_path TEXT,
                 params_json TEXT NOT NULL
             )
@@ -56,6 +59,7 @@ def init_db(db_path: str | Path) -> None:
                 chunk_id TEXT PRIMARY KEY,
                 run_id TEXT NOT NULL,
                 source_path TEXT,
+                source_date TEXT,
                 page_number INTEGER NOT NULL,
                 chunk_index INTEGER NOT NULL,
                 text TEXT NOT NULL,
@@ -108,6 +112,14 @@ def init_db(db_path: str | Path) -> None:
             USING fts5(chunk_id UNINDEXED, terms, tokenize='unicode61')
             """
         )
+        _ensure_column(conn, table="runs", column="source_date", ddl="TEXT")
+        _ensure_column(conn, table="chunks", column="source_date", ddl="TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chunks_source_date
+            ON chunks(source_date)
+            """
+        )
 
 
 def store_run(db_path: str | Path, run_info: RunInfo) -> None:
@@ -115,14 +127,15 @@ def store_run(db_path: str | Path, run_info: RunInfo) -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO runs (
-                run_id, model_name, embedding_dim, source, dictionary_path, params_json
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                run_id, model_name, embedding_dim, source, source_date, dictionary_path, params_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_info.run_id,
                 run_info.model_name,
                 run_info.embedding_dim,
                 run_info.source,
+                run_info.source_date,
                 run_info.dictionary_path,
                 json.dumps(run_info.params),
             ),
@@ -137,15 +150,16 @@ def store_chunks(db_path: str | Path, chunks: Iterable[ChunkRecord]) -> None:
         conn.executemany(
             """
             INSERT OR REPLACE INTO chunks (
-                chunk_id, run_id, source_path, page_number, chunk_index,
+                chunk_id, run_id, source_path, source_date, page_number, chunk_index,
                 text, keywords_json, text_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     chunk.chunk_id,
                     chunk.run_id,
                     chunk.source_path,
+                    chunk.source_date,
                     chunk.page_number,
                     chunk.chunk_index,
                     chunk.text,
@@ -216,6 +230,16 @@ def store_chunks(db_path: str | Path, chunks: Iterable[ChunkRecord]) -> None:
             """,
             keyword_fts_rows,
         )
+
+
+def _ensure_column(conn: sqlite3.Connection, *, table: str, column: str, ddl: str) -> None:
+    existing = {
+        str(row[1])
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+    if column in existing:
+        return
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
 def save_embeddings(npz_path: str | Path, chunk_ids: list[str], embeddings: np.ndarray) -> None:
