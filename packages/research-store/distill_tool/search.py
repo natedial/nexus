@@ -18,6 +18,7 @@ class SearchResult:
     chunk_id: str
     run_id: str
     source_path: str | None
+    source_date: str | None
     page_number: int
     chunk_index: int
     text: str
@@ -41,7 +42,7 @@ class HybridSearchEngine:
         self._embedding_chunk_ids: np.ndarray | None = None
         self._embedding_matrix: np.ndarray | None = None
         self._last_semantic_error: str | None = None
-        self._table_exists_cache: dict[str, bool] = {}
+        self._table_exists_cache: dict[str, object] = {}
         self._load_embeddings()
 
     def search(
@@ -165,6 +166,7 @@ class HybridSearchEngine:
                     chunk_id=chunk_id,
                     run_id=chunk["run_id"],
                     source_path=chunk["source_path"],
+                    source_date=chunk["source_date"],
                     page_number=chunk["page_number"],
                     chunk_index=chunk["chunk_index"],
                     text=chunk["text"],
@@ -308,10 +310,13 @@ class HybridSearchEngine:
         if not chunk_ids:
             return {}
         placeholders = ",".join("?" for _ in chunk_ids)
+        chunk_columns = self._columns_for_table("chunks")
+        has_source_date = "source_date" in chunk_columns
+        select_source_date = "source_date" if has_source_date else "NULL AS source_date"
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
                 f"""
-                SELECT chunk_id, run_id, source_path, page_number, chunk_index, text, keywords_json, text_hash
+                SELECT chunk_id, run_id, source_path, {select_source_date}, page_number, chunk_index, text, keywords_json, text_hash
                 FROM chunks
                 WHERE chunk_id IN ({placeholders})
                 """,
@@ -323,13 +328,25 @@ class HybridSearchEngine:
             metadata[str(row[0])] = {
                 "run_id": str(row[1]),
                 "source_path": row[2],
-                "page_number": int(row[3]),
-                "chunk_index": int(row[4]),
-                "text": str(row[5]),
-                "keywords": json.loads(row[6]),
-                "text_hash": str(row[7]),
+                "source_date": row[3],
+                "page_number": int(row[4]),
+                "chunk_index": int(row[5]),
+                "text": str(row[6]),
+                "keywords": json.loads(row[7]),
+                "text_hash": str(row[8]),
             }
         return metadata
+
+    def _columns_for_table(self, table: str) -> set[str]:
+        cache_key = f"columns:{table}"
+        cached = self._table_exists_cache.get(cache_key)
+        if isinstance(cached, set):
+            return cached
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        columns = {str(row[1]) for row in rows}
+        self._table_exists_cache[cache_key] = columns
+        return columns
 
     def _load_text_hash_counts(self, text_hashes: set[str]) -> dict[str, int]:
         if not text_hashes:
@@ -350,6 +367,27 @@ class HybridSearchEngine:
     def _chunk_ids_for_run(self, run_id: str) -> set[str]:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute("SELECT chunk_id FROM chunks WHERE run_id = ?", (run_id,)).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def _chunk_ids_for_date_range(
+        self, date_from: str | None, date_to: str | None
+    ) -> set[str] | None:
+        """Return chunk IDs within the date range, or None if no filtering needed.
+
+        Chunks with NULL source_date are excluded from date-filtered queries.
+        """
+        if date_from is None and date_to is None:
+            return None
+        sql = "SELECT chunk_id FROM chunks WHERE source_date IS NOT NULL"
+        params: list[str] = []
+        if date_from is not None:
+            sql += " AND source_date >= ?"
+            params.append(date_from)
+        if date_to is not None:
+            sql += " AND source_date <= ?"
+            params.append(date_to)
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(sql, params).fetchall()
         return {str(row[0]) for row in rows}
 
     def _keyword_scores(self, query: str, run_id: str | None) -> dict[str, float]:
