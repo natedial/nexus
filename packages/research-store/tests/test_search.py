@@ -179,7 +179,7 @@ def test_search_filters_semantic_tail_when_lexical_signal_exists(tmp_path: Path,
     engine = HybridSearchEngine(db_path=db_path, npz_path=npz_path)
 
     monkeypatch.setattr(engine, "_lexical_scores", lambda query, run_id, limit: {"c1": 0.6, "c2": 0.2})
-    monkeypatch.setattr(engine, "_semantic_scores", lambda query, run_id, limit: {"c1": 0.5, "c2": 0.6, "c3": 0.95})
+    monkeypatch.setattr(engine, "_semantic_scores", lambda query, run_id, limit, **kw: {"c1": 0.5, "c2": 0.6, "c3": 0.95})
     monkeypatch.setattr(engine, "_load_text_hash_counts", lambda text_hashes: {text_hash: 1 for text_hash in text_hashes})
     results = engine.search(query="q", limit=3, keyword_weight=0.5, semantic_weight=0.5)
 
@@ -193,7 +193,7 @@ def test_search_can_allow_semantic_tail(tmp_path: Path, monkeypatch) -> None:
     engine = HybridSearchEngine(db_path=db_path, npz_path=npz_path)
 
     monkeypatch.setattr(engine, "_lexical_scores", lambda query, run_id, limit: {"c1": 0.6, "c2": 0.2})
-    monkeypatch.setattr(engine, "_semantic_scores", lambda query, run_id, limit: {"c1": 0.5, "c2": 0.6, "c3": 0.95})
+    monkeypatch.setattr(engine, "_semantic_scores", lambda query, run_id, limit, **kw: {"c1": 0.5, "c2": 0.6, "c3": 0.95})
     results = engine.search(
         query="q",
         limit=3,

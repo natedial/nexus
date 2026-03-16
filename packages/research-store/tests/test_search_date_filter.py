@@ -20,7 +20,7 @@ def _build_dated_corpus(tmp_path: Path) -> tuple[Path, Path]:
     npz_path = tmp_path / "embeddings.npz"
 
     rows = [
-        ("c-jan", "run-1", "jan.md", "2025-01-15", 1, 0, "CPI consensus was above expectations"),
+        ("c-jan", "run-1", "jan.md", "2025-01-15", 1, 0, "CPI consensus was above expectations inflation labor market Fed rate"),
         ("c-feb", "run-1", "feb.md", "2025-02-10", 1, 0, "Fed rate cut expectations shifted lower"),
         ("c-mar", "run-1", "mar.md", "2025-03-05", 1, 0, "Labor market showed signs of softening"),
         ("c-null", "run-1", "old.md", None, 1, 0, "Undated legacy document about inflation"),
@@ -149,3 +149,76 @@ def test_chunk_ids_for_date_range_returns_empty_set_for_no_matches(tmp_path: Pat
     engine = HybridSearchEngine(db_path=db_path, npz_path=npz_path)
     result = engine._chunk_ids_for_date_range("2099-01-01", "2099-12-31")
     assert result == set()
+
+
+def test_search_with_date_range_excludes_out_of_range(tmp_path: Path) -> None:
+    db_path, npz_path = _build_dated_corpus(tmp_path)
+    engine = HybridSearchEngine(db_path=db_path, npz_path=npz_path)
+
+    results = engine.search(
+        query="CPI consensus expectations inflation",
+        limit=10,
+        date_from="2025-01-01",
+        date_to="2025-01-31",
+        semantic_weight=0.0,
+    )
+
+    chunk_ids = {r.chunk_id for r in results}
+    assert "c-jan" in chunk_ids
+    assert "c-feb" not in chunk_ids
+    assert "c-mar" not in chunk_ids
+    assert "c-null" not in chunk_ids
+
+
+def test_search_without_date_filter_includes_all(tmp_path: Path) -> None:
+    db_path, npz_path = _build_dated_corpus(tmp_path)
+    engine = HybridSearchEngine(db_path=db_path, npz_path=npz_path)
+
+    results = engine.search(
+        query="CPI consensus expectations inflation labor market Fed rate",
+        limit=10,
+        semantic_weight=0.0,
+    )
+
+    chunk_ids = {r.chunk_id for r in results}
+    assert len(chunk_ids) >= 1
+
+
+def test_search_date_filter_with_zero_matches_returns_empty(tmp_path: Path) -> None:
+    db_path, npz_path = _build_dated_corpus(tmp_path)
+    engine = HybridSearchEngine(db_path=db_path, npz_path=npz_path)
+
+    results = engine.search(
+        query="CPI consensus",
+        limit=10,
+        date_from="2099-01-01",
+        date_to="2099-12-31",
+        semantic_weight=0.0,
+    )
+
+    assert results == []
+
+
+def test_search_date_filter_applies_to_semantic_path(tmp_path: Path, monkeypatch) -> None:
+    db_path, npz_path = _build_dated_corpus(tmp_path)
+    engine = HybridSearchEngine(db_path=db_path, npz_path=npz_path)
+
+    class FakeModel:
+        def embed(self, texts):
+            return np.array([[0.8, 0.1, 0.1]], dtype="float32")
+
+    monkeypatch.setattr(engine, "_get_model", lambda: FakeModel())
+
+    results = engine.search(
+        query="CPI",
+        limit=10,
+        date_from="2025-01-01",
+        date_to="2025-01-31",
+        keyword_weight=0.0,
+        semantic_weight=1.0,
+    )
+
+    chunk_ids = {r.chunk_id for r in results}
+    assert "c-feb" not in chunk_ids
+    assert "c-mar" not in chunk_ids
+    assert "c-null" not in chunk_ids

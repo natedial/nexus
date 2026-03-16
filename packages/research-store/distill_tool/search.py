@@ -50,6 +50,8 @@ class HybridSearchEngine:
         query: str,
         limit: int = 10,
         run_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         keyword_weight: float = 0.55,
         semantic_weight: float = 0.45,
         min_lexical_score: float = 0.05,
@@ -59,6 +61,8 @@ class HybridSearchEngine:
         query = query.strip()
         if not query or limit <= 0:
             return []
+
+        date_allowed = self._chunk_ids_for_date_range(date_from, date_to)
 
         self._last_semantic_error = None
         lexical_candidate_limit = max(limit * 25, 200)
@@ -70,7 +74,10 @@ class HybridSearchEngine:
 
         semantic_scores: dict[str, float] = {}
         if semantic_weight > 0.0:
-            semantic_scores = self._semantic_scores(query, run_id=run_id, limit=semantic_candidate_limit)
+            semantic_scores = self._semantic_scores(
+                query, run_id=run_id, limit=semantic_candidate_limit,
+                allowed_chunk_ids=date_allowed,
+            )
 
         if semantic_weight > 0.0 and not semantic_scores:
             if not lexical_scores:
@@ -91,6 +98,9 @@ class HybridSearchEngine:
             total_weight = 1.0
         keyword_weight /= total_weight
         semantic_weight /= total_weight
+
+        if date_allowed is not None and lexical_scores:
+            lexical_scores = {k: v for k, v in lexical_scores.items() if k in date_allowed}
 
         all_chunk_ids = set(lexical_scores) | set(semantic_scores)
         if not all_chunk_ids:
@@ -261,7 +271,10 @@ class HybridSearchEngine:
                 rows = conn.execute(sql, params).fetchall()
         return [(str(row[0]), float(row[1])) for row in rows]
 
-    def _semantic_scores(self, query: str, run_id: str | None, limit: int) -> dict[str, float]:
+    def _semantic_scores(
+        self, query: str, run_id: str | None, limit: int,
+        allowed_chunk_ids: set[str] | None = None,
+    ) -> dict[str, float]:
         if self._embedding_matrix is None or self._embedding_chunk_ids is None:
             return {}
         if self._embedding_matrix.size == 0:
@@ -281,16 +294,23 @@ class HybridSearchEngine:
             if not allowed_ids:
                 return {}
             mask = np.array([chunk_id in allowed_ids for chunk_id in self._embedding_chunk_ids], dtype=bool)
-            if not np.any(mask):
-                return {}
-            idxs = np.where(mask)[0]
-            subset_scores = similarities[idxs]
-            top_n = min(limit, subset_scores.shape[0])
-            top_local = np.argpartition(subset_scores, -top_n)[-top_n:]
-            top_idxs = idxs[top_local]
         else:
-            top_n = min(limit, similarities.shape[0])
-            top_idxs = np.argpartition(similarities, -top_n)[-top_n:]
+            mask = np.ones(len(self._embedding_chunk_ids), dtype=bool)
+
+        if allowed_chunk_ids is not None:
+            date_mask = np.array(
+                [chunk_id in allowed_chunk_ids for chunk_id in self._embedding_chunk_ids], dtype=bool
+            )
+            mask = mask & date_mask
+
+        if not np.any(mask):
+            return {}
+
+        idxs = np.where(mask)[0]
+        subset_scores = similarities[idxs]
+        top_n = min(limit, subset_scores.shape[0])
+        top_local = np.argpartition(subset_scores, -top_n)[-top_n:]
+        top_idxs = idxs[top_local]
 
         top_pairs = sorted(
             ((int(i), float(similarities[i])) for i in top_idxs),
