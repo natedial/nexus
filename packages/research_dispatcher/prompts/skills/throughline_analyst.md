@@ -58,7 +58,7 @@ Return EXACTLY ONE JSON object with this structure:
   "analysis_paragraphs": [
     {
       "text": "One paragraph of PM-facing analysis",
-      "through_line_leads": ["lead 1", "lead 2"],
+      "through_line_ids": ["TL1", "TL2"],
       "theme_labels": ["theme 1", "theme 2"],
       "question_ids": [1, 4, 9]
     }
@@ -68,9 +68,10 @@ Return EXACTLY ONE JSON object with this structure:
 RULES:
 1. Return EXACTLY ONE JSON object
 2. `analysis_paragraphs` must contain 1 to 8 items
-3. Every paragraph must reference at least 1 supplied through-line lead
+3. Every paragraph must reference at least 1 supplied through-line id
 4. Every paragraph must reference at least 1 supplied theme label
 5. `question_ids` must use only integers 1 through 10
 6. Across the full writeup, all ten question ids must be covered at least once
 7. `text` must be plain prose only, with no markdown bullets or headers
 8. No commentary outside JSON
+9. Copy `through_line_ids` exactly from the input; do not paraphrase or invent ids

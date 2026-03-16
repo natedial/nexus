@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
 from src.database import DatabaseClient
+from src.delta_engine import SynthesisDeltaTracker
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
 from src.synthesizer import Synthesizer
@@ -35,6 +36,7 @@ try:
 
     # Run cross-document synthesis
     synthesis_result = None
+    synthesis_snapshot = None
     active_filters = {}
     if Config.FILTER_REGION:
         active_filters['region'] = Config.FILTER_REGION
@@ -74,7 +76,13 @@ try:
 
     # Add cross-document synthesis to report (replaces per-document through_lines)
     if synthesis_result:
+        delta_tracker = SynthesisDeltaTracker()
+        synthesis_snapshot, synthesis_delta = delta_tracker.prepare_report(
+            synthesis_result,
+            report_data,
+        )
         report_data['synthesis'] = synthesis_result.to_dict()
+        report_data['synthesis_delta'] = synthesis_delta
         report_data['through_lines'] = synthesis_result.through_lines
         report_data['callouts'] = synthesis_result.callouts
         report_data['analysis_paragraphs'] = synthesis_result.analysis_paragraphs
@@ -93,6 +101,8 @@ try:
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     pdf_filename = f"research_report_{timestamp}.pdf"
     pdf_path = pdf_generator.generate(report_data, pdf_filename)
+    if synthesis_snapshot is not None:
+        SynthesisDeltaTracker().save_snapshot(synthesis_snapshot)
 
     print(f"✓ PDF generated: {pdf_path}")
 

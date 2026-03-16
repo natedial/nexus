@@ -15,6 +15,7 @@ import time
 import os
 import yaml
 from datetime import datetime
+from xml.sax.saxutils import escape
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -747,6 +748,52 @@ class PDFGenerator:
 
         return elements
 
+    def _create_delta_section(self, report_data: Dict[str, Any]) -> list:
+        """Render the narrative delta section that compares this run to the prior baseline."""
+        delta = report_data.get('synthesis_delta') or {}
+        sections = delta.get('sections') or []
+        if not sections:
+            return []
+
+        elements = [
+            Paragraph('Change Tracking', self.styles['SectionHeader']),
+            HRFlowable(
+                width="100%",
+                thickness=1,
+                color=colors.HexColor('#FF4458'),
+                spaceBefore=3,
+                spaceAfter=12,
+            ),
+        ]
+
+        summary = delta.get('summary')
+        if summary:
+            elements.append(Paragraph(escape(summary), self.styles['Minimalist']))
+            elements.append(Spacer(1, 0.08 * inch))
+
+        baseline_label = delta.get('baseline_label')
+        if baseline_label and delta.get('baseline_available'):
+            elements.append(
+                Paragraph(
+                    f"Baseline window: {escape(str(baseline_label))}",
+                    self.styles['Minimalist'],
+                )
+            )
+            elements.append(Spacer(1, 0.08 * inch))
+
+        for section in sections:
+            title = str(section.get('title', '')).strip()
+            items = section.get('items') or []
+            if title:
+                elements.append(Paragraph(escape(title), self.styles['SubsectionHeader']))
+            for item in items:
+                text = escape(str(item))
+                elements.append(Paragraph(f'&bull; {text}', self.styles['IndentedBody']))
+            elements.append(Spacer(1, 0.05 * inch))
+
+        elements.append(Spacer(1, 0.12 * inch))
+        return elements
+
     def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
         """Generate PDF from report data."""
         filepath = os.path.join(self.output_dir, filename)
@@ -815,6 +862,8 @@ class PDFGenerator:
         story.extend(self._create_summary_stats_bar(report_data))
 
         story.append(Spacer(1, 0.3 * inch))
+
+        story.extend(self._create_delta_section(report_data))
 
         # Through Lines section — rendered as card blocks
         through_lines = report_data.get('through_lines', [])

@@ -622,10 +622,18 @@ class Synthesizer:
         if expected_count is not None and len(raw_paragraphs) != expected_count:
             raise ValueError("analysis_paragraph count changed unexpectedly")
 
-        allowed_leads = {
+        allowed_leads = [
             self._clean_text(tl.get("lead"))
             for tl in through_lines
             if self._clean_text(tl.get("lead"))
+        ]
+        lead_key_to_lead = {
+            self._normalize_reference_text(lead): lead
+            for lead in allowed_leads
+        }
+        allowed_id_to_lead = {
+            self._analysis_through_line_id(index): lead
+            for index, lead in enumerate(allowed_leads, start=1)
         }
         allowed_theme_labels = {
             self._clean_text(label)
@@ -640,7 +648,8 @@ class Synthesizer:
         for raw_paragraph in raw_paragraphs:
             paragraph = self._coerce_analysis_paragraph(
                 raw_paragraph,
-                allowed_leads=allowed_leads,
+                allowed_id_to_lead=allowed_id_to_lead,
+                lead_key_to_lead=lead_key_to_lead,
                 allowed_theme_labels=allowed_theme_labels,
             )
             normalized_text = paragraph["text"].lower()
@@ -658,7 +667,8 @@ class Synthesizer:
     def _coerce_analysis_paragraph(
         self,
         value: Any,
-        allowed_leads: set[str],
+        allowed_id_to_lead: dict[str, str],
+        lead_key_to_lead: dict[str, str],
         allowed_theme_labels: set[str],
     ) -> dict[str, Any]:
         """Normalize one analysis paragraph into the canonical renderable form."""
@@ -669,10 +679,20 @@ class Synthesizer:
         if not text:
             raise ValueError("Analysis paragraph text cannot be empty")
 
-        through_line_leads = [
-            lead for lead in self._coerce_string_list(value.get("through_line_leads"), limit=8)
-            if lead in allowed_leads
+        through_line_ids = [
+            identifier
+            for identifier in self._coerce_string_list(value.get("through_line_ids"), limit=8)
+            if identifier in allowed_id_to_lead
         ]
+        through_line_leads = dedupe_text_items(
+            [allowed_id_to_lead[identifier] for identifier in through_line_ids],
+            limit=8,
+        )
+        if not through_line_leads:
+            through_line_leads = self._resolve_through_line_leads(
+                value.get("through_line_leads"),
+                lead_key_to_lead,
+            )
         if not through_line_leads:
             raise ValueError("Analysis paragraph must reference at least one valid through-line lead")
 
@@ -689,6 +709,7 @@ class Synthesizer:
 
         return {
             "text": text,
+            "through_line_ids": through_line_ids,
             "through_line_leads": through_line_leads,
             "theme_labels": theme_labels,
             "question_ids": question_ids,
@@ -848,6 +869,39 @@ class Synthesizer:
 
         return sorted(set(question_ids))
 
+    def _analysis_through_line_id(self, index: int) -> str:
+        """Return the stable identifier used by Stage 1C/1D for through-line references."""
+        return f"TL{index}"
+
+    def _normalize_reference_text(self, value: Any) -> str:
+        """Normalize a free-text reference so near-exact lead echoes still validate."""
+        cleaned = self._clean_text(value).lower()
+        return re.sub(r"[^a-z0-9]+", " ", cleaned).strip()
+
+    def _resolve_through_line_leads(
+        self,
+        value: Any,
+        lead_key_to_lead: dict[str, str],
+    ) -> list[str]:
+        """Resolve model-emitted lead strings against the canonical edited through-line leads."""
+        resolved: list[str] = []
+        normalized_allowed = list(lead_key_to_lead.items())
+        for candidate in self._coerce_string_list(value, limit=8):
+            candidate_key = self._normalize_reference_text(candidate)
+            if not candidate_key:
+                continue
+            exact = lead_key_to_lead.get(candidate_key)
+            if exact:
+                resolved.append(exact)
+                continue
+            for allowed_key, allowed_lead in normalized_allowed:
+                if len(candidate_key) < 20:
+                    continue
+                if candidate_key in allowed_key or allowed_key in candidate_key:
+                    resolved.append(allowed_lead)
+                    break
+        return dedupe_text_items(resolved, limit=8)
+
     def _clean_text(self, value: Any) -> str:
         """Collapse arbitrary values into a single line of text."""
         return " ".join(str(value or "").split()).strip()
@@ -946,7 +1000,9 @@ class Synthesizer:
                 theme_index[label].append(theme)
 
         theme_clusters = []
-        for through_line in through_lines:
+        analysis_through_lines = []
+        for index, through_line in enumerate(through_lines, start=1):
+            through_line_id = self._analysis_through_line_id(index)
             labels = through_line.get("supporting_themes") or []
             theme_entries = []
             for label in labels:
@@ -965,8 +1021,21 @@ class Synthesizer:
                         "evidence": evidence,
                     })
 
-            theme_clusters.append({
+            analysis_through_line = {
+                "id": through_line_id,
                 "lead": through_line.get("lead", ""),
+                "consensus_level": through_line.get("consensus_level", ""),
+                "consensus_anchor": through_line.get("consensus_anchor", ""),
+                "supporting_sources": through_line.get("supporting_sources", []),
+                "supporting_themes": labels,
+                "key_insight": through_line.get("key_insight", ""),
+            }
+            analysis_through_lines.append(analysis_through_line)
+
+            theme_clusters.append({
+                "id": through_line_id,
+                "lead": through_line.get("lead", ""),
+                "through_line_id": through_line_id,
                 "consensus_level": through_line.get("consensus_level", ""),
                 "consensus_anchor": through_line.get("consensus_anchor", ""),
                 "supporting_sources": through_line.get("supporting_sources", []),
@@ -978,7 +1047,7 @@ class Synthesizer:
         return {
             "scope": self._build_scope_context(scope, input_data),
             "title": title,
-            "through_lines": through_lines,
+            "through_lines": analysis_through_lines,
             "theme_clusters": theme_clusters,
         }
 

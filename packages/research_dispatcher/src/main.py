@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
 from src.database import DatabaseClient
+from src.delta_engine import SynthesisDeltaTracker
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
 from src.email_sender import EmailSender
@@ -72,6 +73,7 @@ def main():
 
         # Run cross-document synthesis
         synthesis_result = None
+        synthesis_snapshot = None
         if Config.ENABLE_SYNTHESIS and (
             Config.ANTHROPIC_API_KEY or Config.OPENAI_API_KEY or Config.DEEPINFRA_API_KEY
         ):
@@ -104,7 +106,13 @@ def main():
 
         # Add cross-document synthesis to report (replaces per-document through_lines)
         if synthesis_result:
+            delta_tracker = SynthesisDeltaTracker()
+            synthesis_snapshot, synthesis_delta = delta_tracker.prepare_report(
+                synthesis_result,
+                report_data,
+            )
             report_data['synthesis'] = synthesis_result.to_dict()
+            report_data['synthesis_delta'] = synthesis_delta
             report_data['through_lines'] = synthesis_result.through_lines  # Override aggregated
             report_data['callouts'] = synthesis_result.callouts  # Override aggregated
             report_data['analysis_paragraphs'] = synthesis_result.analysis_paragraphs
@@ -134,6 +142,10 @@ def main():
             len(recipient_list),
             ", ".join(recipient_list),
         )
+
+        if synthesis_snapshot is not None:
+            SynthesisDeltaTracker().save_snapshot(synthesis_snapshot)
+            logger.info("Saved synthesis snapshot for delta tracking")
 
         # Mark documents as synthesized if in production mode
         if Config.MODE in ['production', 'prod', 'active']:
