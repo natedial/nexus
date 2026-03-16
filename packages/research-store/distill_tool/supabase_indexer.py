@@ -18,6 +18,7 @@ from distill_tool.pipeline import distill_markdown
 @dataclass(frozen=True)
 class SupabaseDocument:
     id: int
+    source_date: str | None
     parsed_data: Any
 
 
@@ -66,7 +67,7 @@ class SupabaseRestClient:
             "GET",
             f"/rest/v1/{self.table}",
             query={
-                "select": "id,parsed_data",
+                "select": "id,source_date,parsed_data",
                 "index_status": "eq.pending",
                 "order": "id.asc",
                 "limit": str(limit),
@@ -82,7 +83,7 @@ class SupabaseRestClient:
             "GET",
             f"/rest/v1/{self.table}",
             query={
-                "select": "id,parsed_data",
+                "select": "id,source_date,parsed_data",
                 "index_status": "eq.processing",
                 "indexing_batch_id": f"lt.{stale_before_batch_id}",
                 "order": "indexing_batch_id.asc,id.asc",
@@ -239,6 +240,11 @@ class SupabaseRestClient:
             docs.append(
                 SupabaseDocument(
                     id=doc_id,
+                    source_date=(
+                        str(row.get("source_date")).strip()
+                        if row.get("source_date") is not None
+                        else None
+                    ),
                     parsed_data=row.get("parsed_data"),
                 )
             )
@@ -415,6 +421,7 @@ def index_pending_documents(
             distill_markdown(
                 markdown=full_text,
                 source_path=f"supabase:{doc.id}",
+                source_date=doc.source_date,
                 db_path=db_path,
                 npz_path=npz_path,
                 dictionary_path=dictionary_path,

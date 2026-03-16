@@ -78,6 +78,7 @@ def distill_markdown(
     fallback_min_chars: int = FALLBACK_MIN_CHARS,
     batch_size: int = 32,
     source_path: str | None = None,
+    source_date: str | None = None,
     skip_embeddings: bool = False,
     embedding_model: EmbeddingModel | None = None,
 ) -> DistillResult:
@@ -126,6 +127,7 @@ def distill_markdown(
         dictionary=dictionary,
         max_keywords=max_keywords,
         source_path=source_path,
+        source_date=source_date,
         run_id=run_id,
     )
 
@@ -145,6 +147,7 @@ def distill_markdown(
         model_name=model_name,
         embedding_dim=embedding_dim,
         source=source_path or "inline",
+        source_date=source_date,
         dictionary_path=str(dictionary_path) if dictionary_path else None,
         params={
             "max_keywords": max_keywords,
@@ -180,6 +183,7 @@ def _build_chunks(
     dictionary: list[str],
     max_keywords: int,
     source_path: str | None,
+    source_date: str | None,
     run_id: str,
 ) -> tuple[list[ChunkRecord], list[str]]:
     chunks: list[ChunkRecord] = []
@@ -195,6 +199,7 @@ def _build_chunks(
                 chunk_id=chunk_id,
                 run_id=run_id,
                 source_path=source_path,
+                source_date=source_date,
                 page_number=page.number,
                 chunk_index=idx,
                 text=page.text,

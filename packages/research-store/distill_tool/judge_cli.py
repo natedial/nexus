@@ -106,7 +106,7 @@ def render_worksheet(
         lines.extend(
             [
                 f"{idx}. `chunk_id`: `{result.chunk_id}`",
-                f"   `source`: `{result.source_path}` `page`: `{result.page_number}` `chunk_index`: `{result.chunk_index}`",
+                f"   `source`: `{result.source_path}` `source_date`: `{result.source_date}` `page`: `{result.page_number}` `chunk_index`: `{result.chunk_index}`",
                 f"   `scores`: hybrid={result.hybrid_score:.3f} lexical={result.lexical_score:.3f} semantic={result.semantic_score:.3f}",
                 f"   `preview`: {preview}",
                 "",

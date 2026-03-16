@@ -54,6 +54,8 @@ def test_embedding_corpus_upsert_raises_on_dimension_mismatch() -> None:
 
 
 def test_index_pending_documents_marks_indexed_and_failed(tmp_path: Path, monkeypatch) -> None:
+    distilled: list[tuple[str, str | None]] = []
+
     class FakeClient:
         def __init__(self):
             self.indexed: list[int] = []
@@ -65,13 +67,27 @@ def test_index_pending_documents_marks_indexed_and_failed(tmp_path: Path, monkey
         ) -> list[SupabaseDocument]:
             assert limit == 5
             assert stale_before_batch_id > 0
-            return [SupabaseDocument(id=99, parsed_data={"full_text": "doc 99 body"})]
+            return [
+                SupabaseDocument(
+                    id=99,
+                    source_date="2026-03-08",
+                    parsed_data={"full_text": "doc 99 body"},
+                )
+            ]
 
         def fetch_pending_documents(self, *, limit: int) -> list[SupabaseDocument]:
             assert limit == 4
             return [
-                SupabaseDocument(id=101, parsed_data={"full_text": "doc 101 body"}),
-                SupabaseDocument(id=202, parsed_data={"full_text": "doc 202 body"}),
+                SupabaseDocument(
+                    id=101,
+                    source_date="2026-03-07",
+                    parsed_data={"full_text": "doc 101 body"},
+                ),
+                SupabaseDocument(
+                    id=202,
+                    source_date=None,
+                    parsed_data={"full_text": "doc 202 body"},
+                ),
             ]
 
         def reclaim_document(self, *, doc_id: int, batch_id: int, stale_before_batch_id: int) -> bool:
@@ -101,6 +117,7 @@ def test_index_pending_documents_marks_indexed_and_failed(tmp_path: Path, monkey
 
     def _fake_distill_markdown(**kwargs):
         source_path = kwargs["source_path"]
+        distilled.append((source_path, kwargs.get("source_date")))
         npz_path = Path(kwargs["npz_path"])
         if source_path == "supabase:202":
             raise RuntimeError("simulated failure")
@@ -132,6 +149,11 @@ def test_index_pending_documents_marks_indexed_and_failed(tmp_path: Path, monkey
     assert fake_client.reclaimed == [99]
     assert fake_client.indexed == [99, 101]
     assert fake_client.failed == [202]
+    assert distilled == [
+        ("supabase:99", "2026-03-08"),
+        ("supabase:101", "2026-03-07"),
+        ("supabase:202", None),
+    ]
 
     saved = np.load(npz_path)
     assert saved["chunk_ids"].tolist() == ["supabase:99:chunk-1", "supabase:101:chunk-1"]

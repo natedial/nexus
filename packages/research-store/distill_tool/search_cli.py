@@ -87,6 +87,7 @@ def main() -> None:
                 "chunk_id": r.chunk_id,
                 "run_id": r.run_id,
                 "source_path": r.source_path,
+                "source_date": r.source_date,
                 "page_number": r.page_number,
                 "chunk_index": r.chunk_index,
                 "lexical_score": round(r.lexical_score, 6),
@@ -104,7 +105,10 @@ def main() -> None:
         preview = " ".join(result.text.split())
         if len(preview) > args.preview_chars:
             preview = preview[: args.preview_chars].rstrip() + "..."
-        print(f"{idx}. chunk={result.chunk_id} page={result.page_number} source={result.source_path}")
+        print(
+            f"{idx}. chunk={result.chunk_id} page={result.page_number} "
+            f"source={result.source_path} source_date={result.source_date}"
+        )
         print(
             f"   scores: hybrid={result.hybrid_score:.3f} lexical={result.lexical_score:.3f} semantic={result.semantic_score:.3f}"
         )
