@@ -39,3 +39,53 @@ def corpus_info(db_path: str) -> dict:
         "date_range": {"min": date_row[0], "max": date_row[1]} if date_row[0] else None,
         "sources": sources,
     }
+
+
+def search(
+    query: str,
+    *,
+    db_path: str,
+    npz_path: str | None = None,
+    limit: int = 10,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    run_id: str | None = None,
+    keyword_weight: float = 0.55,
+    semantic_weight: float = 0.45,
+) -> list[dict]:
+    """Search the distilled research corpus.
+
+    Returns list of dicts with keys:
+        chunk_id, source_path, source_date, page_number,
+        text, keywords, lexical_score, semantic_score, hybrid_score
+    """
+    _validate_date(date_from, "date_from")
+    _validate_date(date_to, "date_to")
+
+    engine = HybridSearchEngine(
+        db_path=Path(db_path),
+        npz_path=Path(npz_path) if npz_path else None,
+    )
+    results: list[SearchResult] = engine.search(
+        query=query,
+        limit=limit,
+        run_id=run_id,
+        date_from=date_from,
+        date_to=date_to,
+        keyword_weight=keyword_weight,
+        semantic_weight=semantic_weight,
+    )
+    return [
+        {
+            "chunk_id": r.chunk_id,
+            "source_path": r.source_path,
+            "source_date": r.source_date,
+            "page_number": r.page_number,
+            "text": r.text,
+            "keywords": r.keywords,
+            "lexical_score": round(r.lexical_score, 6),
+            "semantic_score": round(r.semantic_score, 6),
+            "hybrid_score": round(r.hybrid_score, 6),
+        }
+        for r in results
+    ]
