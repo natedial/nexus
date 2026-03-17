@@ -72,7 +72,13 @@ try:
     print("Formatting report...")
     formatter = ReportFormatter()
 
-    report_data = formatter.format_report(data, active_filters=active_filters)
+    if Config.FILTER_TRADE_CONVICTION != 'all':
+        active_filters['trade_conviction'] = Config.FILTER_TRADE_CONVICTION
+    report_data = formatter.format_report(
+        data,
+        active_filters=active_filters,
+        conviction_filter=Config.FILTER_TRADE_CONVICTION,
+    )
 
     # Add cross-document synthesis to report (replaces per-document through_lines)
     if synthesis_result:

@@ -84,7 +84,7 @@ For each through-line, provide:
 
 6. **supporting_trades**: Array of up to 2 short trade expressions that align with this through-line (empty array if none)
 
-7. **key_insight**: Structured synthesis (max 120 words) covering:
+7. **key_insight**: Structured synthesis (max 300 words) covering:
     - What the market is broadly being paid to believe
     - The core narrative tying the supporting themes together
     - Areas of agreement and disagreement

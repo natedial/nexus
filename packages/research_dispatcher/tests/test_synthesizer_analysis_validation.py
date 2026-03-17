@@ -75,5 +75,47 @@ class SynthesizerAnalysisValidationTests(unittest.TestCase):
         )
 
 
+    def test_coerce_analysis_result_rejects_fewer_than_six_questions(self):
+        data = {
+            "analysis_paragraphs": [
+                {
+                    "text": "Paragraph one.",
+                    "through_line_ids": ["TL1"],
+                    "theme_labels": ["oil shock"],
+                    "question_ids": [1, 2, 3],
+                },
+                {
+                    "text": "Paragraph two.",
+                    "through_line_ids": ["TL2"],
+                    "theme_labels": ["carry"],
+                    "question_ids": [4, 5],
+                },
+            ]
+        }
+        with self.assertRaises(ValueError) as ctx:
+            self.synthesizer._coerce_analysis_result(data, self.through_lines)
+        self.assertIn("at least 6", str(ctx.exception))
+
+    def test_coerce_analysis_result_accepts_six_questions(self):
+        data = {
+            "analysis_paragraphs": [
+                {
+                    "text": "Paragraph one.",
+                    "through_line_ids": ["TL1"],
+                    "theme_labels": ["oil shock"],
+                    "question_ids": [1, 2, 3],
+                },
+                {
+                    "text": "Paragraph two.",
+                    "through_line_ids": ["TL2"],
+                    "theme_labels": ["carry"],
+                    "question_ids": [4, 5, 6],
+                },
+            ]
+        }
+        result = self.synthesizer._coerce_analysis_result(data, self.through_lines)
+        self.assertEqual(len(result["analysis_paragraphs"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

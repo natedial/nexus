@@ -404,6 +404,7 @@ class Synthesizer:
 
     def _stage1_throughlines(self, input_data: dict) -> dict | None:
         """Stage 1: Extract through-lines from themes and trades."""
+        enriched_data = self._enrich_with_cross_document_evidence(input_data)
         configs = [self.throughline_config]
         configs.extend(self.throughline_fallback_configs)
 
@@ -415,7 +416,7 @@ class Synthesizer:
             try:
                 stage1_profile = stage1_profile_from_model_config(provider_label, config)
                 stage1_input = self._prepare_stage1_payload(
-                    apply_payload_limits(input_data, stage1_profile),
+                    apply_payload_limits(enriched_data, stage1_profile),
                     config,
                 )
                 stage1_prompt = build_stage1_prompt(self.throughline_prompt, stage1_profile)
@@ -659,8 +660,11 @@ class Synthesizer:
             covered_questions.update(paragraph["question_ids"])
             paragraphs.append(paragraph)
 
-        if covered_questions != set(range(1, 11)):
-            raise ValueError("analysis writeup must cover all ten market-edge questions")
+        if len(covered_questions) < 6:
+            raise ValueError(
+                f"analysis writeup must cover at least 6 of 10 market-edge questions, "
+                f"got {len(covered_questions)}"
+            )
 
         return {"analysis_paragraphs": paragraphs}
 
@@ -1008,13 +1012,20 @@ class Synthesizer:
             for label in labels:
                 evidence = []
                 for theme in theme_index.get(label, [])[:3]:
-                    evidence.append({
+                    entry = {
                         "source": self._clean_text(theme.get("source")),
                         "document": self._truncate_text(theme.get("document", ""), 72),
-                        "context": self._truncate_text(theme.get("context", ""), 220),
+                        "context": theme.get("context", ""),
                         "strength": self._clean_text(theme.get("strength")),
                         "confidence": self._clean_text(theme.get("confidence")),
-                    })
+                    }
+                    excerpts = theme.get("excerpts")
+                    if excerpts and isinstance(excerpts, list):
+                        entry["excerpts"] = excerpts[:5]
+                    directionality = theme.get("directionality")
+                    if directionality and isinstance(directionality, dict):
+                        entry["directionality"] = directionality
+                    evidence.append(entry)
                 if evidence:
                     theme_entries.append({
                         "label": label,
@@ -1167,6 +1178,51 @@ class Synthesizer:
             "sources": list(sources),
             "date_range": date_range,
         }
+
+    def _enrich_with_cross_document_evidence(
+        self,
+        input_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Add cross-document evidence clusters so the synthesizer sees agreement/disagreement patterns.
+
+        Groups themes by label across documents, preserving full context and excerpts.
+        Only includes clusters with 2+ unique sources (genuine cross-document signal).
+        """
+        themes = input_data.get("themes", [])
+        if not themes:
+            return input_data
+
+        clusters: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for theme in themes:
+            label = self._clean_text(theme.get("label"))
+            if label:
+                clusters[label].append({
+                    "source": theme.get("source", ""),
+                    "document": theme.get("document", ""),
+                    "context": theme.get("context", ""),
+                    "strength": theme.get("strength", ""),
+                    "confidence": theme.get("confidence", ""),
+                    "excerpts": theme.get("excerpts", []),
+                    "directionality": theme.get("directionality"),
+                })
+
+        cross_doc_clusters = []
+        for label, entries in clusters.items():
+            unique_sources = {e["source"] for e in entries if e["source"]}
+            if len(unique_sources) >= 2:
+                cross_doc_clusters.append({
+                    "label": label,
+                    "source_count": len(unique_sources),
+                    "sources": sorted(unique_sources),
+                    "entries": entries[:5],
+                })
+
+        cross_doc_clusters.sort(key=lambda c: c["source_count"], reverse=True)
+
+        enriched = dict(input_data)
+        if cross_doc_clusters:
+            enriched["cross_document_clusters"] = cross_doc_clusters
+        return enriched
 
     def _prepare_stage1_payload(
         self,

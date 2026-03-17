@@ -71,7 +71,7 @@ RULES:
 3. Every paragraph must reference at least 1 supplied through-line id
 4. Every paragraph must reference at least 1 supplied theme label
 5. `question_ids` must use only integers 1 through 10
-6. Across the full writeup, all ten question ids must be covered at least once
+6. Across the full writeup, cover at least 6 of the ten question ids — prioritize the questions the evidence actually supports rather than forcing coverage of questions with thin support
 7. `text` must be plain prose only, with no markdown bullets or headers
 8. No commentary outside JSON
 9. Copy `through_line_ids` exactly from the input; do not paraphrase or invent ids

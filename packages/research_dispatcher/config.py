@@ -66,6 +66,7 @@ class Config:
     FILTER_SOURCES = os.getenv('FILTER_SOURCES', '')  # Comma-separated list of sources (empty = all)
     FILTER_REGION = os.getenv('FILTER_REGION', '')  # Filter by region: US, EU, UK, Japan, China, EM, Global (empty = all)
     FILTER_ASSET_FOCUS = os.getenv('FILTER_ASSET_FOCUS', '')  # Filter by asset: rates, credit, FX, equities, commodities, multi-asset (empty = all)
+    FILTER_TRADE_CONVICTION = os.getenv('FILTER_TRADE_CONVICTION', 'high')  # Filter trades: high, medium, low, all (default: high)
     CALENDAR_COUNTRY = os.getenv('CALENDAR_COUNTRY', 'US')  # Country for calendar events
 
     # Interactive links (feedback and document viewer)

@@ -82,7 +82,7 @@ For each through-line, synthesize what it reveals:
 - The signpost that would force repricing
 - Actionable takeaways for positioning or monitoring
 
-Keep insights concise and specific to rates, macro, or cross-market flows. Write each `key_insight` as a short narrative that answers what is happening, why it is happening, what would flip it, and what traders should do or monitor.
+Develop each insight with enough depth to explore both sides of the argument. Cite specific sources by name when attributing claims. Explain the causal chain and the conditions under which the view would break. Be specific to rates, macro, or cross-market flows. Write each `key_insight` as a narrative that answers what is happening, why it is happening, what would flip it, and what traders should do or monitor.
 
 ---
 
@@ -107,7 +107,7 @@ Return EXACTLY ONE JSON object with this structure:
       "consensus_anchor": "The dominant market belief this through-line supports, fractures, or challenges",
       "supporting_themes": ["theme label 1", "theme label 2"],
       "supporting_trades": ["trade expression 1"],
-      "key_insight": "Synthesis paragraph (max 120 words) covering the narrative, agreement, disagreement, mechanism, and implications"
+      "key_insight": "Synthesis paragraph (max 300 words) covering the narrative, agreement, disagreement, mechanism, and implications with source-attributed citations"
     }
   ]
 }

@@ -14,7 +14,7 @@ class ReportFormatter:
         """Generate a short hash ID for an item (theme/through-line)."""
         return hashlib.sha256(text.encode()).hexdigest()[:8]
 
-    def format_report(self, data: List[Dict[str, Any]], active_filters: Dict[str, Any] = None) -> Dict[str, Any]:
+    def format_report(self, data: List[Dict[str, Any]], active_filters: Dict[str, Any] = None, conviction_filter: str = "all") -> Dict[str, Any]:
         """
         Format raw database results into a structured report.
 
@@ -33,7 +33,7 @@ class ReportFormatter:
             'summary': self._create_summary(data),
             'details': self._format_details(data),
             'themes_analysis': self._aggregate_themes(data),
-            'trades': self._aggregate_trades(data),
+            'trades': self._aggregate_trades(data, conviction_filter=conviction_filter),
             'through_lines': self._aggregate_through_lines(data),
             'callouts': self._aggregate_callouts(data)
         }
@@ -239,7 +239,7 @@ class ReportFormatter:
 
         return grouped
 
-    def _aggregate_trades(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _aggregate_trades(self, data: List[Dict[str, Any]], conviction_filter: str = "all") -> List[Dict[str, Any]]:
         """
         Aggregate and format trades across all documents.
         Returns all trades with their metadata.
@@ -263,6 +263,12 @@ class ReportFormatter:
                 # Normalize conviction to lowercase for consistent color coding
                 raw_conviction = trade.get('conviction', 'N/A')
                 conviction = raw_conviction.strip().lower() if isinstance(raw_conviction, str) else 'n/a'
+
+                # Apply conviction filter
+                if conviction_filter == "high" and conviction != "high":
+                    continue
+                elif conviction_filter == "medium" and conviction not in ("high", "medium", "moderate"):
+                    continue
 
                 all_trades.append({
                     'text': normalize_trade_expression(

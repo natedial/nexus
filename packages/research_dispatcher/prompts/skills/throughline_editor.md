@@ -76,5 +76,5 @@ RULES:
 2. Keep the same number of through-lines as the input
 3. Do not add new claims beyond what is already in the draft
 4. Use only the supporting sources already present in each through-line
-5. Keep `key_insight` under 100 words
+5. Preserve the depth and source citations in `key_insight` — tighten prose without compressing substance
 6. No markdown or commentary outside JSON
