@@ -2,10 +2,9 @@
 """Inspect the state database."""
 
 import argparse
+import os
 import sqlite3
 from pathlib import Path
-
-from src.config import get_settings
 
 
 def print_table(headers, rows, max_width=50):
@@ -34,8 +33,50 @@ def print_table(headers, rows, max_width=50):
     print()
 
 
+def _parse_env_file(env_path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        content = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return values
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def resolve_db_path(cli_db_path: str | None) -> Path:
+    if cli_db_path:
+        return Path(cli_db_path).expanduser()
+
+    env_value = os.getenv("STATE_DB_PATH")
+    if env_value:
+        return Path(env_value).expanduser()
+
+    repo_root = Path(__file__).resolve().parents[1]
+    env_path = repo_root / ".env"
+    env_values = _parse_env_file(env_path)
+    env_db = env_values.get("STATE_DB_PATH")
+    if env_db:
+        env_path_value = Path(env_db).expanduser()
+        return env_path_value if env_path_value.is_absolute() else repo_root / env_path_value
+
+    default_local = repo_root / "data" / "state.db"
+    if default_local.exists():
+        return default_local
+
+    return Path("/app/data/state.db")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Inspect state database")
+    parser.add_argument(
+        "--db",
+        help="Path to SQLite state database (overrides STATE_DB_PATH/.env)",
+    )
     parser.add_argument(
         "--status",
         choices=["pending", "parsing", "extracting", "completed", "failed", "partial"],
@@ -60,8 +101,7 @@ def main():
     )
     args = parser.parse_args()
 
-    settings = get_settings()
-    db_path = settings.state_db_path
+    db_path = resolve_db_path(args.db)
 
     if not db_path.exists():
         print(f"Database not found: {db_path}")
