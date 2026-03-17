@@ -21,7 +21,7 @@ The fact extraction layer runs as a separate post-processing pass over already-i
 2. **Pluggable LLM.** The extractor accepts a `Callable[[list[dict]], list[dict]]` — no hard dependency on any provider. A built-in Anthropic adapter is provided for convenience but lives behind an optional import.
 3. **Relational, not graph.** Facts and relationships are stored in SQLite tables (`facts`, `fact_links`), not a graph database. LLMs generate SQL better than Cypher, the corpus scale doesn't justify Neo4j, and the data model is already graph-shaped for future migration.
 4. **Entity normalization via prompt.** The extraction prompt instructs the LLM to use canonical entity names. An optional entity config file provides domain-specific canonical mappings the LLM references during extraction.
-5. **Incremental extraction.** Only chunks without existing facts are processed. Re-extraction can be forced per-chunk or globally.
+5. **Incremental extraction.** Chunks are tracked as processed via a sentinel row in the `facts` table (entity=`"_extracted"`, confidence=0). This prevents re-processing chunks that legitimately contain no extractable facts. Re-extraction can be forced per-chunk or globally.
 
 ## Architecture
 
@@ -102,10 +102,10 @@ CREATE INDEX IF NOT EXISTS idx_fact_links_target ON fact_links(target_fact_id);
 
 | Column | Type | Description |
 |---|---|---|
-| `fact_id` | TEXT | SHA256 hash of `chunk_id|entity|metric|value` for dedup |
+| `fact_id` | TEXT | SHA256 hash of `chunk_id|entity|metric|value|direction` for dedup (NULLs as empty string) |
 | `chunk_id` | TEXT | FK to `chunks.chunk_id` — provenance back to source text |
 | `entity` | TEXT | Canonical entity name: `"CPI"`, `"fed_funds_rate"`, `"unemployment"`, `"sp500"` |
-| `metric` | TEXT | What's being measured: `"actual"`, `"consensus"`, `"forecast"`, `"probability"`, `"trend"` |
+| `metric` | TEXT | What's being measured: `"actual"`, `"consensus"`, `"forecast"`, `"estimate"`, `"probability"`, `"trend"`, `"change"`, `"level"`, `"spread"`, `"ratio"` |
 | `value` | TEXT | Specific value if stated: `"3.1%"`, `"25bps"`, `"$4.2T"`. Null if directional-only |
 | `direction` | TEXT | Signal: `"above"`, `"below"`, `"rising"`, `"declining"`, `"hawkish"`, `"dovish"`, `"flat"` |
 | `confidence` | REAL | LLM's extraction confidence, 0.0–1.0 |
@@ -121,7 +121,11 @@ CREATE INDEX IF NOT EXISTS idx_fact_links_target ON fact_links(target_fact_id);
 | `contradicts` | Source fact contradicts target | Low inflation vs. high wage growth |
 | `precedes` | Source fact temporally precedes target | Rate hike → market selloff |
 
-**`fact_id` generation:** Hash of `chunk_id|entity|metric|value` ensures the same fact extracted from the same chunk is idempotent. Different chunks containing the same data point produce different `fact_id`s — this is intentional, as each extraction carries its own provenance.
+**`fact_id` generation:** Hash of `chunk_id|entity|metric|value|direction` ensures the same fact extracted from the same chunk is idempotent. NULL fields are represented as empty strings in the hash input (e.g., a fact with entity="CPI", metric=None, value=None, direction="rising" hashes as `SHA256("chunk123|CPI|||rising")`). The `direction` field is included in the hash because two facts from the same chunk with the same entity/metric/value but different directions (e.g., "rising" vs. "declining") are semantically distinct and must not collide. Different chunks containing the same data point produce different `fact_id`s — this is intentional, as each extraction carries its own provenance.
+
+**`link_id` generation:** Hash of `source_fact_id|target_fact_id|relationship` — deterministic and idempotent, same pattern as `fact_id`.
+
+**`strength` column:** Always 1.0 in this iteration. The extraction prompt does not ask the LLM to output strength values. The column exists for future use (e.g., confidence-weighted relationship scoring) but is not actively populated.
 
 **`source_date` inheritance:** The fact's `source_date` is copied from its parent chunk at extraction time. This avoids asking the LLM to parse dates (unreliable) and ensures temporal consistency with existing date-range filtering.
 
@@ -139,9 +143,9 @@ from typing import Callable, TypeAlias
 ExtractorCallable: TypeAlias = Callable[[list[dict]], list[dict]]
 ```
 
-The callable receives a batch of chunks and returns structured extractions. This keeps batching logic inside the callable (the caller controls batch size, the callable controls prompt construction).
+The callable receives a list of chunks and returns structured extractions. When `extractor` is provided directly to `extract_facts()`, ALL selected chunks are passed in a single call — the extractor is responsible for its own internal batching/chunking. This gives full control to custom implementations.
 
-**However**, to make common usage simple, the module provides a prompt builder and a response parser so that callers only need to provide a raw LLM call function:
+**However**, to make common usage simple, the module provides a prompt builder and a response parser so that callers only need to provide a raw LLM call function. When `llm` is provided instead, `extract_facts()` wraps it with `make_extractor()` which handles batching internally (splitting chunks into groups of `batch_size` and making one LLM call per group):
 
 ```python
 # Simple interface: user provides just the LLM call
@@ -222,11 +226,14 @@ def extract_facts(
 **Extraction logic flow:**
 
 1. Load entity config (if provided)
-2. Query chunks to extract: all chunks (or specific `chunk_ids`), minus those already having facts (unless `force=True`)
+2. Query chunks to extract: all chunks (or specific `chunk_ids`), minus those already having a sentinel row in `facts` (entity=`"_extracted"`) unless `force=True`
 3. Batch chunks into groups of `batch_size`
 4. For each batch, call the extractor
-5. Parse response, generate `fact_id` hashes, store facts and fact_links
-6. Return summary stats
+5. Parse response, generate `fact_id` and `link_id` hashes, store facts and fact_links
+6. For each processed chunk (including those with zero extracted facts), insert a sentinel row: `(fact_id=hash(chunk_id|"_extracted"), chunk_id, entity="_extracted", confidence=0)`. This marks the chunk as processed so it won't be re-processed on subsequent runs.
+7. Return summary stats
+
+**Sentinel rows** are excluded from all query functions (`query_facts`, `fact_lookup`) via `WHERE entity != '_extracted'`. They are only used for incremental tracking.
 
 **Entity config file format (optional):**
 
@@ -262,6 +269,9 @@ For each distinct factual claim, extract:
   declining, hawkish, dovish, flat, stronger, weaker, tightening, easing.
   Null if purely numeric with no directional context.
 - confidence: Your confidence in this extraction, 0.0 to 1.0.
+
+If a chunk contains no extractable factual claims, return an empty facts
+array for that chunk. Every chunk in the input MUST appear in the output.
 
 For causal or logical relationships between facts within the SAME chunk:
 - source_index: Index of the cause/antecedent fact in the facts array
@@ -406,7 +416,7 @@ def fact_connections(
 
 **Design decisions:**
 
-- **`min_confidence` defaults to 0.5** in the API. Low-confidence facts are still stored (for analysis/debugging) but hidden from the agent by default. The agent can lower the threshold if it wants to cast a wider net.
+- **`min_confidence` defaults to 0.5** in the API. Low-confidence facts are still stored (for analysis/debugging) but hidden from the agent by default. The `min_confidence` parameter is available to programmatic callers but is NOT exposed in the agent tool schema — the 0.5 default is the right threshold for agent use.
 - **`source_text` is truncated to 200 chars.** The agent gets a preview of the chunk text for context. If it needs the full text, it can use `research_search` with the `chunk_id` or call `search()` for the same topic.
 - **`entity` parameter does case-insensitive matching.** The query normalizes both the input and the stored entity with `LOWER()` for resilience against casing inconsistencies.
 - **Date validation reuses `_validate_date()`** from the existing API module.
@@ -434,7 +444,7 @@ def corpus_info(db_path: str) -> dict:
 
 This tells the agent whether facts are available and what entities exist, so it knows when to use `fact_lookup` vs `search`.
 
-**Graceful degradation:** If the `facts` table doesn't exist yet (older database), `corpus_info()` returns `total_facts: 0` and `fact_entities: []`. Same for `fact_lookup()` — returns `[]`. This ensures backwards compatibility with databases that haven't had fact extraction run yet.
+**Graceful degradation:** If the `facts` table doesn't exist yet (older database), `corpus_info()` returns `total_facts: 0` and `fact_entities: []`. Same for `fact_lookup()` — returns `[]`. The detection mechanism: wrap fact-table queries in `try/except sqlite3.OperationalError` and return the empty defaults on failure. This is simpler and more robust than checking `sqlite_master` — it handles both missing tables and schema mismatches.
 
 ## Change 4: Tool Schema
 
@@ -473,6 +483,12 @@ Add one new tool definition:
     }
   }
 }
+```
+
+**Update `research_corpus_info` description** to mention fact availability:
+
+```json
+"description": "Returns metadata about the research corpus: total chunks, date range covered, list of sources, and available structured fact entities. Call this first to understand what data is available before searching or looking up facts."
 ```
 
 **`research_fact_connections` is NOT exposed as a tool.** The connections API exists for programmatic use, but the agent doesn't need it as a separate tool — when it calls `fact_lookup`, the returned facts already carry enough context for the agent to reason about relationships. Adding a third retrieval tool increases decision complexity for the agent without proportional benefit. If usage patterns show the agent struggling to find causal chains, this tool can be added later.
@@ -546,7 +562,8 @@ __all__ = [
 - `chunking.py`, `keywords.py`, `embeddings.py` — untouched
 - `supabase_indexer.py` — untouched
 - Existing tests — untouched
-- Existing tool schemas (`research_search`, `research_corpus_info`) — untouched
+- Existing tool schema for `research_search` — untouched
+- `research_corpus_info` tool description updated to mention fact availability (see Change 4)
 
 ## Testing Strategy
 
@@ -579,9 +596,11 @@ __all__ = [
 
 **Integration (with mock LLM):**
 - Test `extract_facts()` end-to-end with a mock LLM callable
-- Test `extract_facts()` skips chunks that already have facts
-- Test `extract_facts()` with `force=True` re-extracts
+- Test `extract_facts()` skips chunks that already have sentinel rows
+- Test `extract_facts()` inserts sentinel row for chunks with zero extracted facts
+- Test `extract_facts()` with `force=True` re-extracts (ignores sentinel rows)
 - Test `extract_facts()` with `chunk_ids` filter
+- Test `query_facts()` excludes sentinel rows (entity="_extracted")
 
 ### `tests/test_fact_api.py`
 
