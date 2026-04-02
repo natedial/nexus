@@ -8,20 +8,32 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
+from src.analyst_client import AnalystBatchClient
 from src.database import DatabaseClient
 from src.delta_engine import SynthesisDeltaTracker
+from src.dispatch_store import DispatchStore
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
 from src.synthesizer import Synthesizer
+from src.main import _derive_dispatch_batch_key
 
 try:
     print("Validating configuration...")
     Config.validate()
+    dispatch_store = DispatchStore(Config.DISPATCH_DB_PATH)
+    dispatch_run_id = None
 
-    print("Querying database...")
     db = DatabaseClient()
-    data = db.query_analysis()
-    print(f"Retrieved {len(data)} research records")
+    dispatch_batch = None
+    if Config.ANALYST_BATCH_PATH:
+        print(f"Loading analyst dispatch batch: {Config.ANALYST_BATCH_PATH}")
+        dispatch_batch = AnalystBatchClient(Config.ANALYST_BATCH_PATH).load_batch()
+        data = dispatch_batch.to_legacy_records()
+        print(f"Loaded batch {dispatch_batch.batch_key} with {len(dispatch_batch.documents)} document(s)")
+    else:
+        print("Querying database...")
+        data = db.query_analysis()
+        print(f"Retrieved {len(data)} research records")
 
     # Query calendar data
     economic_events = db.query_economic_events()
@@ -59,7 +71,8 @@ try:
             deepinfra_api_key=Config.DEEPINFRA_API_KEY,
             use_skill_pipeline=Config.USE_SKILL_PIPELINE,
         )
-        synthesis_result = synthesizer.synthesize(data, scope=active_filters)
+        synthesis_input = dispatch_batch if dispatch_batch is not None else data
+        synthesis_result = synthesizer.synthesize(synthesis_input, scope=active_filters)
         if synthesis_result:
             print(f"✓ Synthesis complete: {synthesis_result.title}")
         else:
@@ -74,10 +87,30 @@ try:
 
     if Config.FILTER_TRADE_CONVICTION != 'all':
         active_filters['trade_conviction'] = Config.FILTER_TRADE_CONVICTION
+    report_source = dispatch_batch if dispatch_batch is not None else data
     report_data = formatter.format_report(
-        data,
+        report_source,
         active_filters=active_filters,
         conviction_filter=Config.FILTER_TRADE_CONVICTION,
+    )
+    batch_key = _derive_dispatch_batch_key(
+        dispatch_batch=dispatch_batch,
+        active_filters=active_filters,
+        source_date_range=report_data.get("source_date_range"),
+    )
+    dispatch_run_id = dispatch_store.create_run(
+        run_type="pdf_only",
+        mode=Config.MODE,
+        batch_key=batch_key,
+        analysis_version=(dispatch_batch.analysis_version if dispatch_batch is not None else None),
+        report_title=report_data.get("title", Config.REPORT_TITLE),
+        report_scope=active_filters,
+        source_date_range=report_data.get("source_date_range"),
+        document_count=len(data),
+    )
+    dispatch_store.record_documents(
+        dispatch_run_id,
+        dispatch_batch if dispatch_batch is not None else data,
     )
 
     # Add cross-document synthesis to report (replaces per-document through_lines)
@@ -107,12 +140,30 @@ try:
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     pdf_filename = f"research_report_{timestamp}.pdf"
     pdf_path = pdf_generator.generate(report_data, pdf_filename)
+    dispatch_store.mark_pdf_generated(
+        dispatch_run_id,
+        pdf_path=pdf_path,
+        throughline_count=len(report_data.get("through_lines", [])),
+        callout_count=len(report_data.get("callouts", [])),
+    )
     if synthesis_snapshot is not None:
         SynthesisDeltaTracker().save_snapshot(synthesis_snapshot)
+        dispatch_store.save_snapshot(
+            dispatch_run_id,
+            snapshot_type="synthesis_snapshot",
+            payload=synthesis_snapshot,
+        )
+    dispatch_store.finalize_run(dispatch_run_id, status="completed")
 
     print(f"✓ PDF generated: {pdf_path}")
 
 except Exception as e:
+    if 'dispatch_run_id' in locals() and dispatch_run_id is not None:
+        dispatch_store.finalize_run(
+            dispatch_run_id,
+            status="failed",
+            error_text=str(e),
+        )
     print(f"✗ Error: {e}")
     import traceback
     traceback.print_exc()

@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+VALID_TRADE_CONVICTION_FILTERS = {"high", "medium", "all"}
+
 
 def _int_from_env(name: str, default: int) -> int:
     """Parse int env var, falling back to default on empty/invalid values."""
@@ -13,6 +15,20 @@ def _int_from_env(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def parse_trade_conviction_filter(raw: str | None, default: str = "high") -> str:
+    """Normalize the trade conviction filter and fail fast on invalid values."""
+    candidate = (raw or "").strip().lower()
+    if not candidate:
+        return default
+    if candidate == "low":
+        return "all"
+    if candidate in VALID_TRADE_CONVICTION_FILTERS:
+        return candidate
+    raise ValueError(
+        "FILTER_TRADE_CONVICTION must be one of: high, medium, all"
+    )
 
 
 class Config:
@@ -43,9 +59,15 @@ class Config:
 
     # Report
     REPORT_TITLE = os.getenv('REPORT_TITLE', 'Document Analysis Report')
+    ANALYST_BATCH_PATH = os.getenv('ANALYST_BATCH_PATH', '').strip()
+    DISPATCH_DB_PATH = os.getenv('DISPATCH_DB_PATH', os.path.join('state', 'dispatch_history.db'))
 
     # Mode: debug (doesn't update synthesized) or production (updates synthesized)
     MODE = os.getenv('MODE', 'debug').lower()
+    LEGACY_SYNTHESIZED_UPDATES = os.getenv(
+        'LEGACY_SYNTHESIZED_UPDATES',
+        'false',
+    ).lower() in ('true', '1', 'yes')
 
     # Feedback links (Supabase Edge Function)
     FEEDBACK_BASE_URL = os.getenv(
@@ -66,7 +88,9 @@ class Config:
     FILTER_SOURCES = os.getenv('FILTER_SOURCES', '')  # Comma-separated list of sources (empty = all)
     FILTER_REGION = os.getenv('FILTER_REGION', '')  # Filter by region: US, EU, UK, Japan, China, EM, Global (empty = all)
     FILTER_ASSET_FOCUS = os.getenv('FILTER_ASSET_FOCUS', '')  # Filter by asset: rates, credit, FX, equities, commodities, multi-asset (empty = all)
-    FILTER_TRADE_CONVICTION = os.getenv('FILTER_TRADE_CONVICTION', 'high')  # Filter trades: high, medium, low, all (default: high)
+    FILTER_TRADE_CONVICTION = parse_trade_conviction_filter(
+        os.getenv('FILTER_TRADE_CONVICTION', 'high')
+    )  # Filter trades: high, medium, all (default: high; low aliases to all)
     CALENDAR_COUNTRY = os.getenv('CALENDAR_COUNTRY', 'US')  # Country for calendar events
 
     # Interactive links (feedback and document viewer)

@@ -11,6 +11,8 @@ Extract 3-8 through-lines from the provided themes and trades. A through-line is
 
 A through-line is not a loose topic grouping or a stack of related trades. It must capture one comprehensive narrative or finding that ties the collected themes together, explains the mechanism, and gives a trader a clear read on implications.
 
+If the input includes `cross_document_clusters`, treat them as a prioritization aid showing where multiple sources converge around the same theme. Use them to spot consensus and fracture lines faster, but keep the final through-lines grounded in the supplied themes and trades.
+
 THROUGH-LINE CONSTRAINTS
 - Build each through-line around the supporting themes first; trades are optional expressions of the narrative, not the narrative itself
 - Each through-line should connect at least 2 supporting themes unless it is a clearly labeled contrarian single-source risk

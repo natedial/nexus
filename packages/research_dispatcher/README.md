@@ -49,6 +49,11 @@ DEEPINFRA_API_KEY=
 # Mode: debug (no DB updates) or production (marks docs as synthesized)
 MODE=debug
 
+# Optional legacy fallback only.
+# Dispatcher now tracks its own run history in state/dispatch_history.db.
+# Set this true only if another system still depends on parsed_research.synthesized.
+LEGACY_SYNTHESIZED_UPDATES=false
+
 # Filters (all optional - empty = no filter)
 DATE_RANGE_DAYS=7
 FILTER_SOURCES=
@@ -142,10 +147,14 @@ Filter options:
 
 ### Production mode
 
-Set `MODE=production` to mark processed documents as synthesized (prevents re-processing):
+Dispatcher now uses its local dispatch ledger as the primary state mechanism.
+
+Set `MODE=production` for live sends. If you still need the old parser-owned
+`parsed_research.synthesized` updates, also set `LEGACY_SYNTHESIZED_UPDATES=true`.
 
 ```bash
 MODE=production
+LEGACY_SYNTHESIZED_UPDATES=true  # optional legacy fallback only
 ```
 
 ## Scheduling

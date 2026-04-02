@@ -319,6 +319,8 @@ class PDFGenerator:
 
     def _create_feedback_links(self, doc_id: str, item_id: str) -> str:
         """Create feedback links HTML for a theme or through-line."""
+        if not Config.FEEDBACK_ENABLED:
+            return ""
         feedback_url = Config.FEEDBACK_BASE_URL
         if not feedback_url or not doc_id:
             return ""
@@ -381,6 +383,25 @@ class PDFGenerator:
         elif conviction_lower in ('medium', 'moderate'):
             return self.format_rules.get('CONVICTION_MEDIUM', [{}])[0].get('color', '#FF8B00')
         return self.format_rules.get('CONVICTION_LOW', [{}])[0].get('color', '#999999')
+
+    def _format_trigger_levels(self, raw: Any) -> str:
+        """Format trigger levels for display, returning empty string for null/empty."""
+        if raw is None:
+            return ""
+        if isinstance(raw, str):
+            cleaned = raw.strip()
+            if not cleaned or cleaned.lower() in ("null", "none", "n/a", "{}"):
+                return ""
+            return cleaned
+        if isinstance(raw, dict):
+            parts = []
+            for key, val in raw.items():
+                val_str = str(val).strip() if val is not None else ""
+                if not val_str or val_str.lower() in ("null", "none"):
+                    continue
+                parts.append(val_str if str(key).lower() in ("value", "level", "trigger") else f"{val_str}")
+            return ", ".join(parts) if parts else ""
+        return str(raw).strip() if raw else ""
 
     def _create_callout_box(self, callout: Dict[str, Any]) -> list:
         """Create a styled callout box with coral red left border."""
@@ -794,6 +815,96 @@ class PDFGenerator:
         elements.append(Spacer(1, 0.12 * inch))
         return elements
 
+    def _create_executive_summary_section(self, report_data: Dict[str, Any]) -> list:
+        """Render a top-level executive summary using synthesis analysis when available."""
+        analysis_paragraphs = report_data.get("analysis_paragraphs", [])
+        fallback_summary = report_data.get("executive_summary", [])
+        if not analysis_paragraphs and not fallback_summary:
+            return []
+
+        elements = [
+            Paragraph("Executive Summary", self.styles["SectionHeader"]),
+            HRFlowable(
+                width="100%",
+                thickness=1,
+                color=colors.HexColor("#FF4458"),
+                spaceBefore=3,
+                spaceAfter=12,
+            ),
+        ]
+
+        if analysis_paragraphs:
+            for paragraph in analysis_paragraphs:
+                text = paragraph.get("text", "") if isinstance(paragraph, dict) else str(paragraph)
+                if text:
+                    elements.append(Paragraph(escape(text), self.styles["Normal"]))
+                    elements.append(Spacer(1, 0.08 * inch))
+            return elements
+
+        for item in fallback_summary:
+            if item:
+                elements.append(Paragraph(escape(str(item)), self.styles["Normal"]))
+                elements.append(Spacer(1, 0.08 * inch))
+        elements.append(Spacer(1, 0.1 * inch))
+        return elements
+
+    def _create_document_digest_section(self, report_data: Dict[str, Any]) -> list:
+        """Render a readable note-by-note digest grouped by source date."""
+        digest_groups = report_data.get("document_digest", [])
+        if not digest_groups:
+            return []
+
+        elements = [
+            PageBreak(),
+            Paragraph("Research Digest", self.styles["SectionHeader"]),
+            HRFlowable(
+                width="100%",
+                thickness=1,
+                color=colors.HexColor("#FF4458"),
+                spaceBefore=3,
+                spaceAfter=12,
+            ),
+        ]
+
+        for group in digest_groups:
+            heading = str(group.get("heading", "")).strip()
+            if heading:
+                elements.append(Paragraph(escape(heading), self.styles["SubsectionHeader"]))
+            for entry in group.get("entries", []):
+                source = escape(str(entry.get("source") or "Unknown"))
+                title = escape(str(entry.get("title") or entry.get("document_name") or "Untitled"))
+                header_text = f"<b>{source} — {title}</b>"
+                elements.append(Paragraph(header_text, self.styles["Normal"]))
+
+                meta_parts = []
+                publisher = entry.get("publisher")
+                if publisher:
+                    meta_parts.append(escape(str(publisher)))
+                raw_date = entry.get("source_date")
+                if raw_date:
+                    meta_parts.append(escape(str(raw_date)))
+                if meta_parts:
+                    elements.append(
+                        Paragraph(f"<i>{' | '.join(meta_parts)}</i>", self.styles["Minimalist"])
+                    )
+
+                summary = str(entry.get("summary") or "").strip()
+                if summary:
+                    elements.append(Paragraph(escape(summary), self.styles["IndentedBody"]))
+
+                document_link = entry.get("document_link")
+                if document_link:
+                    elements.append(
+                        Paragraph(
+                            f'[<a href="{escape(str(document_link))}" color="#0066cc">Open Document</a>]',
+                            self.styles["FeedbackLinks"],
+                        )
+                    )
+
+                elements.append(Spacer(1, 0.12 * inch))
+
+        return elements
+
     def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
         """Generate PDF from report data."""
         filepath = os.path.join(self.output_dir, filename)
@@ -828,7 +939,8 @@ class PDFGenerator:
         story.append(title)
 
         # Accent label (coral red)
-        subtitle = "Weekly Synthesis - "
+        subtitle_prefix = "Weekly Synthesis - " if report_data.get("through_lines") else "Research Digest - "
+        subtitle = subtitle_prefix
         source_date_range = report_data.get("source_date_range")
         if source_date_range:
             start = source_date_range.get("start")
@@ -863,6 +975,7 @@ class PDFGenerator:
 
         story.append(Spacer(1, 0.3 * inch))
 
+        story.extend(self._create_executive_summary_section(report_data))
         story.extend(self._create_delta_section(report_data))
 
         # Through Lines section — rendered as card blocks
@@ -870,19 +983,6 @@ class PDFGenerator:
         if through_lines:
             story.append(Paragraph('Through Lines', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
-
-            analysis_paragraphs = report_data.get('analysis_paragraphs', [])
-            for paragraph in analysis_paragraphs:
-                if isinstance(paragraph, dict):
-                    text = paragraph.get('text', '')
-                else:
-                    text = str(paragraph)
-                if text:
-                    story.append(Paragraph(text, self.styles['Normal']))
-                    story.append(Spacer(1, 0.08 * inch))
-
-            if analysis_paragraphs:
-                story.append(Spacer(1, 0.08 * inch))
 
             for tl in through_lines:
                 # Render through-line card + its callout as a KeepTogether group
@@ -893,6 +993,8 @@ class PDFGenerator:
                     story.append(KeepTogether(tl_elements))
 
             story.append(Spacer(1, 0.2 * inch))
+
+        story.extend(self._create_document_digest_section(report_data))
 
         # Themes Analysis section
         themes_by_through_line = report_data.get('themes_by_through_line', [])
@@ -939,7 +1041,7 @@ class PDFGenerator:
 
                 story.append(Spacer(1, 0.15 * inch))
 
-        elif themes_analysis:
+        elif themes_analysis and not report_data.get("document_digest"):
             story.append(PageBreak())
             story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
@@ -974,9 +1076,11 @@ class PDFGenerator:
                 if trade.get('rationale'):
                     story.append(Paragraph(trade['rationale'], self.styles['IndentedBody']))
 
-                # Trigger levels
-                if trade.get('trigger_levels'):
-                    story.append(Paragraph(f"<i>Triggers: {trade['trigger_levels']}</i>", self.styles['IndentedBody']))
+                # Trigger levels — suppress null/empty values
+                raw_triggers = trade.get('trigger_levels')
+                trigger_text = self._format_trigger_levels(raw_triggers)
+                if trigger_text:
+                    story.append(Paragraph(f"<i>Triggers: {escape(trigger_text)}</i>", self.styles['IndentedBody']))
 
                 # Source document
                 doc_text = trade['document'][:80] + ('...' if len(trade['document']) > 80 else '')
@@ -1130,6 +1234,8 @@ class PDFGenerator:
             story.append(Paragraph('Summary Detail', self.styles['SubsectionHeader']))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
             for key, value in summary.items():
+                if key == "synthesis_status":
+                    continue
                 if isinstance(value, dict):
                     story.append(Paragraph(f"<b>{key.replace('_', ' ').title()}:</b>", self.styles['Normal']))
                     for sub_key, sub_value in value.items():

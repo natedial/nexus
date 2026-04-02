@@ -15,7 +15,9 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import Config
+from src.analyst_client import AnalystBatchClient
 from src.database import DatabaseClient
+from src.dispatch_store import DispatchStore
 from src.delta_engine import SynthesisDeltaTracker
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
@@ -23,6 +25,24 @@ from src.email_sender import EmailSender
 from src.synthesizer import Synthesizer
 
 logger = logging.getLogger(__name__)
+
+
+def _derive_dispatch_batch_key(
+    *,
+    dispatch_batch,
+    active_filters: dict[str, object],
+    source_date_range: dict[str, str] | None,
+) -> str:
+    """Build a stable batch key for local dispatch tracking."""
+    if dispatch_batch is not None:
+        return dispatch_batch.batch_key
+
+    start = (source_date_range or {}).get("start", "na")
+    end = (source_date_range or {}).get("end", "na")
+    region = active_filters.get("region") or "all"
+    asset_focus = active_filters.get("asset_focus") or "all"
+    sources = str(active_filters.get("sources") or "all").replace(" ", "")
+    return f"legacy:{start}:{end}:{region}:{asset_focus}:{sources}"
 
 
 def main():
@@ -33,6 +53,8 @@ def main():
     )
     logger.info("Starting Research Dispatch")
     logger.info("Mode: %s", Config.MODE)
+    dispatch_store = DispatchStore(Config.DISPATCH_DB_PATH)
+    dispatch_run_id: int | None = None
 
     try:
         # Validate configuration
@@ -42,9 +64,22 @@ def main():
         # Query database
         logger.info("Connecting to database...")
         db_client = DatabaseClient()
-        logger.info("Querying documents...")
-        data = db_client.query_analysis()
-        logger.info("Retrieved %d research records", len(data))
+        batch_mode = bool(Config.ANALYST_BATCH_PATH)
+        dispatch_batch = None
+
+        if batch_mode:
+            logger.info("Loading analyst dispatch batch: %s", Config.ANALYST_BATCH_PATH)
+            dispatch_batch = AnalystBatchClient(Config.ANALYST_BATCH_PATH).load_batch()
+            data = dispatch_batch.to_legacy_records()
+            logger.info(
+                "Loaded batch %s with %d document(s)",
+                dispatch_batch.batch_key,
+                len(dispatch_batch.documents),
+            )
+        else:
+            logger.info("Querying documents...")
+            data = db_client.query_analysis()
+            logger.info("Retrieved %d research records", len(data))
 
         # Query calendar data
         economic_events = db_client.query_economic_events()
@@ -86,7 +121,8 @@ def main():
                 deepinfra_api_key=Config.DEEPINFRA_API_KEY,
                 use_skill_pipeline=Config.USE_SKILL_PIPELINE,
             )
-            synthesis_result = synthesizer.synthesize(data, scope=active_filters)
+            synthesis_input = dispatch_batch if dispatch_batch is not None else data
+            synthesis_result = synthesizer.synthesize(synthesis_input, scope=active_filters)
             if synthesis_result:
                 logger.info("Synthesis complete: %s", synthesis_result.title)
             else:
@@ -104,10 +140,31 @@ def main():
 
         if Config.FILTER_TRADE_CONVICTION != 'all':
             active_filters['trade_conviction'] = Config.FILTER_TRADE_CONVICTION
+        report_source = dispatch_batch if dispatch_batch is not None else data
         report_data = formatter.format_report(
-            data,
+            report_source,
             active_filters=active_filters,
             conviction_filter=Config.FILTER_TRADE_CONVICTION,
+        )
+
+        batch_key = _derive_dispatch_batch_key(
+            dispatch_batch=dispatch_batch,
+            active_filters=active_filters,
+            source_date_range=report_data.get("source_date_range"),
+        )
+        dispatch_run_id = dispatch_store.create_run(
+            run_type="email_dispatch",
+            mode=Config.MODE,
+            batch_key=batch_key,
+            analysis_version=(dispatch_batch.analysis_version if dispatch_batch is not None else None),
+            report_title=report_data.get("title", Config.REPORT_TITLE),
+            report_scope=active_filters,
+            source_date_range=report_data.get("source_date_range"),
+            document_count=len(data),
+        )
+        dispatch_store.record_documents(
+            dispatch_run_id,
+            dispatch_batch if dispatch_batch is not None else data,
         )
 
         # Add cross-document synthesis to report (replaces per-document through_lines)
@@ -138,6 +195,12 @@ def main():
         pdf_filename = f"research_report_{timestamp}.pdf"
         pdf_path = pdf_generator.generate(report_data, pdf_filename)
         logger.info("PDF generated: %s", pdf_path)
+        dispatch_store.mark_pdf_generated(
+            dispatch_run_id,
+            pdf_path=pdf_path,
+            throughline_count=len(report_data.get("through_lines", [])),
+            callout_count=len(report_data.get("callouts", [])),
+        )
 
         # Send email
         logger.info("Sending email...")
@@ -148,25 +211,47 @@ def main():
             len(recipient_list),
             ", ".join(recipient_list),
         )
+        dispatch_store.mark_sent(dispatch_run_id, recipient_list)
 
         if synthesis_snapshot is not None:
             SynthesisDeltaTracker().save_snapshot(synthesis_snapshot)
+            dispatch_store.save_snapshot(
+                dispatch_run_id,
+                snapshot_type="synthesis_snapshot",
+                payload=synthesis_snapshot,
+            )
             logger.info("Saved synthesis snapshot for delta tracking")
 
-        # Mark documents as synthesized if in production mode
-        if Config.MODE in ['production', 'prod', 'active']:
-            logger.info("Marking %d documents as synthesized...", len(document_ids))
+        # Legacy compatibility path: optionally mirror dispatch completion into parser-owned state
+        if batch_mode:
+            logger.info("Analyst batch mode: skipping parser synthesized flag update")
+        elif not Config.LEGACY_SYNTHESIZED_UPDATES:
+            logger.info(
+                "Legacy parser synthesized updates disabled; dispatch ledger is the source of truth"
+            )
+        elif Config.MODE in ['production', 'prod', 'active']:
+            logger.info(
+                "Legacy fallback enabled: marking %d document(s) synthesized in parser state",
+                len(document_ids),
+            )
             if db_client.mark_as_synthesized(document_ids):
                 logger.info("Documents marked as synthesized")
             else:
                 logger.warning("Failed to mark documents as synthesized")
         else:
-            logger.info("Debug mode: Skipping synthesized flag update")
+            logger.info("Debug mode: Skipping legacy synthesized flag update")
 
+        dispatch_store.finalize_run(dispatch_run_id, status="completed")
         logger.info("Research Dispatch completed successfully")
         return 0
 
     except Exception as e:
+        if dispatch_run_id is not None:
+            dispatch_store.finalize_run(
+                dispatch_run_id,
+                status="failed",
+                error_text=str(e),
+            )
         logger.exception("Unhandled error: %s", str(e))
         return 1
 

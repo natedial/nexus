@@ -20,6 +20,8 @@ from .stage1_profiles import (
     build_stage1_prompt,
     stage1_profile_from_model_config,
 )
+from .report_models import DispatchBatch
+from .throughline_input_builder import ThroughlineInputBuilder
 from .trade_normalization import dedupe_text_items, normalize_trade_expression
 
 
@@ -29,6 +31,13 @@ SKILL_PROMPTS_PATH = Path(__file__).parent.parent / "prompts" / "skills"
 COMPONENTS_PATH = Path(__file__).parent.parent / "prompts" / "components"
 MARKET_EDGE_LENS_PATH = COMPONENTS_PATH / "market_edge_lens.md"
 CALLOUT_SELECTION_LENS_PATH = COMPONENTS_PATH / "callout_selection_lens.md"
+MAX_CROSS_DOCUMENT_CLUSTERS = 8
+MAX_CLUSTER_ENTRIES = 3
+MAX_CLUSTER_LABEL_VARIANTS = 4
+MAX_CLUSTER_SOURCES = 6
+MAX_CLUSTER_CONTEXT_CHARS = 280
+MAX_CLUSTER_EXCERPTS = 2
+MAX_CLUSTER_EXCERPT_CHARS = 160
 
 
 def _load_prompt(filename: str = "synthesis.md") -> str:
@@ -113,6 +122,7 @@ class Synthesizer:
             deepinfra_api_key=deepinfra_api_key,
         )
         self.use_skill_pipeline = use_skill_pipeline
+        self.input_builder = ThroughlineInputBuilder()
 
         # Load monolithic config/prompt
         self.config = load_model_config()
@@ -220,7 +230,7 @@ class Synthesizer:
 
     def synthesize(
         self,
-        documents: list[dict[str, Any]],
+        documents: list[dict[str, Any]] | DispatchBatch,
         scope: dict[str, Any] | None = None,
     ) -> SynthesisResult | None:
         """
@@ -229,7 +239,7 @@ class Synthesizer:
         Uses skill pipeline if enabled, otherwise falls back to monolithic prompt.
 
         Args:
-            documents: List of parsed_research records from Supabase
+            documents: List of parsed_research records from Supabase, or an analyst batch
 
         Returns:
             SynthesisResult or None if synthesis fails
@@ -238,8 +248,12 @@ class Synthesizer:
             print("No documents to synthesize")
             return None
 
-        # Extract and format themes/trades from all documents
-        input_data = self._prepare_input(documents)
+        if isinstance(documents, DispatchBatch):
+            input_data = self.input_builder.build_from_batch(documents)
+            document_count = len(documents.documents)
+        else:
+            input_data = self._prepare_input(documents)
+            document_count = len(documents)
 
         if not input_data["themes"]:
             print("No themes found in documents, skipping synthesis")
@@ -248,9 +262,9 @@ class Synthesizer:
         print(f"Synthesizing {len(input_data['themes'])} themes and {len(input_data['trades'])} trades from {input_data['document_count']} documents...")
 
         if self.use_skill_pipeline:
-            return self._synthesize_with_skills(input_data, len(documents), scope or {})
+            return self._synthesize_with_skills(input_data, document_count, scope or {})
         else:
-            return self._synthesize_monolithic(input_data, len(documents))
+            return self._synthesize_monolithic(input_data, document_count)
 
     def _synthesize_monolithic(
         self,
@@ -882,6 +896,489 @@ class Synthesizer:
         cleaned = self._clean_text(value).lower()
         return re.sub(r"[^a-z0-9]+", " ", cleaned).strip()
 
+    def _normalize_theme_token(self, token: str) -> str:
+        """Light stemming for theme labels so obvious near-duplicates cluster together."""
+        cleaned = token.strip().lower()
+        token_aliases = {
+            "premia": "premium",
+        }
+        if cleaned in token_aliases:
+            return token_aliases[cleaned]
+        if cleaned.endswith("ies") and len(cleaned) > 4:
+            return f"{cleaned[:-3]}y"
+        if cleaned.endswith("s") and len(cleaned) > 4 and not cleaned.endswith("ss"):
+            return cleaned[:-1]
+        return cleaned
+
+    def _canonicalize_theme_label(self, value: Any) -> str:
+        """Collapse nearby theme label variants into a stable clustering key."""
+        normalized = self._normalize_reference_text(value)
+        if not normalized:
+            return ""
+
+        phrase_aliases = {
+            "term premia": "term premium",
+            "higher term premia": "term premium",
+            "higher term premium": "term premium",
+            "rising term premia": "term premium",
+            "rising term premium": "term premium",
+        }
+        aliased = phrase_aliases.get(normalized, normalized)
+        tokens = [self._normalize_theme_token(token) for token in aliased.split() if token]
+        canonical = " ".join(token for token in tokens if token).strip()
+        return phrase_aliases.get(canonical, canonical)
+
+    def _truncate_cluster_text(self, value: Any, limit: int) -> str:
+        """Trim verbose cluster fields so enrichment stays compact."""
+        return self._truncate_text(self._clean_text(value), limit)
+
+    def _cluster_strength_rank(self, value: Any) -> int:
+        """Rank evidence strength labels for cluster truncation."""
+        return {
+            "primary": 3,
+            "secondary": 2,
+            "tertiary": 1,
+        }.get(self._clean_text(value).lower(), 0)
+
+    def _cluster_confidence_rank(self, value: Any) -> int:
+        """Rank evidence confidence labels for cluster truncation."""
+        return {
+            "high": 3,
+            "medium": 2,
+            "low": 1,
+        }.get(self._clean_text(value).lower(), 0)
+
+    def _cluster_authority_rank(self, value: Any) -> int:
+        """Rank authority bands so stronger repeated signals float to the top."""
+        return {
+            "structural": 5,
+            "core": 4,
+            "established": 3,
+            "emerging": 2,
+            "seed": 1,
+        }.get(self._clean_text(value).lower(), 0)
+
+    def _cluster_status_rank(self, value: Any) -> int:
+        """Rank statuses for clustering, favoring live support over weak proposals."""
+        return {
+            "reinforced": 5,
+            "supported": 4,
+            "established": 4,
+            "proposed": 3,
+            "active": 3,
+            "contested": 2,
+            "stale": 1,
+            "invalidated": 0,
+        }.get(self._clean_text(value).lower(), 0)
+
+    def _cluster_quality_rank(self, value: Any) -> int:
+        """Rank numeric quality scores on a small discrete scale for sorting."""
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return 0
+        if score >= 90:
+            return 4
+        if score >= 80:
+            return 3
+        if score >= 70:
+            return 2
+        if score > 0:
+            return 1
+        return 0
+
+    def _compact_cluster_excerpts(self, excerpts: Any) -> list[str]:
+        """Keep only the shortest high-signal excerpt snippets in cluster summaries."""
+        if not isinstance(excerpts, list):
+            return []
+
+        compacted: list[str] = []
+        for excerpt in excerpts[:MAX_CLUSTER_EXCERPTS]:
+            text = self._truncate_cluster_text(excerpt, MAX_CLUSTER_EXCERPT_CHARS)
+            if text:
+                compacted.append(text)
+        return compacted
+
+    def _compact_cluster_directionality(self, value: Any) -> dict[str, int]:
+        """Preserve only integer directionality counts so the cluster stays serializable and small."""
+        if not isinstance(value, dict):
+            return {}
+
+        compacted: dict[str, int] = {}
+        for key in ("bullish", "bearish", "neutral"):
+            raw = value.get(key)
+            if isinstance(raw, bool):
+                continue
+            if isinstance(raw, (int, float)):
+                compacted[key] = int(raw)
+        return compacted
+
+    def _canonicalize_assertion_summary(self, value: Any) -> str:
+        """Reduce minor phrasing differences in assertion summaries to a stable cluster key."""
+        normalized = self._normalize_reference_text(value)
+        if not normalized:
+            return ""
+        replacements = {
+            "nonfarm payrolls": "payrolls",
+            "nfp": "payrolls",
+            "term premia": "term premium",
+            "higher term premia": "term premium",
+            "undershoot": "miss",
+            "under shoot": "miss",
+            "below consensus": "miss consensus",
+        }
+        for source, target in replacements.items():
+            normalized = normalized.replace(source, target)
+        return normalized
+
+    def _canonicalize_forecast_key(self, indicator_key: Any, event_name: Any) -> str:
+        """Build a stable forecast cluster key from indicator metadata."""
+        indicator = self._clean_text(indicator_key).lower()
+        if indicator:
+            return re.sub(r"[^a-z0-9_]+", "_", indicator).strip("_")
+        return self._normalize_reference_text(event_name)
+
+    def _coerce_source_list(self, value: Any) -> list[str]:
+        """Normalize source arrays or source-like fields into short unique lists."""
+        if isinstance(value, list):
+            return dedupe_text_items([self._clean_text(item) for item in value if self._clean_text(item)], limit=MAX_CLUSTER_SOURCES)
+        source = self._clean_text(value)
+        return [source] if source else []
+
+    def _build_theme_clusters(self, themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        clusters: dict[str, dict[str, Any]] = {}
+        for theme in themes:
+            if not isinstance(theme, dict):
+                continue
+            label = self._clean_text(theme.get("label"))
+            canonical_label = self._canonicalize_theme_label(label)
+            if not label or not canonical_label:
+                continue
+
+            cluster = clusters.setdefault(
+                canonical_label,
+                {
+                    "canonical_label": canonical_label,
+                    "label_counts": defaultdict(int),
+                    "sources": set(),
+                    "entries": [],
+                },
+            )
+            cluster["label_counts"][label] += 1
+
+            source = self._clean_text(theme.get("source"))
+            if source:
+                cluster["sources"].add(source)
+
+            entry = {
+                "source": source,
+                "document": self._truncate_cluster_text(theme.get("document"), 72),
+                "context": self._truncate_cluster_text(theme.get("context"), MAX_CLUSTER_CONTEXT_CHARS),
+                "strength": self._clean_text(theme.get("strength")),
+                "confidence": self._clean_text(theme.get("confidence")),
+            }
+            compacted_excerpts = self._compact_cluster_excerpts(theme.get("excerpts"))
+            if compacted_excerpts:
+                entry["excerpts"] = compacted_excerpts
+            compacted_directionality = self._compact_cluster_directionality(theme.get("directionality"))
+            if compacted_directionality:
+                entry["directionality"] = compacted_directionality
+            cluster["entries"].append(entry)
+
+        cross_doc_clusters = []
+        for cluster in clusters.values():
+            unique_sources = cluster["sources"]
+            if len(unique_sources) < 2:
+                continue
+            entries = sorted(
+                cluster["entries"],
+                key=lambda item: (
+                    self._cluster_strength_rank(item.get("strength")),
+                    self._cluster_confidence_rank(item.get("confidence")),
+                    len(item.get("context", "")),
+                ),
+                reverse=True,
+            )
+            label_counts = cluster["label_counts"]
+            display_label = sorted(
+                label_counts.items(),
+                key=lambda item: (-item[1], len(item[0]), item[0].lower()),
+            )[0][0]
+            label_variants = sorted(
+                label_counts,
+                key=lambda item: (-label_counts[item], len(item), item.lower()),
+            )[:MAX_CLUSTER_LABEL_VARIANTS]
+            cross_doc_clusters.append({
+                "cluster_type": "theme",
+                "label": display_label,
+                "canonical_label": cluster["canonical_label"],
+                "source_count": len(unique_sources),
+                "theme_count": len(entries),
+                "theme_labels": label_variants,
+                "sources": sorted(unique_sources)[:MAX_CLUSTER_SOURCES],
+                "entries": entries[:MAX_CLUSTER_ENTRIES],
+            })
+        return cross_doc_clusters
+
+    def _build_assertion_clusters(self, assertions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        clusters: dict[str, dict[str, Any]] = {}
+        for assertion in assertions:
+            if not isinstance(assertion, dict):
+                continue
+            summary = self._clean_text(assertion.get("summary_text") or assertion.get("text"))
+            canonical = self._canonicalize_assertion_summary(summary)
+            if not summary or not canonical:
+                continue
+            cluster = clusters.setdefault(
+                canonical,
+                {
+                    "canonical_label": canonical,
+                    "label_counts": defaultdict(int),
+                    "sources": set(),
+                    "entries": [],
+                    "types": defaultdict(int),
+                },
+            )
+            cluster["label_counts"][summary] += 1
+            source = self._clean_text(assertion.get("source"))
+            if source:
+                cluster["sources"].add(source)
+            assertion_type = self._clean_text(assertion.get("assertion_type"))
+            if assertion_type:
+                cluster["types"][assertion_type] += 1
+            cluster["entries"].append(
+                {
+                    "source": source,
+                    "document": self._truncate_cluster_text(assertion.get("document"), 72),
+                    "summary_text": self._truncate_cluster_text(summary, 160),
+                    "assertion_type": assertion_type,
+                    "status": self._clean_text(assertion.get("status")),
+                    "authority_band": self._clean_text(assertion.get("authority_band")),
+                    "time_horizon": self._clean_text(assertion.get("time_horizon")),
+                    "time_anchor": self._clean_text(assertion.get("time_anchor")),
+                    "quality_score": assertion.get("quality_score"),
+                    "qualifier_text": self._truncate_cluster_text(assertion.get("qualifier_text"), 120),
+                }
+            )
+
+        cross_doc_clusters = []
+        for cluster in clusters.values():
+            unique_sources = cluster["sources"]
+            if len(unique_sources) < 2:
+                continue
+            entries = sorted(
+                cluster["entries"],
+                key=lambda item: (
+                    self._cluster_authority_rank(item.get("authority_band")),
+                    self._cluster_status_rank(item.get("status")),
+                    self._cluster_quality_rank(item.get("quality_score")),
+                    len(item.get("summary_text", "")),
+                ),
+                reverse=True,
+            )
+            label_counts = cluster["label_counts"]
+            display_label = sorted(
+                label_counts.items(),
+                key=lambda item: (-item[1], len(item[0]), item[0].lower()),
+            )[0][0]
+            dominant_type = ""
+            if cluster["types"]:
+                dominant_type = sorted(
+                    cluster["types"].items(),
+                    key=lambda item: (-item[1], item[0]),
+                )[0][0]
+            cross_doc_clusters.append(
+                {
+                    "cluster_type": "assertion",
+                    "label": display_label,
+                    "canonical_label": cluster["canonical_label"],
+                    "source_count": len(unique_sources),
+                    "assertion_count": len(entries),
+                    "assertion_type": dominant_type,
+                    "sources": sorted(unique_sources)[:MAX_CLUSTER_SOURCES],
+                    "entries": entries[:MAX_CLUSTER_ENTRIES],
+                }
+            )
+        return cross_doc_clusters
+
+    def _build_forecast_clusters(self, forecasts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        clusters: dict[str, dict[str, Any]] = {}
+        for forecast in forecasts:
+            if not isinstance(forecast, dict):
+                continue
+            canonical = self._canonicalize_forecast_key(
+                forecast.get("indicator_key"),
+                forecast.get("event_name"),
+            )
+            event_name = self._clean_text(forecast.get("event_name"))
+            if not canonical:
+                continue
+            cluster = clusters.setdefault(
+                canonical,
+                {
+                    "canonical_label": canonical,
+                    "display_label": event_name or canonical,
+                    "sources": set(),
+                    "entries": [],
+                },
+            )
+            source = self._clean_text(forecast.get("source"))
+            if source:
+                cluster["sources"].add(source)
+            cluster["entries"].append(
+                {
+                    "source": source,
+                    "document": self._truncate_cluster_text(forecast.get("document"), 72),
+                    "event_name": event_name,
+                    "release_date": self._clean_text(forecast.get("release_date")),
+                    "forecast_value_text": self._truncate_cluster_text(
+                        forecast.get("forecast_value_text"),
+                        80,
+                    ),
+                    "match_status": self._clean_text(forecast.get("match_status")),
+                    "review_status": self._clean_text(forecast.get("review_status")),
+                    "extraction_confidence": self._clean_text(
+                        forecast.get("extraction_confidence")
+                    ),
+                }
+            )
+
+        cross_doc_clusters = []
+        for cluster in clusters.values():
+            unique_sources = cluster["sources"]
+            if len(unique_sources) < 2:
+                continue
+            entries = sorted(
+                cluster["entries"],
+                key=lambda item: (
+                    self._cluster_confidence_rank(item.get("extraction_confidence")),
+                    self._cluster_status_rank(item.get("review_status")),
+                    self._cluster_status_rank(item.get("match_status")),
+                    bool(item.get("release_date")),
+                ),
+                reverse=True,
+            )
+            cross_doc_clusters.append(
+                {
+                    "cluster_type": "forecast",
+                    "label": cluster["display_label"],
+                    "canonical_label": cluster["canonical_label"],
+                    "source_count": len(unique_sources),
+                    "forecast_count": len(entries),
+                    "sources": sorted(unique_sources)[:MAX_CLUSTER_SOURCES],
+                    "entries": entries[:MAX_CLUSTER_ENTRIES],
+                }
+            )
+        return cross_doc_clusters
+
+    def _build_edge_clusters(
+        self,
+        world_edges: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        clusters: dict[str, dict[str, Any]] = {}
+        for edge in world_edges:
+            if not isinstance(edge, dict):
+                continue
+            from_label = self._clean_text(edge.get("from_label"))
+            to_label = self._clean_text(edge.get("to_label"))
+            edge_type = self._clean_text(edge.get("edge_type"))
+            if not edge_type or not (from_label or to_label):
+                continue
+            canonical = self._normalize_reference_text(f"{from_label} {edge_type} {to_label}")
+            if not canonical:
+                continue
+            cluster = clusters.setdefault(
+                canonical,
+                {
+                    "canonical_label": canonical,
+                    "display_label": f"{from_label} {edge_type} {to_label}".strip(),
+                    "sources": set(),
+                    "entries": [],
+                },
+            )
+            source = self._clean_text(edge.get("source"))
+            if source:
+                cluster["sources"].add(source)
+            cluster["entries"].append(
+                {
+                    "source": source,
+                    "document": self._truncate_cluster_text(edge.get("document"), 72),
+                    "from_label": from_label,
+                    "to_label": to_label,
+                    "edge_type": edge_type,
+                    "status": self._clean_text(edge.get("status")),
+                    "authority_band": self._clean_text(edge.get("authority_band")),
+                    "maturity": self._clean_text(edge.get("maturity")),
+                    "support_count": edge.get("support_count", 1),
+                }
+            )
+
+        cross_doc_clusters = []
+        for cluster in clusters.values():
+            unique_sources = cluster["sources"]
+            if len(unique_sources) < 2:
+                continue
+            entries = sorted(
+                cluster["entries"],
+                key=lambda item: (
+                    self._cluster_authority_rank(item.get("authority_band")),
+                    self._cluster_status_rank(item.get("status")),
+                    int(item.get("support_count") or 0),
+                ),
+                reverse=True,
+            )
+            cross_doc_clusters.append(
+                {
+                    "cluster_type": "edge",
+                    "label": cluster["display_label"],
+                    "canonical_label": cluster["canonical_label"],
+                    "source_count": len(unique_sources),
+                    "edge_count": len(entries),
+                    "sources": sorted(unique_sources)[:MAX_CLUSTER_SOURCES],
+                    "entries": entries[:MAX_CLUSTER_ENTRIES],
+                }
+            )
+        return cross_doc_clusters
+
+    def _build_signal_clusters(self, signals: dict[str, Any]) -> list[dict[str, Any]]:
+        if not isinstance(signals, dict):
+            return []
+        cross_doc_clusters: list[dict[str, Any]] = []
+        for signal_type, items in signals.items():
+            if not isinstance(items, list):
+                continue
+            for item in items[:MAX_CLUSTER_ENTRIES]:
+                if not isinstance(item, dict):
+                    continue
+                label = self._clean_text(
+                    item.get("label")
+                    or item.get("summary_text")
+                    or item.get("event_name")
+                    or item.get("key")
+                )
+                if not label:
+                    continue
+                sources = self._coerce_source_list(item.get("sources") or item.get("source"))
+                if len(sources) < 2:
+                    continue
+                cross_doc_clusters.append(
+                    {
+                        "cluster_type": f"signal:{signal_type}",
+                        "label": label,
+                        "canonical_label": self._normalize_reference_text(label),
+                        "source_count": len(sources),
+                        "sources": sources[:MAX_CLUSTER_SOURCES],
+                        "entries": [
+                            {
+                                key: value
+                                for key, value in item.items()
+                                if key not in {"sources", "source"}
+                            }
+                        ],
+                    }
+                )
+        return cross_doc_clusters
+
     def _resolve_through_line_leads(
         self,
         value: Any,
@@ -1084,100 +1581,7 @@ class Synthesizer:
 
         Extracts themes and trades, tags with source information.
         """
-        themes = []
-        trades = []
-        sources = set()
-        dates = []
-
-        def _parse_source_date(value: Any) -> date | None:
-            if isinstance(value, datetime):
-                return value.date()
-            if isinstance(value, date):
-                return value
-            if isinstance(value, str) and value.strip():
-                try:
-                    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                    return parsed.date()
-                except ValueError:
-                    return None
-            return None
-
-        for doc in documents:
-            parsed_data = doc.get("parsed_data", {})
-            if not parsed_data:
-                continue
-
-            source = doc.get("source", "Unknown")
-            doc_name = doc.get("document_name", "Unknown Document")
-            source_date = doc.get("source_date")
-
-            sources.add(source)
-            parsed_date = _parse_source_date(source_date)
-            if parsed_date:
-                dates.append(parsed_date)
-
-            # Extract themes with source attribution
-            doc_themes = parsed_data.get("themes", [])
-            if isinstance(doc_themes, list):
-                for theme in doc_themes:
-                    if isinstance(theme, dict):
-                        theme_entry = {
-                            "source": source,
-                            "document": doc_name,
-                            "label": theme.get("label", "Unlabeled"),
-                            "context": theme.get("context", ""),
-                            "strength": theme.get("strength", "Secondary"),
-                            "confidence": theme.get("confidence", "Medium"),
-                            "classification": theme.get("classification", "Description"),
-                            "mention_count": theme.get("mention_count", 0),
-                        }
-                        # Include excerpts if present (verbatim quotes aid synthesis)
-                        excerpts = theme.get("excerpts")
-                        if excerpts and isinstance(excerpts, list):
-                            theme_entry["excerpts"] = excerpts
-                        # Include directionality if present (e.g. {"bullish": 3, "bearish": 1})
-                        directionality = theme.get("directionality")
-                        if directionality and isinstance(directionality, dict):
-                            theme_entry["directionality"] = directionality
-                        # Include relevance tags if present
-                        relevance = theme.get("relevance")
-                        if relevance and isinstance(relevance, list):
-                            theme_entry["relevance"] = relevance
-                        themes.append(theme_entry)
-
-            # Extract trades with source attribution
-            doc_trades = parsed_data.get("trades", [])
-            if isinstance(doc_trades, list):
-                for trade in doc_trades:
-                    if isinstance(trade, dict):
-                        trade_text = normalize_trade_expression(
-                            trade.get("exposure") or trade.get("text", "")
-                        )
-                        if not trade_text:
-                            continue
-                        trades.append({
-                            "source": source,
-                            "document": doc_name,
-                            "text": trade_text,
-                            "conviction": trade.get("conviction", "Medium"),
-                            "timeframe": trade.get("timeframe", "weeks"),
-                            "rationale": trade.get("rationale", ""),
-                        })
-
-        # Build date range string
-        if dates:
-            dates_sorted = sorted(dates)
-            date_range = f"{dates_sorted[0].isoformat()} to {dates_sorted[-1].isoformat()}"
-        else:
-            date_range = datetime.now().strftime("%Y-%m-%d")
-
-        return {
-            "themes": themes,
-            "trades": trades,
-            "document_count": len(documents),
-            "sources": list(sources),
-            "date_range": date_range,
-        }
+        return self.input_builder.build_from_legacy_documents(documents)
 
     def _enrich_with_cross_document_evidence(
         self,
@@ -1185,43 +1589,40 @@ class Synthesizer:
     ) -> dict[str, Any]:
         """Add cross-document evidence clusters so the synthesizer sees agreement/disagreement patterns.
 
-        Groups themes by label across documents, preserving full context and excerpts.
+        Groups themes by a canonicalized label and keeps only a compact evidence preview.
         Only includes clusters with 2+ unique sources (genuine cross-document signal).
         """
         themes = input_data.get("themes", [])
-        if not themes:
+        assertions = input_data.get("assertions", [])
+        forecasts = input_data.get("forecasts", [])
+        world_edges = input_data.get("world_edges", [])
+        signal_payload = input_data.get("cross_document_signals", {})
+        if not any([themes, assertions, forecasts, world_edges, signal_payload]):
             return input_data
 
-        clusters: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for theme in themes:
-            label = self._clean_text(theme.get("label"))
-            if label:
-                clusters[label].append({
-                    "source": theme.get("source", ""),
-                    "document": theme.get("document", ""),
-                    "context": theme.get("context", ""),
-                    "strength": theme.get("strength", ""),
-                    "confidence": theme.get("confidence", ""),
-                    "excerpts": theme.get("excerpts", []),
-                    "directionality": theme.get("directionality"),
-                })
-
         cross_doc_clusters = []
-        for label, entries in clusters.items():
-            unique_sources = {e["source"] for e in entries if e["source"]}
-            if len(unique_sources) >= 2:
-                cross_doc_clusters.append({
-                    "label": label,
-                    "source_count": len(unique_sources),
-                    "sources": sorted(unique_sources),
-                    "entries": entries[:5],
-                })
+        cross_doc_clusters.extend(self._build_theme_clusters(themes))
+        cross_doc_clusters.extend(self._build_assertion_clusters(assertions))
+        cross_doc_clusters.extend(self._build_forecast_clusters(forecasts))
+        cross_doc_clusters.extend(self._build_edge_clusters(world_edges))
+        cross_doc_clusters.extend(self._build_signal_clusters(signal_payload))
 
-        cross_doc_clusters.sort(key=lambda c: c["source_count"], reverse=True)
+        cross_doc_clusters.sort(
+            key=lambda item: (
+                item["source_count"],
+                item.get("assertion_count", 0)
+                or item.get("forecast_count", 0)
+                or item.get("edge_count", 0)
+                or item.get("theme_count", 0),
+                self._cluster_authority_rank(item.get("authority_band")),
+                -len(item["label"]),
+            ),
+            reverse=True,
+        )
 
         enriched = dict(input_data)
         if cross_doc_clusters:
-            enriched["cross_document_clusters"] = cross_doc_clusters
+            enriched["cross_document_clusters"] = cross_doc_clusters[:MAX_CROSS_DOCUMENT_CLUSTERS]
         return enriched
 
     def _prepare_stage1_payload(
@@ -1236,6 +1637,7 @@ class Synthesizer:
         return {
             "themes": [self._compact_theme_entry(theme) for theme in input_data.get("themes", [])],
             "trades": [self._compact_trade_entry(trade) for trade in input_data.get("trades", [])],
+            "cross_document_clusters": input_data.get("cross_document_clusters", [])[:MAX_CROSS_DOCUMENT_CLUSTERS],
             "document_count": input_data.get("document_count", 0),
             "sources": input_data.get("sources", []),
             "date_range": input_data.get("date_range", ""),
