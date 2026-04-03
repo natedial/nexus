@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from tempfile import NamedTemporaryFile
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -12,13 +14,41 @@ from urllib.request import Request, urlopen
 
 import numpy as np
 
+
+def _add_shared_workspace_paths() -> None:
+    module_path = Path(__file__).resolve()
+    repo_root = module_path.parents[1]
+
+    candidates: list[Path] = []
+    env_root = os.getenv("RESEARCH_PROCESSING_ROOT")
+    if env_root:
+        candidates.append(Path(env_root))
+    candidates.extend([repo_root.parent, repo_root])
+
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        if not (candidate / "research_pipeline_ops").exists():
+            continue
+        candidate_str = str(candidate)
+        if candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
+
+
+_add_shared_workspace_paths()
+
 from distill_tool.pipeline import distill_markdown
+from research_pipeline_ops import PipelineOpsClient, make_document_key
 
 
 @dataclass(frozen=True)
 class SupabaseDocument:
     id: int
     source_date: str | None
+    source: str | None
+    document_name: str | None
+    document_hash: str | None
+    file_id: str | None
     parsed_data: Any
 
 
@@ -67,7 +97,7 @@ class SupabaseRestClient:
             "GET",
             f"/rest/v1/{self.table}",
             query={
-                "select": "id,source_date,parsed_data",
+                "select": "id,source_date,source,document_name,document_hash,parsed_data",
                 "index_status": "eq.pending",
                 "order": "id.asc",
                 "limit": str(limit),
@@ -83,7 +113,7 @@ class SupabaseRestClient:
             "GET",
             f"/rest/v1/{self.table}",
             query={
-                "select": "id,source_date,parsed_data",
+                "select": "id,source_date,source,document_name,document_hash,parsed_data",
                 "index_status": "eq.processing",
                 "indexing_batch_id": f"lt.{stale_before_batch_id}",
                 "order": "indexing_batch_id.asc,id.asc",
@@ -245,6 +275,22 @@ class SupabaseRestClient:
                         if row.get("source_date") is not None
                         else None
                     ),
+                    source=(
+                        str(row.get("source")).strip()
+                        if row.get("source") is not None
+                        else None
+                    ),
+                    document_name=(
+                        str(row.get("document_name")).strip()
+                        if row.get("document_name") is not None
+                        else None
+                    ),
+                    document_hash=(
+                        str(row.get("document_hash")).strip()
+                        if row.get("document_hash") is not None
+                        else None
+                    ),
+                    file_id=_extract_file_id(row.get("parsed_data")),
                     parsed_data=row.get("parsed_data"),
                 )
             )
@@ -363,6 +409,23 @@ def index_pending_documents(
 ) -> IndexingStats:
     db_path = Path(db_path)
     npz_path = Path(npz_path)
+    ops = PipelineOpsClient.from_env(
+        default_spool_db_path=str(db_path.parent / "pipeline_ops_spool.db"),
+        emitted_by="research_store",
+    )
+    ops.flush()
+    ops_run_key = ops.start_run(
+        repo_name="research_store",
+        stage_family="store",
+        run_type="index_cycle",
+        trigger_source="supabase_indexer",
+        batch_key=str(int(datetime.now(tz=timezone.utc).timestamp() * 1000)),
+        stats={
+            "poll_limit": poll_limit,
+            "index_version": index_version,
+            "skip_embeddings": skip_embeddings,
+        },
+    )
 
     client = SupabaseRestClient(
         url=supabase_url,
@@ -399,65 +462,191 @@ def index_pending_documents(
 
     claim_targets = [(doc, True) for doc in stale_docs] + [(doc, False) for doc in pending_docs]
 
-    for doc, is_reclaim in claim_targets:
-        if is_reclaim:
-            claimed_doc = client.reclaim_document(
-                doc_id=doc.id,
-                batch_id=batch_id,
-                stale_before_batch_id=stale_before_batch_id,
+    try:
+        for doc, is_reclaim in claim_targets:
+            document_key = make_document_key(
+                file_id=doc.file_id,
+                research_id=doc.id,
+                document_hash=doc.document_hash,
             )
-        else:
-            claimed_doc = client.claim_document(doc_id=doc.id, batch_id=batch_id)
-        if not claimed_doc:
-            continue
+            document_fields = {
+                "document_name": doc.document_name,
+                "source": doc.source,
+                "source_date": doc.source_date,
+            }
+            if is_reclaim:
+                claimed_doc = client.reclaim_document(
+                    doc_id=doc.id,
+                    batch_id=batch_id,
+                    stale_before_batch_id=stale_before_batch_id,
+                )
+            else:
+                claimed_doc = client.claim_document(doc_id=doc.id, batch_id=batch_id)
+            if not claimed_doc:
+                continue
 
-        claimed += 1
-        if is_reclaim:
-            reclaimed += 1
-        try:
-            full_text = extract_full_text(
-                {"id": doc.id, "parsed_data": doc.parsed_data}
+            claimed += 1
+            if is_reclaim:
+                reclaimed += 1
+            ops.emit_stage_event(
+                repo_name="research_store",
+                stage_name="store.claim_index_job",
+                status="succeeded",
+                run_key=ops_run_key,
+                document_key=document_key,
+                file_id=doc.file_id,
+                research_id=doc.id,
+                document_hash=doc.document_hash,
+                payload={"reclaimed": is_reclaim, "index_version": index_version},
+                document_fields=document_fields,
             )
-            distill_markdown(
-                markdown=full_text,
-                source_path=f"supabase:{doc.id}",
-                source_date=doc.source_date,
-                db_path=db_path,
-                npz_path=npz_path,
-                dictionary_path=dictionary_path,
-                model_name=model_name,
-                max_keywords=max_keywords,
-                overlap_paragraphs=overlap_paragraphs,
-                page_marker_regex=page_marker_regex,
-                fallback_target_chars=fallback_target_chars,
-                fallback_min_chars=fallback_min_chars,
-                batch_size=batch_size,
-                skip_embeddings=skip_embeddings,
-                embedding_model=None,
-            )
+            try:
+                full_text = extract_full_text(
+                    {"id": doc.id, "parsed_data": doc.parsed_data}
+                )
+                with ops.track_stage(
+                    repo_name="research_store",
+                    stage_name="store.distill_document",
+                    run_key=ops_run_key,
+                    document_key=document_key,
+                    file_id=doc.file_id,
+                    research_id=doc.id,
+                    document_hash=doc.document_hash,
+                    payload={"skip_embeddings": skip_embeddings},
+                    document_fields=document_fields,
+                ):
+                    distill_markdown(
+                        markdown=full_text,
+                        source_path=f"supabase:{doc.id}",
+                        source_date=doc.source_date,
+                        db_path=db_path,
+                        npz_path=npz_path,
+                        dictionary_path=dictionary_path,
+                        model_name=model_name,
+                        max_keywords=max_keywords,
+                        overlap_paragraphs=overlap_paragraphs,
+                        page_marker_regex=page_marker_regex,
+                        fallback_target_chars=fallback_target_chars,
+                        fallback_min_chars=fallback_min_chars,
+                        batch_size=batch_size,
+                        skip_embeddings=skip_embeddings,
+                        embedding_model=None,
+                    )
 
-            fresh = EmbeddingCorpus.load(npz_path)
-            corpus.upsert(fresh.chunk_ids, fresh.embeddings)
-            corpus.save(npz_path)
+                with ops.track_stage(
+                    repo_name="research_store",
+                    stage_name="store.persist_corpus",
+                    run_key=ops_run_key,
+                    document_key=document_key,
+                    file_id=doc.file_id,
+                    research_id=doc.id,
+                    document_hash=doc.document_hash,
+                    payload={"skip_embeddings": skip_embeddings},
+                    document_fields=document_fields,
+                ):
+                    fresh = EmbeddingCorpus.load(npz_path)
+                    corpus.upsert(fresh.chunk_ids, fresh.embeddings)
+                    corpus.save(npz_path)
 
-            client.mark_indexed(
-                doc_id=doc.id,
-                batch_id=batch_id,
-                index_version=index_version,
-            )
-            indexed += 1
-        except Exception as exc:
-            client.mark_failed(doc_id=doc.id, batch_id=batch_id, error=str(exc))
-            failed += 1
+                client.mark_indexed(
+                    doc_id=doc.id,
+                    batch_id=batch_id,
+                    index_version=index_version,
+                )
+                ops.emit_stage_event(
+                    repo_name="research_store",
+                    stage_name="store.mark_indexed",
+                    status="succeeded",
+                    run_key=ops_run_key,
+                    document_key=document_key,
+                    file_id=doc.file_id,
+                    research_id=doc.id,
+                    document_hash=doc.document_hash,
+                    payload={"index_version": index_version},
+                    document_fields=document_fields,
+                )
+                ops.emit_stage_event(
+                    repo_name="research_store",
+                    stage_name="store.complete",
+                    status="succeeded",
+                    run_key=ops_run_key,
+                    document_key=document_key,
+                    file_id=doc.file_id,
+                    research_id=doc.id,
+                    document_hash=doc.document_hash,
+                    payload={"index_version": index_version, "reclaimed": is_reclaim},
+                    document_fields=document_fields,
+                )
+                indexed += 1
+            except Exception as exc:
+                client.mark_failed(doc_id=doc.id, batch_id=batch_id, error=str(exc))
+                ops.emit_stage_event(
+                    repo_name="research_store",
+                    stage_name="store.complete",
+                    status="failed",
+                    run_key=ops_run_key,
+                    document_key=document_key,
+                    file_id=doc.file_id,
+                    research_id=doc.id,
+                    document_hash=doc.document_hash,
+                    error_type=exc.__class__.__name__,
+                    error_text=str(exc),
+                    payload={"index_version": index_version, "reclaimed": is_reclaim},
+                    document_fields=document_fields,
+                )
+                failed += 1
 
-    return IndexingStats(
-        scanned=scanned,
-        claimed=claimed,
-        indexed=indexed,
-        failed=failed,
-        reclaimed=reclaimed,
-    )
+        stats = IndexingStats(
+            scanned=scanned,
+            claimed=claimed,
+            indexed=indexed,
+            failed=failed,
+            reclaimed=reclaimed,
+        )
+        ops.update_run(
+            ops_run_key,
+            status="completed",
+            stats={
+                "scanned": stats.scanned,
+                "claimed": stats.claimed,
+                "indexed": stats.indexed,
+                "failed": stats.failed,
+                "reclaimed": stats.reclaimed,
+            },
+            completed=True,
+        )
+        ops.flush()
+        return stats
+    except Exception as exc:
+        ops.update_run(
+            ops_run_key,
+            status="failed",
+            error_text=str(exc),
+            stats={
+                "scanned": scanned,
+                "claimed": claimed,
+                "indexed": indexed,
+                "failed": failed,
+                "reclaimed": reclaimed,
+            },
+            completed=True,
+        )
+        ops.flush()
+        raise
 
 
 def _utc_now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _extract_file_id(parsed_data: Any) -> str | None:
+    if not isinstance(parsed_data, dict):
+        return None
+    metadata = parsed_data.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    raw_file_id = metadata.get("document_id")
+    if raw_file_id is None:
+        return None
+    text = str(raw_file_id).strip()
+    return text or None

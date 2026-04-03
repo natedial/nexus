@@ -6,6 +6,7 @@ services:
     working_dir: /app
     environment:
       PYTHONUNBUFFERED: "1"
+      RESEARCH_PROCESSING_ROOT: /workspace
       HF_HOME: /cache/huggingface
       TRANSFORMERS_CACHE: /cache/huggingface
       SENTENCE_TRANSFORMERS_HOME: /cache/sentence-transformers
@@ -13,6 +14,7 @@ services:
       SUPABASE_KEY: ${SUPABASE_KEY:-}
     volumes:
       - .:/app
+      - ../research_pipeline_ops:/workspace/research_pipeline_ops:ro
       - huggingface-cache:/cache/huggingface
     stdin_open: true
     tty: true
@@ -24,13 +26,15 @@ services:
     restart: unless-stopped
     environment:
       PYTHONUNBUFFERED: "1"
+      RESEARCH_PROCESSING_ROOT: /workspace
       HF_HOME: /cache/huggingface
       TRANSFORMERS_CACHE: /cache/huggingface
       SENTENCE_TRANSFORMERS_HOME: /cache/sentence-transformers
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_KEY: ${SUPABASE_KEY:-}
     volumes:
-      - .:/app
+      - ./distill_out:/app/distill_out
+      - ../research_pipeline_ops:/workspace/research_pipeline_ops:ro
       - huggingface-cache:/cache/huggingface
     command:
       - distill-index-supabase
