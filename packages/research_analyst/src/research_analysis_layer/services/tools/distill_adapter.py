@@ -1,6 +1,16 @@
 """Distill tool adapter for research corpus search."""
 
+from __future__ import annotations
+
+import logging
+import os
+from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_CORPUS_ROOT = Path(__file__).resolve().parents[4]
+_DEFAULT_DB_PATH = _CORPUS_ROOT / "research-store" / "data" / "distilled_corpus.db"
 
 
 class DistillAdapter:
@@ -10,8 +20,13 @@ class DistillAdapter:
     a consistent interface for agent tool use.
     """
 
-    def __init__(self, distill_client: Any | None = None):
+    def __init__(
+        self,
+        distill_client: Any | None = None,
+        db_path: Path | None = None,
+    ):
         self._client = distill_client
+        self._db_path = db_path or _get_default_db_path()
 
     def search(
         self,
@@ -30,9 +45,30 @@ class DistillAdapter:
             limit: Max results to return
 
         Returns:
-            List of search results
+            List of search results with chunk_id, source_path, source_date,
+            text, keywords, lexical_score, semantic_score, hybrid_score
         """
-        pass
+        if self._client:
+            return self._client.search(
+                query,
+                date_from=date_from,
+                date_to=date_to,
+                limit=limit,
+            )
+
+        try:
+            from distill_tool.api import search as distill_search
+
+            return distill_search(
+                query,
+                db_path=str(self._db_path),
+                limit=limit,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        except ImportError as e:
+            logger.warning("distill_tool not available: %s", e)
+            return []
 
     def corpus_info(self) -> dict[str, Any]:
         """Get metadata about the research corpus.
@@ -40,4 +76,53 @@ class DistillAdapter:
         Returns:
             Dict with total_chunks, total_runs, date_range, sources
         """
-        pass
+        if self._client:
+            return self._client.corpus_info()
+
+        try:
+            from distill_tool.api import corpus_info as distill_corpus_info
+
+            return distill_corpus_info(str(self._db_path))
+        except ImportError as e:
+            logger.warning("distill_tool not available: %s", e)
+            return {
+                "total_chunks": 0,
+                "total_runs": 0,
+                "date_range": None,
+                "sources": [],
+            }
+
+
+def _get_default_db_path() -> Path:
+    """Get the default path to the distilled corpus database."""
+    env_path = os.getenv("DISTILL_DB_PATH")
+    if env_path:
+        return Path(env_path)
+    return _DEFAULT_DB_PATH
+
+
+def create_distill_handlers(
+    adapter: DistillAdapter | None = None,
+) -> dict[str, Any]:
+    """Create tool handlers for the DistillAdapter.
+
+    Returns a dict mapping tool names to handler functions
+    that can be registered with ToolRegistry.
+    """
+    adapter = adapter or DistillAdapter()
+
+    def handle_search(input_data: dict[str, Any]) -> list[dict[str, Any]]:
+        return adapter.search(
+            input_data.get("query", ""),
+            date_from=input_data.get("date_from"),
+            date_to=input_data.get("date_to"),
+            limit=input_data.get("limit", 10),
+        )
+
+    def handle_corpus_info(input_data: dict[str, Any]) -> dict[str, Any]:
+        return adapter.corpus_info()
+
+    return {
+        "research_search": handle_search,
+        "research_corpus_info": handle_corpus_info,
+    }
