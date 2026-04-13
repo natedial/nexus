@@ -8,7 +8,14 @@
 cd "$(dirname "$0")"
 
 # Activate virtual environment
-source venv/bin/activate
+if [ -f ".venv/bin/activate" ]; then
+  . .venv/bin/activate
+elif [ -f "venv/bin/activate" ]; then
+  . venv/bin/activate
+else
+  echo "No virtualenv found at .venv/bin/activate or venv/bin/activate" >&2
+  exit 1
+fi
 
 # Run the main script
 python src/main.py

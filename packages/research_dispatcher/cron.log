@@ -83,3 +83,294 @@ Synthesis complete: Oil shock splits Fed/ECB, caps hikes, revives stagflation
   Through-lines: 4
   Analysis paragraphs: 0
   Callouts: 3
+Synthesizing 90 themes and 27 trades from 10 documents...
+  Using skill-based pipeline...
+  Stage 1A: Extracting through-lines...
+  Stage 1B: Editing 5 through-lines...
+  Stage 1B complete: 5 raw -> 5 edited through-lines
+  Stage 1C: Writing PM analysis from 5 through-lines...
+  Stage 1C complete: 4 analysis paragraphs
+  Stage 1D: Editing 4 analysis paragraphs...
+  Stage 1D complete: 4 edited analysis paragraphs
+  Stage 1 complete: 5 edited through-lines ready for callouts
+  Stage 2: Extracting callouts...
+  Stage 2 complete: 3 callouts
+Synthesis complete: Rates synthesis: Oil shock, positioning, and funding dislocations drive asymmetric flows and fragile yield upside
+  Through-lines: 5
+  Analysis paragraphs: 4
+  Callouts: 3
+Synthesizing 403 themes and 148 trades from 43 documents...
+  Using skill-based pipeline...
+  Stage 1A: Extracting through-lines...
+  Stage 1B: Editing 5 through-lines...
+  Stage 1B complete: 5 raw -> 5 edited through-lines
+  Stage 1C: Writing PM analysis from 5 through-lines...
+  Stage 1C complete: 4 analysis paragraphs
+  Stage 1D: Editing 4 analysis paragraphs...
+  Stage 1D complete: 4 edited analysis paragraphs
+  Stage 1 complete: 5 edited through-lines ready for callouts
+  Stage 2: Extracting callouts...
+  Stage 2 complete: 4 callouts
+Synthesis complete: Energy shock + policy/positioning frictions: front-ends, vols and term premia as the next battlegrounds
+  Through-lines: 5
+  Analysis paragraphs: 4
+  Callouts: 4
+2026-04-01 23:00:01,700 INFO __main__: Starting Research Dispatch
+2026-04-01 23:00:01,700 INFO __main__: Mode: production
+2026-04-01 23:00:01,702 INFO __main__: Validating configuration...
+2026-04-01 23:00:01,702 INFO __main__: Connecting to database...
+2026-04-01 23:00:01,718 INFO __main__: Querying documents...
+2026-04-01 23:00:03,070 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/parsed_research?select=%2A&source_date=gte.2026-03-25&synthesized=eq.False&order=parsed_at.desc "HTTP/2 200 OK"
+2026-04-01 23:00:03,132 INFO __main__: Retrieved 46 research records
+2026-04-01 23:00:03,344 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/economic_events?select=event_date%2C%20time_ny%2C%20event_name%2C%20consensus%2C%20importance_indicator&country=eq.US&event_date=gte.2026-03-30&event_date=lte.2026-04-03&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-01 23:00:03,345 INFO __main__: Retrieved 0 economic events
+2026-04-01 23:00:03,467 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/supply_events?select=event_date%2C%20time_ny%2C%20description%2C%20size_bn%2C%20maturity&country=eq.US&event_date=gte.2026-03-30&event_date=lte.2026-04-03&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-01 23:00:03,467 INFO __main__: Retrieved 0 supply events
+2026-04-01 23:00:03,468 INFO __main__: Running cross-document synthesis...
+2026-04-01 23:00:03,468 INFO __main__: Using skill-based pipeline
+2026-04-01 23:00:03,468 INFO src.llm: Loading model config from /Users/ncdial/devwork/research_processing/research_dispatcher/config/models.yaml
+2026-04-01 23:00:03,487 WARNING src.llm: Extended thinking is only supported for Anthropic; disabling.
+2026-04-01 23:00:03,523 INFO src.llm: Calling gpt-5-mini
+2026-04-01 23:02:01,476 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-01 23:02:01,502 INFO src.llm: Calling gpt-5-mini
+2026-04-01 23:02:54,840 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-01 23:02:54,861 INFO src.llm: Calling gpt-5-mini
+2026-04-01 23:03:20,528 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-01 23:03:20,546 INFO src.llm: Calling gpt-5-mini
+2026-04-01 23:03:47,278 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-01 23:03:47,291 INFO src.llm: Calling gpt-5-mini
+2026-04-01 23:04:19,083 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-01 23:04:19,086 INFO __main__: Synthesis complete: Energy shock and plumbing reshape rates: who shoulders duration risk, which policy path wins, and where optionality matters
+2026-04-01 23:04:19,086 INFO __main__: Formatting report...
+2026-04-01 23:04:19,243 INFO __main__: Generating PDF...
+2026-04-01 23:04:19,480 INFO __main__: PDF generated: ./research_report_20260401_230419.pdf
+2026-04-01 23:04:19,481 INFO __main__: Sending email...
+2026-04-01 23:04:21,344 INFO __main__: Email sent to 2 recipient(s): nguptarsh@gmail.com, zpdrpqbl@library.readwise.io
+2026-04-01 23:04:21,352 INFO __main__: Saved synthesis snapshot for delta tracking
+2026-04-01 23:04:21,352 INFO __main__: Legacy parser synthesized updates disabled; dispatch ledger is the source of truth
+2026-04-01 23:04:21,353 INFO __main__: Research Dispatch completed successfully
+Synthesizing 261 themes and 116 trades from 46 documents...
+  Using skill-based pipeline...
+  Stage 1A: Extracting through-lines...
+  Stage 1B: Editing 6 through-lines...
+  Stage 1B complete: 6 raw -> 6 edited through-lines
+  Stage 1C: Writing PM analysis from 6 through-lines...
+  Stage 1C complete: 3 analysis paragraphs
+  Stage 1D: Editing 3 analysis paragraphs...
+  Stage 1D complete: 3 edited analysis paragraphs
+  Stage 1 complete: 6 edited through-lines ready for callouts
+  Stage 2: Extracting callouts...
+  Stage 2 complete: 3 callouts
+Synthesis complete: Energy shock and plumbing reshape rates: who shoulders duration risk, which policy path wins, and where optionality matters
+  Through-lines: 6
+  Analysis paragraphs: 3
+  Callouts: 3
+2026-04-05 23:00:01,296 INFO __main__: Starting Research Dispatch
+2026-04-05 23:00:01,297 INFO __main__: Mode: production
+2026-04-05 23:00:01,543 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:01,546 INFO __main__: Validating configuration...
+2026-04-05 23:00:01,546 INFO __main__: Connecting to database...
+2026-04-05 23:00:01,691 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:01,796 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:01,799 INFO __main__: Querying documents...
+2026-04-05 23:00:02,007 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/parsed_research?select=%2A&source_date=gte.2026-03-29&synthesized=eq.False&order=parsed_at.desc "HTTP/2 200 OK"
+2026-04-05 23:00:02,069 INFO __main__: Retrieved 41 research records
+2026-04-05 23:00:02,210 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:02,380 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:02,528 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:02,641 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:02,730 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/economic_events?select=event_date%2C%20time_ny%2C%20event_name%2C%20consensus%2C%20importance_indicator&country=eq.US&event_date=gte.2026-04-06&event_date=lte.2026-04-10&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-05 23:00:02,731 INFO __main__: Retrieved 0 economic events
+2026-04-05 23:00:02,810 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/supply_events?select=event_date%2C%20time_ny%2C%20description%2C%20size_bn%2C%20maturity&country=eq.US&event_date=gte.2026-04-06&event_date=lte.2026-04-10&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-05 23:00:02,810 INFO __main__: Retrieved 0 supply events
+2026-04-05 23:00:02,980 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:03,141 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:03,259 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:03,479 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:00:03,482 INFO __main__: Running cross-document synthesis...
+2026-04-05 23:00:03,482 INFO __main__: Using skill-based pipeline
+2026-04-05 23:00:03,482 INFO src.llm: Loading model config from /Users/ncdial/devwork/research_processing/research_dispatcher/config/models.yaml
+2026-04-05 23:00:03,497 WARNING src.llm: Extended thinking is only supported for Anthropic; disabling.
+2026-04-05 23:00:03,531 INFO src.llm: Calling gpt-5-mini
+2026-04-05 23:01:32,463 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-05 23:01:32,501 INFO src.llm: Calling gpt-5-mini
+2026-04-05 23:02:37,005 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-05 23:02:37,025 INFO src.llm: Calling gpt-5-mini
+2026-04-05 23:03:17,277 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-05 23:03:17,291 INFO src.llm: Calling gpt-5-mini
+2026-04-05 23:03:46,472 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-05 23:03:46,492 INFO src.llm: Calling gpt-5-mini
+2026-04-05 23:04:22,826 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-05 23:04:22,829 INFO __main__: Synthesis complete: Rates desk synthesis: Hormuz oil shock forces policy, positioning and technical plumbing to diverge
+2026-04-05 23:04:23,003 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:23,157 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:23,160 INFO __main__: Formatting report...
+2026-04-05 23:04:23,340 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:23,467 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:23,770 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:23,924 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:23,939 INFO __main__: Generating PDF...
+2026-04-05 23:04:24,050 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:24,152 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:24,523 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:24,626 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:24,629 INFO __main__: PDF generated: ./research_report_20260405_230424.pdf
+2026-04-05 23:04:24,631 INFO __main__: Sending email...
+2026-04-05 23:04:24,787 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:24,926 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:26,951 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:27,115 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:27,120 INFO __main__: Email sent to 2 recipient(s): nguptarsh@gmail.com, zpdrpqbl@library.readwise.io
+2026-04-05 23:04:27,128 INFO __main__: Saved synthesis snapshot for delta tracking
+2026-04-05 23:04:27,129 INFO __main__: Legacy parser synthesized updates disabled; dispatch ledger is the source of truth
+2026-04-05 23:04:27,310 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:27,461 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:27,566 WARNING research_pipeline_ops.client: pipeline ops remote write failed; spooling locally
+2026-04-05 23:04:27,570 INFO __main__: Research Dispatch completed successfully
+2026-04-05 23:04:27,717 WARNING research_pipeline_ops.client: pipeline ops flush failed
+Synthesizing 240 themes and 132 trades from 41 documents...
+  Using skill-based pipeline...
+  Stage 1A: Extracting through-lines...
+  Stage 1B: Editing 6 through-lines...
+  Stage 1B complete: 6 raw -> 6 edited through-lines
+  Stage 1C: Writing PM analysis from 6 through-lines...
+  Stage 1C complete: 4 analysis paragraphs
+  Stage 1D: Editing 4 analysis paragraphs...
+  Stage 1D complete: 4 edited analysis paragraphs
+  Stage 1 complete: 6 edited through-lines ready for callouts
+  Stage 2: Extracting callouts...
+  Stage 2 complete: 3 callouts
+Synthesis complete: Rates desk synthesis: Hormuz oil shock forces policy, positioning and technical plumbing to diverge
+  Through-lines: 6
+  Analysis paragraphs: 4
+  Callouts: 3
+2026-04-08 23:00:00,999 INFO __main__: Starting Research Dispatch
+2026-04-08 23:00:01,000 INFO __main__: Mode: production
+2026-04-08 23:00:01,186 WARNING research_pipeline_ops.client: pipeline ops flush failed for POST runs: PostgREST POST runs failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"} (op_key=run-insert:research_dispatcher:email_dispatch:20260406T030001302722Z:b20ccfbfa5 queue_depth=28 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-06T03:04:27.566915+00:00 max_attempts=2)
+2026-04-08 23:00:01,356 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST runs: PostgREST POST runs failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-insert:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d queue_depth=29 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:01.353406+00:00)
+2026-04-08 23:00:01,357 INFO __main__: Validating configuration...
+2026-04-08 23:00:01,357 INFO __main__: Connecting to database...
+2026-04-08 23:00:01,512 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:1041871a68cf49d8911a0baa373d5a20 queue_depth=30 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:01.508163+00:00)
+2026-04-08 23:00:01,683 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.select_documents:2026-04-09T03:00:01.372688+00:00 queue_depth=31 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:01.679657+00:00)
+2026-04-08 23:00:01,683 INFO __main__: Querying documents...
+2026-04-08 23:00:02,100 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/parsed_research?select=%2A&source_date=gte.2026-04-01&synthesized=eq.False&order=parsed_at.desc "HTTP/2 200 OK"
+2026-04-08 23:00:02,180 INFO __main__: Retrieved 18 research records
+2026-04-08 23:00:02,299 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:346fde0d05ac4b9a97564cfefde5909f queue_depth=32 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:02.296074+00:00)
+2026-04-08 23:00:02,486 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.select_documents:2026-04-09T03:00:02.181411+00:00 queue_depth=33 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:02.482042+00:00)
+2026-04-08 23:00:02,658 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:bf66e15f8a5547438ea27e15e670ca55 queue_depth=34 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:02.654771+00:00)
+2026-04-08 23:00:02,764 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.query_calendar:2026-04-09T03:00:02.486459+00:00 queue_depth=35 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:02.761853+00:00)
+2026-04-08 23:00:02,889 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/economic_events?select=event_date%2C%20time_ny%2C%20event_name%2C%20consensus%2C%20importance_indicator&country=eq.US&event_date=gte.2026-04-06&event_date=lte.2026-04-10&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-08 23:00:02,890 INFO __main__: Retrieved 0 economic events
+2026-04-08 23:00:03,002 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/supply_events?select=event_date%2C%20time_ny%2C%20description%2C%20size_bn%2C%20maturity&country=eq.US&event_date=gte.2026-04-06&event_date=lte.2026-04-10&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-08 23:00:03,003 INFO __main__: Retrieved 0 supply events
+2026-04-08 23:00:03,171 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:db6f6dcc33b34759ac7e556b7119898b queue_depth=36 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:03.168050+00:00)
+2026-04-08 23:00:03,293 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.query_calendar:2026-04-09T03:00:03.003719+00:00 queue_depth=37 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:03.290227+00:00)
+2026-04-08 23:00:03,525 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:43cee238a32e4f0b8e98c772f458bdb3 queue_depth=38 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:03.521310+00:00)
+2026-04-08 23:00:03,709 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.synthesize_batch:2026-04-09T03:00:03.294013+00:00 queue_depth=39 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:00:03.706048+00:00)
+2026-04-08 23:00:03,709 INFO __main__: Running cross-document synthesis...
+2026-04-08 23:00:03,709 INFO __main__: Using skill-based pipeline
+2026-04-08 23:00:03,709 INFO src.llm: Loading model config from /Users/ncdial/devwork/research_processing/research_dispatcher/config/models.yaml
+2026-04-08 23:00:03,725 WARNING src.llm: Extended thinking is only supported for Anthropic; disabling.
+2026-04-08 23:00:03,753 INFO src.llm: Calling gpt-5-mini
+2026-04-08 23:01:15,793 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-08 23:01:15,817 INFO src.llm: Calling gpt-5-mini
+2026-04-08 23:02:01,360 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-08 23:02:01,374 INFO src.llm: Calling gpt-5-mini
+2026-04-08 23:02:33,496 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-08 23:02:33,515 INFO src.llm: Calling gpt-5-mini
+2026-04-08 23:02:59,212 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-08 23:02:59,230 INFO src.llm: Calling gpt-5-mini
+2026-04-08 23:03:23,449 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-08 23:03:23,452 INFO __main__: Synthesis complete: Rates desk synthesis: Oil shock dominates near-term pricing, but supply, policy expectations and dealer capacity shape the next repricing
+2026-04-08 23:03:23,587 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:e94972334dce4cbdbd8b0660f4e5002a queue_depth=40 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:23.584042+00:00)
+2026-04-08 23:03:23,753 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.synthesize_batch:2026-04-09T03:03:23.452853+00:00 queue_depth=41 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:23.750358+00:00)
+2026-04-08 23:03:23,753 INFO __main__: Formatting report...
+2026-04-08 23:03:23,918 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:3dc1a9a2dae74d799c8619e36a215dc5 queue_depth=42 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:23.914950+00:00)
+2026-04-08 23:03:24,087 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.format_report:2026-04-09T03:03:23.754075+00:00 queue_depth=43 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:24.083770+00:00)
+2026-04-08 23:03:24,307 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:0de0a498db5d40bd82e0c036541dc0e0 queue_depth=44 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:24.305182+00:00)
+2026-04-08 23:03:24,429 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.format_report:2026-04-09T03:03:24.159151+00:00 queue_depth=45 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:24.425966+00:00)
+2026-04-08 23:03:24,439 INFO __main__: Generating PDF...
+2026-04-08 23:03:24,563 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:a3705f20a573439ea9d2b0905938a2e7 queue_depth=46 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:24.559816+00:00)
+2026-04-08 23:03:24,674 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.generate_pdf:2026-04-09T03:03:24.440049+00:00 queue_depth=47 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:24.670770+00:00)
+2026-04-08 23:03:24,957 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:fd9c7c57dbcb430987d90789c533b210 queue_depth=48 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:24.955619+00:00)
+2026-04-08 23:03:25,091 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.generate_pdf:2026-04-09T03:03:24.847904+00:00 queue_depth=49 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:25.087798+00:00)
+2026-04-08 23:03:25,091 INFO __main__: PDF generated: ./research_report_20260408_230324.pdf
+2026-04-08 23:03:25,093 INFO __main__: Sending email...
+2026-04-08 23:03:25,237 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:01d321c72bf745c7a647eab7e27d4264 queue_depth=50 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:25.235082+00:00)
+2026-04-08 23:03:25,346 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.send_email:2026-04-09T03:03:25.093448+00:00 queue_depth=51 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:25.342838+00:00)
+2026-04-08 23:03:27,353 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:2c5273ccc6b248488992550a92b7a2a3 queue_depth=52 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:27.350221+00:00)
+2026-04-08 23:03:27,534 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.send_email:2026-04-09T03:03:27.186756+00:00 queue_depth=53 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:27.530866+00:00)
+2026-04-08 23:03:27,534 INFO __main__: Email sent to 2 recipient(s): nguptarsh@gmail.com, zpdrpqbl@library.readwise.io
+2026-04-08 23:03:27,543 INFO __main__: Saved synthesis snapshot for delta tracking
+2026-04-08 23:03:27,543 INFO __main__: Legacy parser synthesized updates disabled; dispatch ledger is the source of truth
+2026-04-08 23:03:27,666 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST stage_events: PostgREST POST stage_events failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=event:8c4d984233704aa1a1f727b4c5c79b49 queue_depth=54 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:27.662985+00:00)
+2026-04-08 23:03:27,779 WARNING research_pipeline_ops.client: pipeline ops remote write failed for POST run_stage_state: PostgREST POST run_stage_state failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-state:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:dispatcher.complete:2026-04-09T03:03:27.543607+00:00 queue_depth=55 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:27.775957+00:00)
+2026-04-08 23:03:27,878 WARNING research_pipeline_ops.client: pipeline ops remote write failed for PATCH runs: PostgREST PATCH runs failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"}; spooling locally (op_key=run-update:research_dispatcher:email_dispatch:20260409T030001187210Z:d0d5931b2d:2026-04-09T03:03:27.779777+00:00 queue_depth=56 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:27.875229+00:00)
+2026-04-08 23:03:27,880 INFO __main__: Research Dispatch completed successfully
+2026-04-08 23:03:28,046 WARNING research_pipeline_ops.client: pipeline ops flush failed for POST runs: PostgREST POST runs failed with HTTP 406: {"code":"PGRST106","details":null,"hint":null,"message":"The schema must be one of the following: public, graphql_public"} (op_key=run-insert:research_dispatcher:email_dispatch:20260406T030001302722Z:b20ccfbfa5 queue_depth=56 oldest=2026-04-06T03:00:01.544387+00:00 newest=2026-04-09T03:03:27.875229+00:00 max_attempts=3)
+Synthesizing 103 themes and 57 trades from 18 documents...
+  Using skill-based pipeline...
+  Stage 1A: Extracting through-lines...
+  Stage 1B: Editing 6 through-lines...
+  Stage 1B complete: 6 raw -> 6 edited through-lines
+  Stage 1C: Writing PM analysis from 6 through-lines...
+  Stage 1C complete: 4 analysis paragraphs
+  Stage 1D: Editing 4 analysis paragraphs...
+  Stage 1D complete: 4 edited analysis paragraphs
+  Stage 1 complete: 6 edited through-lines ready for callouts
+  Stage 2: Extracting callouts...
+  Stage 2 complete: 4 callouts
+Synthesis complete: Rates desk synthesis: Oil shock dominates near-term pricing, but supply, policy expectations and dealer capacity shape the next repricing
+  Through-lines: 6
+  Analysis paragraphs: 4
+  Callouts: 4
+2026-04-12 23:00:01,824 INFO __main__: Starting Research Dispatch
+2026-04-12 23:00:01,824 INFO __main__: Mode: production
+2026-04-12 23:00:10,266 INFO __main__: Validating configuration...
+2026-04-12 23:00:10,266 INFO __main__: Connecting to database...
+2026-04-12 23:00:10,551 INFO __main__: Querying documents...
+2026-04-12 23:00:11,187 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/parsed_research?select=%2A&source_date=gte.2026-04-05&synthesized=eq.False&order=parsed_at.desc "HTTP/2 200 OK"
+2026-04-12 23:00:11,315 INFO __main__: Retrieved 32 research records
+2026-04-12 23:00:12,085 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/economic_events?select=event_date%2C%20time_ny%2C%20event_name%2C%20consensus%2C%20importance_indicator&country=eq.US&event_date=gte.2026-04-13&event_date=lte.2026-04-17&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-12 23:00:12,086 INFO __main__: Retrieved 0 economic events
+2026-04-12 23:00:12,202 INFO httpx: HTTP Request: GET https://qeyhmsqepsenhvtkryjh.supabase.co/rest/v1/supply_events?select=event_date%2C%20time_ny%2C%20description%2C%20size_bn%2C%20maturity&country=eq.US&event_date=gte.2026-04-13&event_date=lte.2026-04-17&order=event_date%2Ctime_ny "HTTP/2 200 OK"
+2026-04-12 23:00:12,202 INFO __main__: Retrieved 0 supply events
+2026-04-12 23:00:12,793 INFO __main__: Running cross-document synthesis...
+2026-04-12 23:00:12,794 INFO __main__: Using skill-based pipeline
+2026-04-12 23:00:12,794 INFO src.llm: Loading model config from /Users/ncdial/devwork/research_processing/research_dispatcher/config/models.yaml
+2026-04-12 23:00:12,813 WARNING src.llm: Extended thinking is only supported for Anthropic; disabling.
+2026-04-12 23:00:12,847 INFO src.llm: Calling gpt-5-mini
+2026-04-12 23:01:18,802 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-12 23:01:18,826 INFO src.llm: Calling gpt-5-mini
+2026-04-12 23:02:06,694 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-12 23:02:06,713 INFO src.llm: Calling gpt-5-mini
+2026-04-12 23:02:44,231 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-12 23:02:44,251 INFO src.llm: Calling gpt-5-mini
+2026-04-12 23:03:08,949 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-12 23:03:08,968 INFO src.llm: Calling gpt-5-mini
+2026-04-12 23:03:33,465 INFO httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2026-04-12 23:03:33,468 INFO __main__: Synthesis complete: Ceasefire, energy fragility and issuance: the three forces reshaping front-end risk premia, term premium and curve structure
+2026-04-12 23:03:33,782 INFO __main__: Formatting report...
+2026-04-12 23:03:34,691 INFO __main__: Generating PDF...
+2026-04-12 23:03:35,575 INFO __main__: PDF generated: ./research_report_20260412_230335.pdf
+2026-04-12 23:03:35,578 INFO __main__: Sending email...
+2026-04-12 23:03:38,679 INFO __main__: Email sent to 2 recipient(s): nguptarsh@gmail.com, zpdrpqbl@library.readwise.io
+2026-04-12 23:03:38,689 INFO __main__: Saved synthesis snapshot for delta tracking
+2026-04-12 23:03:38,689 INFO __main__: Legacy parser synthesized updates disabled; dispatch ledger is the source of truth
+2026-04-12 23:03:39,139 INFO __main__: Research Dispatch completed successfully
+Synthesizing 188 themes and 158 trades from 32 documents...
+  Using skill-based pipeline...
+  Stage 1A: Extracting through-lines...
+  Stage 1B: Editing 5 through-lines...
+  Stage 1B complete: 5 raw -> 5 edited through-lines
+  Stage 1C: Writing PM analysis from 5 through-lines...
+  Stage 1C complete: 4 analysis paragraphs
+  Stage 1D: Editing 4 analysis paragraphs...
+  Stage 1D complete: 4 edited analysis paragraphs
+  Stage 1 complete: 5 edited through-lines ready for callouts
+  Stage 2: Extracting callouts...
+  Stage 2 complete: 3 callouts
+Synthesis complete: Ceasefire, energy fragility and issuance: the three forces reshaping front-end risk premia, term premium and curve structure
+  Through-lines: 5
+  Analysis paragraphs: 4
+  Callouts: 3

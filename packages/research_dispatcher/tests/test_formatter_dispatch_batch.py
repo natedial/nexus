@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 
 from src.formatter import ReportFormatter
 from src.report_models import DispatchBatch
@@ -89,7 +90,15 @@ class FormatterDispatchBatchTests(unittest.TestCase):
         self.assertGreaterEqual(len(report["executive_summary"]), 3)
         self.assertLessEqual(len(report["executive_summary"]), 10)
         self.assertTrue(any("The batch" in paragraph for paragraph in report["executive_summary"]))
-        self.assertEqual(report["document_digest"][0]["heading"], "YESTERDAY (March 31)")
+        march_31 = datetime.fromisoformat("2026-03-31").date()
+        delta_days = (datetime.now().date() - march_31).days
+        if delta_days == 0:
+            expected_heading = "TODAY (March 31)"
+        elif delta_days == 1:
+            expected_heading = "YESTERDAY (March 31)"
+        else:
+            expected_heading = f"{march_31.strftime('%A').upper()} (March 31)"
+        self.assertEqual(report["document_digest"][0]["heading"], expected_heading)
         self.assertIn("Payrolls should miss consensus.", report["document_digest"][1]["entries"][0]["summary"])
 
 

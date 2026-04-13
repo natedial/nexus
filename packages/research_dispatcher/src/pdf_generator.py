@@ -25,11 +25,54 @@ from config import Config
 class PDFGenerator:
     """Generates PDF reports from formatted data."""
 
+    PDF_TEXT_REPLACEMENTS = str.maketrans({
+        "\u00A0": " ",
+        "\u00AD": "",
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2012": "-",
+        "\u202F": " ",
+        "\u2212": "-",
+    })
+
     def __init__(self, output_dir: str = '.', format_rules_path: str = 'format_rules.yaml'):
         self.output_dir = output_dir
         self.format_rules = self._load_format_rules(format_rules_path)
         self.styles = getSampleStyleSheet()
         self._setup_custom_styles()
+
+    def _normalize_pdf_text_value(self, value: Any) -> Any:
+        """Convert text to a PDF-safe subset for the built-in WinAnsi fonts."""
+        if isinstance(value, str):
+            return value.translate(self.PDF_TEXT_REPLACEMENTS)
+        if isinstance(value, list):
+            return [self._normalize_pdf_text_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._normalize_pdf_text_value(item) for item in value)
+        if isinstance(value, dict):
+            return {
+                key: self._normalize_pdf_text_value(item)
+                for key, item in value.items()
+            }
+        return value
+
+    def _create_section_header(self, title: str, new_page: bool = True) -> list:
+        elements = []
+        if new_page:
+            elements.append(PageBreak())
+        elements.extend(
+            [
+                Paragraph(title, self.styles["SectionHeader"]),
+                HRFlowable(
+                    width="100%",
+                    thickness=1,
+                    color=colors.HexColor("#FF4458"),
+                    spaceBefore=3,
+                    spaceAfter=12,
+                ),
+            ]
+        )
+        return elements
 
     def _load_format_rules(self, path: str) -> Dict[str, Any]:
         """Load formatting rules from YAML file."""
@@ -776,16 +819,7 @@ class PDFGenerator:
         if not sections:
             return []
 
-        elements = [
-            Paragraph('Change Tracking', self.styles['SectionHeader']),
-            HRFlowable(
-                width="100%",
-                thickness=1,
-                color=colors.HexColor('#FF4458'),
-                spaceBefore=3,
-                spaceAfter=12,
-            ),
-        ]
+        elements = self._create_section_header("Change Tracking")
 
         summary = delta.get('summary')
         if summary:
@@ -822,16 +856,7 @@ class PDFGenerator:
         if not analysis_paragraphs and not fallback_summary:
             return []
 
-        elements = [
-            Paragraph("Executive Summary", self.styles["SectionHeader"]),
-            HRFlowable(
-                width="100%",
-                thickness=1,
-                color=colors.HexColor("#FF4458"),
-                spaceBefore=3,
-                spaceAfter=12,
-            ),
-        ]
+        elements = self._create_section_header("Executive Summary", new_page=False)
 
         if analysis_paragraphs:
             for paragraph in analysis_paragraphs:
@@ -854,17 +879,7 @@ class PDFGenerator:
         if not digest_groups:
             return []
 
-        elements = [
-            PageBreak(),
-            Paragraph("Research Digest", self.styles["SectionHeader"]),
-            HRFlowable(
-                width="100%",
-                thickness=1,
-                color=colors.HexColor("#FF4458"),
-                spaceBefore=3,
-                spaceAfter=12,
-            ),
-        ]
+        elements = self._create_section_header("Research Digest")
 
         for group in digest_groups:
             heading = str(group.get("heading", "")).strip()
@@ -907,6 +922,7 @@ class PDFGenerator:
 
     def generate(self, report_data: Dict[str, Any], filename: str = 'report.pdf') -> str:
         """Generate PDF from report data."""
+        report_data = self._normalize_pdf_text_value(report_data)
         filepath = os.path.join(self.output_dir, filename)
 
         # Read page margins from YAML
@@ -981,8 +997,7 @@ class PDFGenerator:
         # Through Lines section — rendered as card blocks
         through_lines = report_data.get('through_lines', [])
         if through_lines:
-            story.append(Paragraph('Through Lines', self.styles['SectionHeader']))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            story.extend(self._create_section_header("Through Lines"))
 
             for tl in through_lines:
                 # Render through-line card + its callout as a KeepTogether group
@@ -1000,9 +1015,7 @@ class PDFGenerator:
         themes_by_through_line = report_data.get('themes_by_through_line', [])
         themes_analysis = report_data.get('themes_analysis', [])
         if themes_by_through_line:
-            story.append(PageBreak())
-            story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            story.extend(self._create_section_header("Thematic Analysis"))
 
             # Theme density bar — compact summary of clusters
             story.extend(self._create_theme_density_bar(themes_by_through_line))
@@ -1042,9 +1055,7 @@ class PDFGenerator:
                 story.append(Spacer(1, 0.15 * inch))
 
         elif themes_analysis and not report_data.get("document_digest"):
-            story.append(PageBreak())
-            story.append(Paragraph('Thematic Analysis', self.styles['SectionHeader']))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            story.extend(self._create_section_header("Thematic Analysis"))
 
             for theme in themes_analysis:
                 theme_elements = self._create_theme_block(theme)
@@ -1056,9 +1067,7 @@ class PDFGenerator:
         # Trades section — with conviction color coding
         trades = report_data.get('trades', [])
         if trades:
-            story.append(PageBreak())
-            story.append(Paragraph('Trade Recommendations', self.styles['SectionHeader']))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            story.extend(self._create_section_header("Trade Recommendations"))
 
             for trade in trades:
                 # Conviction colored label before trade text
@@ -1095,9 +1104,7 @@ class PDFGenerator:
         # Economic Calendar section
         economic_calendar = report_data.get('economic_calendar', {})
         if economic_calendar:
-            story.append(PageBreak())
-            story.append(Paragraph('Economic Calendar', self.styles['SectionHeader']))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            story.extend(self._create_section_header("Economic Calendar"))
 
             for day, events in economic_calendar.items():
                 day_header = Paragraph(f"<b>{day}</b>", self.styles['Normal'])
@@ -1140,9 +1147,7 @@ class PDFGenerator:
         # Supply Calendar section
         supply_calendar = report_data.get('supply_calendar', {})
         if supply_calendar:
-            story.append(PageBreak())
-            story.append(Paragraph('Treasury Supply Calendar', self.styles['SectionHeader']))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            story.extend(self._create_section_header("Treasury Supply Calendar"))
 
             for day, events in supply_calendar.items():
                 day_header = Paragraph(f"<b>{day}</b>", self.styles['Normal'])
@@ -1185,9 +1190,7 @@ class PDFGenerator:
         # Details section
         details = report_data.get('details', [])
         if details:
-            story.append(PageBreak())
-            story.append(Paragraph('Detailed Records', self.styles['SectionHeader']))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#FF4458'), spaceBefore=3, spaceAfter=12))
+            story.extend(self._create_section_header("Detailed Records"))
 
             table_data = []
             if details:
