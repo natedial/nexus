@@ -16,7 +16,12 @@ if str(_WORKSPACE_ROOT) not in sys.path:
 
 from research_pipeline_ops import PipelineOpsClient
 from research_analysis_layer.config import Settings
-from research_analysis_layer.db import AnalysisStore, CalendarDbClient, ParsedDbClient, StateDbReader
+from research_analysis_layer.db import (
+    AnalysisStore,
+    CalendarDbClient,
+    ParsedDbClient,
+    StateDbReader,
+)
 from research_analysis_layer.logging import configure_logging
 from research_analysis_layer.pipelines import AnalyzeDocumentPipeline, RunBatchPipeline
 from research_analysis_layer.services import (
@@ -82,7 +87,9 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         agent_executor=agent_executor,
     )
     ops = PipelineOpsClient.from_env(
-        default_spool_db_path=str(settings.analysis_db_path.parent / "pipeline_ops_spool.db"),
+        default_spool_db_path=str(
+            settings.analysis_db_path.parent / "pipeline_ops_spool.db"
+        ),
         emitted_by="research_analyst",
     )
     return RunBatchPipeline(
@@ -103,7 +110,11 @@ def command_doctor(settings: Settings) -> int:
     """Run basic environment and connectivity checks."""
     errors = settings.validate()
     pipeline = build_app(settings)
-    state_counts = pipeline.state_reader.get_status_counts() if settings.state_db_path.exists() else {}
+    state_counts = (
+        pipeline.state_reader.get_status_counts()
+        if settings.state_db_path.exists()
+        else {}
+    )
     parsed_ok, parsed_message = pipeline.parsed_db_client.check_connection()
     calendar_ok, calendar_message = pipeline.calendar_db_client.check_connection()
     analysis_counts = pipeline.store.get_analysis_counts()
@@ -138,7 +149,9 @@ def command_doctor(settings: Settings) -> int:
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     prompt_ok = (
-        all(prompt_status.values()) if settings.agent_execution_enabled and prompt_status else True
+        all(prompt_status.values())
+        if settings.agent_execution_enabled and prompt_status
+        else True
     )
     return 0 if not errors and parsed_ok and calendar_ok and prompt_ok else 1
 
@@ -350,7 +363,9 @@ def _extract_forecasts_report(
     raw_extractor = RawForecastExtractor()
     deleted_count = 0
     if rebuild and not dry_run:
-        deleted_count = pipeline.store.delete_forecast_candidates(research_id=research_id)
+        deleted_count = pipeline.store.delete_forecast_candidates(
+            research_id=research_id
+        )
     assertion_sources = pipeline.store.get_forecast_extraction_sources(
         limit=limit,
         research_id=research_id,
@@ -360,7 +375,9 @@ def _extract_forecasts_report(
     for source in assertion_sources:
         extracted = extractor.extract(source)
         for candidate in extracted:
-            candidates.append(matcher.match_candidate(candidate, pipeline.calendar_db_client))
+            candidates.append(
+                matcher.match_candidate(candidate, pipeline.calendar_db_client)
+            )
     analyzed_documents = pipeline.store.list_analyzed_documents(
         limit=limit,
         research_id=research_id,
@@ -375,12 +392,20 @@ def _extract_forecasts_report(
             continue
         extracted = raw_extractor.extract(
             document=parsed_document,
-            file_id=str(local_document["file_id"]) if local_document["file_id"] is not None else None,
-            created_run_id=int(local_document["latest_successful_run_id"]) if local_document["latest_successful_run_id"] is not None else None,
+            file_id=str(local_document["file_id"])
+            if local_document["file_id"] is not None
+            else None,
+            created_run_id=int(local_document["latest_successful_run_id"])
+            if local_document["latest_successful_run_id"] is not None
+            else None,
         )
         for candidate in extracted:
-            candidates.append(matcher.match_candidate(candidate, pipeline.calendar_db_client))
-    stored_count = 0 if dry_run else pipeline.store.upsert_forecast_candidates(candidates)
+            candidates.append(
+                matcher.match_candidate(candidate, pipeline.calendar_db_client)
+            )
+    stored_count = (
+        0 if dry_run else pipeline.store.upsert_forecast_candidates(candidates)
+    )
     return {
         "dry_run": dry_run,
         "deleted_count": deleted_count,
@@ -456,7 +481,12 @@ def command_review_document(
         document_hash=document_hash,
     )
     if payload is None:
-        print(json.dumps({"error": "document_review_not_found", "research_id": research_id}, indent=2))
+        print(
+            json.dumps(
+                {"error": "document_review_not_found", "research_id": research_id},
+                indent=2,
+            )
+        )
         return 1
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
@@ -483,6 +513,56 @@ def command_list_agents(settings: Settings) -> int:
     return 0
 
 
+def command_export_dispatch_batch(
+    settings: Settings,
+    date_from: str | None,
+    date_to: str | None,
+    document_keys: str | None,
+    batch_key: str,
+    out: str,
+    include_orphans: bool,
+) -> int:
+    """Export a dispatch batch to JSON file."""
+    from datetime import datetime
+    from pathlib import Path
+
+    from research_analysis_layer.models.dispatch_scope import (
+        DispatchScope,
+        DispatchScopeError,
+    )
+    from research_analysis_layer.services.dispatch_batch_exporter import (
+        DispatchBatchExporter,
+    )
+
+    try:
+        scope = DispatchScope(
+            date_from=datetime.fromisoformat(date_from) if date_from else None,
+            date_to=datetime.fromisoformat(date_to) if date_to else None,
+            document_keys=[k.strip() for k in document_keys.split(",")]
+            if document_keys
+            else None,
+            batch_key=batch_key,
+            include_orphans=include_orphans,
+        )
+    except DispatchScopeError as e:
+        logger.error("Invalid scope: %s", e)
+        return 1
+
+    store = AnalysisStore(settings.analysis_db_path)
+    exporter = DispatchBatchExporter(store)
+
+    try:
+        exporter.export_to_file(scope, Path(out))
+        logger.info("Exported to %s", out)
+        return 0
+    except DispatchScopeError as e:
+        logger.error("Export failed: %s", e)
+        return 1
+    except Exception as e:
+        logger.exception("Export failed")
+        return 1
+
+
 def _parse_candidate_ids(value: str) -> list[int]:
     return [int(item.strip()) for item in value.split(",") if item.strip()]
 
@@ -495,7 +575,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Bootstrap research analysis layer")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("doctor", help="Check config, upstream connectivity, and local store")
+    subparsers.add_parser(
+        "doctor", help="Check config, upstream connectivity, and local store"
+    )
 
     run_parser = subparsers.add_parser("run", help="Run one cron-style batch")
     run_parser.add_argument("--limit", type=int, default=None)
@@ -528,7 +610,9 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--skip-agents", action="store_true")
     backfill.add_argument("--agents", type=_parse_agents, default=None)
 
-    reconcile = subparsers.add_parser("reconcile", help="Check recent parser-success rows against parsed DB")
+    reconcile = subparsers.add_parser(
+        "reconcile", help="Check recent parser-success rows against parsed DB"
+    )
     reconcile.add_argument("--limit", type=int, default=50)
 
     extract_forecasts = subparsers.add_parser(
@@ -560,7 +644,9 @@ def build_parser() -> argparse.ArgumentParser:
         "set-forecast-review",
         help="Set review status for one or more local forecast candidates",
     )
-    set_forecast_review.add_argument("--candidate-ids", type=_parse_candidate_ids, required=True)
+    set_forecast_review.add_argument(
+        "--candidate-ids", type=_parse_candidate_ids, required=True
+    )
     set_forecast_review.add_argument("--review-status", type=str, required=True)
     set_forecast_review.add_argument("--review-notes", type=str, default=None)
 
@@ -586,6 +672,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("list-agents", help="List configured analysis agents")
 
+    export_parser = subparsers.add_parser(
+        "export-dispatch-batch",
+        help="Export a dispatch batch from document_analysis table",
+    )
+    export_parser.add_argument(
+        "--date-from", type=str, default=None, help="ISO date (YYYY-MM-DD)"
+    )
+    export_parser.add_argument(
+        "--date-to", type=str, default=None, help="ISO date (YYYY-MM-DD)"
+    )
+    export_parser.add_argument(
+        "--document-keys", type=str, default=None, help="Comma-separated document keys"
+    )
+    export_parser.add_argument("--batch-key", type=str, required=True)
+    export_parser.add_argument(
+        "--out", type=str, required=True, help="Output JSON file path"
+    )
+    export_parser.add_argument(
+        "--include-orphans", type=str, default="true", choices=["true", "false"]
+    )
+
     return parser
 
 
@@ -606,9 +713,13 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "reprocess":
         if not any([args.file_id, args.research_id, args.document_hash]):
-            parser.error("reprocess requires --file-id, --research-id, or --document-hash")
+            parser.error(
+                "reprocess requires --file-id, --research-id, or --document-hash"
+            )
         if args.agent_only and args.skip_agents:
-            parser.error("reprocess cannot use --agent-only together with --skip-agents")
+            parser.error(
+                "reprocess cannot use --agent-only together with --skip-agents"
+            )
         return command_reprocess(
             settings,
             file_id=args.file_id,
@@ -619,7 +730,9 @@ def main(argv: list[str] | None = None) -> int:
             agent_only=args.agent_only,
         )
     if args.command == "backfill":
-        allow_warnings = args.allow_warnings or not settings.backfill_require_warning_free
+        allow_warnings = (
+            args.allow_warnings or not settings.backfill_require_warning_free
+        )
         return command_backfill(
             settings,
             date_from=args.date_from,
@@ -674,6 +787,16 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "list-agents":
         return command_list_agents(settings)
+    if args.command == "export-dispatch-batch":
+        return command_export_dispatch_batch(
+            settings,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            document_keys=args.document_keys,
+            batch_key=args.batch_key,
+            out=args.out,
+            include_orphans=args.include_orphans == "true",
+        )
     parser.error(f"unknown command: {args.command}")
     return 2
 
