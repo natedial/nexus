@@ -1,0 +1,35 @@
+# Agent Registry Configuration
+# Defines the available analysis agents and their configurations
+
+agents:
+  trading_opportunities:
+    prompt: prompts/trading_opportunities.md
+    model: "claude-sonnet-4-20250514"
+    fallback_model: "claude-sonnet-4-20250514"
+    timeout_seconds: 120
+    retry_count: 3
+    priority: 1
+    table_name: "trading_analysis"
+    
+  short_time_horizon:
+    prompt: prompts/short_time_horizon.md
+    model: "claude-haiku-4-20250514"
+    fallback_model: "claude-haiku-4-20250514"
+    timeout_seconds: 60
+    retry_count: 3
+    priority: 2
+    table_name: "short_time_horizon_analysis"
+    
+  talking_points:
+    prompt: prompts/talking_points.md
+    model: "claude-haiku-4-20250514"
+    fallback_model: "claude-haiku-4-20250514"
+    timeout_seconds: 60
+    retry_count: 3
+    priority: 3
+    table_name: "talking_points_analysis"
+
+# Default model fallback for all agents
+default_model: "claude-haiku-4-20250514"
+default_timeout_seconds: 60
+default_retry_count: 3

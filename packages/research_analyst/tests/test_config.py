@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import sqlite3
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from research_analysis_layer.config import Settings
+
+
+class ConfigTest(unittest.TestCase):
+    def test_prefers_existing_relative_state_db(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            state_dir = tmp_path / "data"
+            state_dir.mkdir()
+            state_path = state_dir / "state.db"
+            with sqlite3.connect(state_path) as conn:
+                conn.execute(
+                    "CREATE TABLE processed_files (file_id TEXT PRIMARY KEY)"
+                )
+
+            env = {
+                "STATE_DB_PATH": "data/state.db",
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_KEY": "secret",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                previous = Path.cwd()
+                os.chdir(tmp_path)
+                try:
+                    settings = Settings.from_env()
+                finally:
+                    os.chdir(previous)
+
+            self.assertEqual(settings.state_db_path.resolve(), state_path.resolve())
+
+    def test_prefers_parser_sibling_when_local_file_is_not_state_db(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            analyst_root = root / "research_analyst"
+            parser_root = root / "research_parser"
+            analyst_root.mkdir()
+            parser_root.mkdir()
+
+            wrong_data_dir = analyst_root / "data"
+            wrong_data_dir.mkdir()
+            wrong_state_path = wrong_data_dir / "state.db"
+            wrong_state_path.write_text("", encoding="utf-8")
+
+            parser_data_dir = parser_root / "data"
+            parser_data_dir.mkdir()
+            parser_state_path = parser_data_dir / "state.db"
+            with sqlite3.connect(parser_state_path) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE processed_files (
+                        file_id TEXT PRIMARY KEY,
+                        status TEXT
+                    )
+                    """
+                )
+
+            env = {
+                "STATE_DB_PATH": "data/state.db",
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_KEY": "secret",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                previous = Path.cwd()
+                os.chdir(analyst_root)
+                try:
+                    settings = Settings.from_env()
+                finally:
+                    os.chdir(previous)
+
+            self.assertEqual(settings.state_db_path.resolve(), parser_state_path.resolve())
+
+    def test_calendar_db_defaults_to_parsed_db_settings(self) -> None:
+        env = {
+            "STATE_DB_PATH": "data/state.db",
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+
+        self.assertEqual(settings.calendar_db_url, "https://example.supabase.co")
+        self.assertEqual(settings.calendar_db_key, "secret")
+        self.assertEqual(settings.calendar_match_source, "economic_events")
+
+
+if __name__ == "__main__":
+    unittest.main()
