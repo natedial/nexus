@@ -36,7 +36,14 @@ Return a complete JSON object with this structure:
   "cross_document_references": [],
   "round_traces": [],
   "confidence": 0.85,
-  "metadata": {}
+  "metadata": {},
+  "quality": {"score": 0.9, "passed": true, "warnings": []},
+  "themes": [{"id": "theme1", "label": "Theme Label", "context": "...", "strength": "Primary", "confidence": "High"}],
+  "trades": [{"text": "Trade recommendation", "conviction": "High", "timeframe": "weeks"}],
+  "assertions": [{"summary_text": "...", "assertion_type": "forecast", "status": "proposed"}],
+  "world_nodes": [{"node_key": "n1", "canonical_label": "Label", "support_count": 1}],
+  "world_edges": [{"edge_key": "e1", "edge_type": "drives", "support_count": 1}],
+  "forecast_candidates": [{"indicator_key": "us_nfp", "event_name": "NFP", "forecast_value_text": "150k", "review_status": "approved"}]
 }
 ```
 
