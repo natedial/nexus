@@ -6,9 +6,12 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from research_analysis_layer.services.round_executor import RoundConfig
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,10 @@ class AgentConfig:
     retry_count: int
     priority: int
     table_name: str
+    tools: list[str] = None
+    max_tool_calls: int = 0
+    output_schema: str = ""
+    temperature: float = 0.4
 
 
 class AgentRegistry:
@@ -36,6 +43,7 @@ class AgentRegistry:
     def __init__(self, config_path: Path | None = None):
         self.config_path = config_path or self._default_config_path()
         self._agents: dict[str, AgentConfig] = {}
+        self._rounds: list[RoundConfig] = []
         self._default_model: str = "claude-haiku-4-20250514"
         self._default_timeout: int = 60
         self._default_retry_count: int = 3
@@ -78,16 +86,45 @@ class AgentRegistry:
 
         agents_data = data.get("agents", {})
         for name, config in agents_data.items():
+            model_config = config.get("model", {})
+            if isinstance(model_config, dict):
+                model = model_config.get("primary", self._default_model)
+                fallback_model = model_config.get("fallback", self._default_model)
+            else:
+                model = model_config if model_config else self._default_model
+                fallback_model = config.get("fallback_model", self._default_model)
+
             self._agents[name] = AgentConfig(
                 name=name,
-                prompt_path=config.get("prompt", ""),
-                model=config.get("model", self._default_model),
-                fallback_model=config.get("fallback_model", self._default_model),
+                prompt_path=config.get("prompt_path", config.get("prompt", "")),
+                model=model,
+                fallback_model=fallback_model,
                 timeout_seconds=config.get("timeout_seconds", self._default_timeout),
                 retry_count=config.get("retry_count", self._default_retry_count),
                 priority=config.get("priority", 99),
                 table_name=config.get("table_name", f"{name}_analysis"),
+                tools=config.get("tools", []),
+                max_tool_calls=config.get("max_tool_calls", 0),
+                output_schema=config.get("output_schema", ""),
+                temperature=config.get("temperature", 0.4),
             )
+
+        rounds_data = data.get("rounds", [])
+        if rounds_data:
+            from research_analysis_layer.services.round_executor import RoundConfig
+
+            for round_data in rounds_data:
+                self._rounds.append(
+                    RoundConfig(
+                        name=round_data.get("name", ""),
+                        type=round_data.get("type", "parallel"),
+                        agents=round_data.get("agents", []),
+                        receives=round_data.get("receives", ["input"]),
+                        fail_round_on_agent_error=round_data.get(
+                            "fail_round_on_agent_error", False
+                        ),
+                    )
+                )
 
         logger.info(
             "Loaded agent config: agent_count=%s config_path=%s",
@@ -149,6 +186,14 @@ class AgentRegistry:
     def default_model(self) -> str:
         """Get the default model for agents without specific config."""
         return self._default_model
+
+    def get_rounds(self) -> list:
+        """Get the round configurations."""
+        return self._rounds
+
+    def has_rounds_config(self) -> bool:
+        """Check if rounds config is loaded."""
+        return len(self._rounds) > 0
 
 
 # Global registry instance

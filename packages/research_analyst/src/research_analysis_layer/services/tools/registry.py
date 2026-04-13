@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 logger = logging.getLogger(__name__)
 
-_CORPUS_ROOT = Path(__file__).resolve().parents[4]
+_CORPUS_ROOT = Path(__file__).resolve().parents[5]
 _DEFAULT_SCHEMA_PATH = (
     _CORPUS_ROOT / "research-store" / "distill_tool" / "tool_schema.json"
 )
@@ -42,12 +42,26 @@ class ToolRegistry:
         schema_path: Path | None = None,
         rate_limit: int = 4,
     ):
-        self._schema_path = schema_path or _DEFAULT_SCHEMA_PATH
+        self._schema_path = (
+            schema_path if schema_path is not None else _DEFAULT_SCHEMA_PATH
+        )
         self._handlers: dict[str, Callable] = {}
         self._schemas: dict[str, dict] = {}
         self._executor = ThreadPoolExecutor(max_workers=4)
         self._rate_limiter = get_rate_limiter(rate_limit)
-        if self._schema_path.exists():
+
+        if schema_path is not None:
+            if not self._schema_path.exists():
+                raise ValueError(
+                    f"Tool schema not found at specified path: {self._schema_path}"
+                )
+            self.load_schema(self._schema_path)
+        else:
+            if not self._schema_path.exists():
+                raise ValueError(
+                    f"Tool schema not found at default path: {self._schema_path}. "
+                    f"Ensure research-store/distill_tool/tool_schema.json exists."
+                )
             self.load_schema(self._schema_path)
 
     def load_schema(self, schema_path: Path) -> None:

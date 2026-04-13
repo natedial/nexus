@@ -25,7 +25,6 @@ from research_analysis_layer.db import (
 from research_analysis_layer.logging import configure_logging
 from research_analysis_layer.pipelines import AnalyzeDocumentPipeline, RunBatchPipeline
 from research_analysis_layer.services import (
-    AgentExecutor,
     AgentInputBuilder,
     AssertionExtractor,
     Chunker,
@@ -44,6 +43,16 @@ from research_analysis_layer.services import (
 )
 from research_analysis_layer.services.agent_registry import get_registry
 from research_analysis_layer.services.reconcile import reconcile_recent
+from research_analysis_layer.services.round_executor import RoundExecutor
+from research_analysis_layer.services.tools.registry import ToolRegistry
+from research_analysis_layer.services.tools.distill_adapter import (
+    DistillAdapter,
+    create_distill_handlers,
+)
+from research_analysis_layer.services.tools.tholos_adapter import (
+    TholosAdapter,
+    create_tholos_handlers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,13 +76,43 @@ def build_app(settings: Settings) -> RunBatchPipeline:
     selector = Selector()
     hydrator = Hydrator(parsed_db_client)
     registry = get_registry()
-    llm_client = build_agent_llm_client(settings)
-    agent_executor = AgentExecutor(
-        store=store,
-        registry=registry,
-        llm_client=llm_client,
-        input_builder=AgentInputBuilder(),
-    )
+
+    tool_registry = None
+    if settings.analyst_tools_enabled:
+        tool_registry = ToolRegistry()
+
+        assert tool_registry.get_schema("research_search") is not None, (
+            f"Tool schema not loaded from {tool_registry._schema_path}"
+        )
+
+        if settings.tholos_enabled:
+            tholos_adapter = TholosAdapter(
+                base_url=settings.tholos_base_url,
+                timeout_seconds=settings.tholos_timeout_seconds,
+            )
+            handlers = create_tholos_handlers(tholos_adapter)
+        else:
+            distill_adapter = DistillAdapter()
+            handlers = create_distill_handlers(distill_adapter)
+
+        for name, handler in handlers.items():
+            tool_registry.register_handler(name, handler)
+
+    llm_client = build_agent_llm_client(settings, tool_registry)
+
+    round_executor = None
+    if (
+        settings.analyst_round_mode == "rounds"
+        and registry.has_rounds_config()
+        and llm_client is not None
+    ):
+        round_executor = RoundExecutor(
+            registry=registry,
+            llm_client=llm_client,
+            input_builder=AgentInputBuilder(),
+            tool_registry=tool_registry,
+        )
+
     analyze_document = AnalyzeDocumentPipeline(
         store=store,
         chunker=Chunker(),
@@ -84,7 +123,7 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         lifecycle_service=LifecycleService(store),
         quality_reviewer=QualityReviewer(settings),
         analysis_version=settings.analysis_version,
-        agent_executor=agent_executor,
+        round_executor=round_executor,
     )
     ops = PipelineOpsClient.from_env(
         default_spool_db_path=str(
@@ -519,10 +558,11 @@ def command_export_dispatch_batch(
     date_to: str | None,
     document_keys: str | None,
     batch_key: str,
-    out: str,
+    out: str | None,
     include_orphans: bool,
 ) -> int:
     """Export a dispatch batch to JSON file."""
+    import os
     from datetime import datetime
     from pathlib import Path
 
@@ -533,6 +573,12 @@ def command_export_dispatch_batch(
     from research_analysis_layer.services.dispatch_batch_exporter import (
         DispatchBatchExporter,
     )
+
+    batch_out_dir = settings.analyst_batch_out_dir
+    if out is None:
+        out = str(batch_out_dir / f"dispatch-batch-{batch_key}.json")
+    else:
+        out = out
 
     try:
         scope = DispatchScope(
@@ -552,8 +598,17 @@ def command_export_dispatch_batch(
     exporter = DispatchBatchExporter(store)
 
     try:
-        exporter.export_to_file(scope, Path(out))
-        logger.info("Exported to %s", out)
+        output_path = Path(out)
+        exporter.export_to_file(scope, output_path)
+        logger.info("Exported to %s", output_path)
+
+        batch_out_dir.mkdir(parents=True, exist_ok=True)
+        latest_link = batch_out_dir / "latest.json"
+        if latest_link.exists() or latest_link.is_symlink():
+            latest_link.unlink()
+        os.symlink(output_path.name, latest_link)
+        logger.info("Updated latest.json symlink to %s", output_path.name)
+
         return 0
     except DispatchScopeError as e:
         logger.error("Export failed: %s", e)
@@ -687,7 +742,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_parser.add_argument("--batch-key", type=str, required=True)
     export_parser.add_argument(
-        "--out", type=str, required=True, help="Output JSON file path"
+        "--out",
+        type=str,
+        default=None,
+        help="Output JSON file path (default: ANALYST_BATCH_OUT_DIR/dispatch-batch-<batch_key>.json)",
     )
     export_parser.add_argument(
         "--include-orphans", type=str, default="true", choices=["true", "false"]

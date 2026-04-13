@@ -1,6 +1,5 @@
 """Service layer exports."""
 
-from .agent_executor import AgentExecutor
 from .agent_input_builder import AgentInputBuilder
 from .agent_llm_client import build_agent_llm_client
 from .assertion_extractor import AssertionExtractor
@@ -18,7 +17,6 @@ from .resolver import Resolver
 from .selector import Selector
 
 __all__ = [
-    "AgentExecutor",
     "AgentInputBuilder",
     "AssertionExtractor",
     "build_agent_llm_client",

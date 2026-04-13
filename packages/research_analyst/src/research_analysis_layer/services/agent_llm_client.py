@@ -435,7 +435,9 @@ class AnthropicAgentLlmClient:
         return parsed
 
 
-def build_agent_llm_client(settings: Settings) -> AgentLlmClient | None:
+def build_agent_llm_client(
+    settings: Settings, tool_registry: Any | None = None
+) -> AgentLlmClient | None:
     """Construct the configured agent LLM client."""
 
     if not settings.agent_execution_enabled:
@@ -445,5 +447,6 @@ def build_agent_llm_client(settings: Settings) -> AgentLlmClient | None:
         return AnthropicAgentLlmClient(
             api_key=settings.agent_llm_api_key,
             base_url=settings.agent_llm_base_url,
+            tool_registry=tool_registry,
         )
     return None

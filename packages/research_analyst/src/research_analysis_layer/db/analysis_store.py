@@ -297,72 +297,6 @@ class AnalysisStore:
                     created_at TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS trading_analysis (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    research_id INTEGER NOT NULL,
-                    document_hash TEXT NOT NULL,
-                    analysis_version TEXT NOT NULL,
-                    agent_type TEXT NOT NULL,
-                    prompt_version TEXT NOT NULL,
-                    model_requested TEXT NOT NULL,
-                    model_used TEXT NOT NULL,
-                    run_id INTEGER NOT NULL,
-                    attempt_count INTEGER NOT NULL DEFAULT 1,
-                    status TEXT NOT NULL,
-                    error_type TEXT NULL,
-                    error_text TEXT NULL,
-                    opportunities_json TEXT NOT NULL DEFAULT '[]',
-                    no_opportunity_reason TEXT NULL,
-                    analyzed_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(research_id, document_hash, analysis_version, agent_type)
-                );
-
-                CREATE TABLE IF NOT EXISTS short_time_horizon_analysis (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    research_id INTEGER NOT NULL,
-                    document_hash TEXT NOT NULL,
-                    analysis_version TEXT NOT NULL,
-                    agent_type TEXT NOT NULL,
-                    prompt_version TEXT NOT NULL,
-                    model_requested TEXT NOT NULL,
-                    model_used TEXT NOT NULL,
-                    run_id INTEGER NOT NULL,
-                    attempt_count INTEGER NOT NULL DEFAULT 1,
-                    status TEXT NOT NULL,
-                    error_type TEXT NULL,
-                    error_text TEXT NULL,
-                    insights_json TEXT NOT NULL DEFAULT '[]',
-                    summary TEXT NULL,
-                    analyzed_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(research_id, document_hash, analysis_version, agent_type)
-                );
-
-                CREATE TABLE IF NOT EXISTS talking_points_analysis (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    research_id INTEGER NOT NULL,
-                    document_hash TEXT NOT NULL,
-                    analysis_version TEXT NOT NULL,
-                    agent_type TEXT NOT NULL,
-                    prompt_version TEXT NOT NULL,
-                    model_requested TEXT NOT NULL,
-                    model_used TEXT NOT NULL,
-                    run_id INTEGER NOT NULL,
-                    attempt_count INTEGER NOT NULL DEFAULT 1,
-                    status TEXT NOT NULL,
-                    error_type TEXT NULL,
-                    error_text TEXT NULL,
-                    talking_points_json TEXT NOT NULL DEFAULT '[]',
-                    primary_headline TEXT NULL,
-                    analyzed_at TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(research_id, document_hash, analysis_version, agent_type)
-                );
-
                 CREATE TABLE IF NOT EXISTS document_analysis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     document_key TEXT NOT NULL,
@@ -404,12 +338,6 @@ class AnalysisStore:
                     ON forecast_candidates(indicator_key, release_date);
                 CREATE INDEX IF NOT EXISTS idx_analysis_reviews_scope_key
                     ON analysis_reviews(review_scope, review_key);
-                CREATE INDEX IF NOT EXISTS idx_trading_analysis_lookup
-                    ON trading_analysis(research_id, document_hash, analysis_version);
-                CREATE INDEX IF NOT EXISTS idx_short_time_horizon_analysis_lookup
-                    ON short_time_horizon_analysis(research_id, document_hash, analysis_version);
-                CREATE INDEX IF NOT EXISTS idx_talking_points_analysis_lookup
-                    ON talking_points_analysis(research_id, document_hash, analysis_version);
                 CREATE INDEX IF NOT EXISTS document_analysis_research_id_idx
                     ON document_analysis(research_id);
                 CREATE INDEX IF NOT EXISTS document_analysis_document_hash_idx
@@ -1530,145 +1458,6 @@ class AnalysisStore:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
 
-    def upsert_agent_result(self, agent_type: str, result) -> None:
-        """Persist one agent execution result row."""
-
-        metadata = result.metadata
-        payload = (
-            self._base_model_dump(result.payload) if result.payload is not None else {}
-        )
-        if agent_type == "trading_opportunities":
-            self._upsert_agent_row(
-                table_name="trading_analysis",
-                metadata=metadata,
-                status=result.status,
-                error_type=result.error_type,
-                error_text=result.error_text,
-                payload_columns={
-                    "opportunities_json": json.dumps(
-                        payload.get("opportunities", []),
-                        sort_keys=True,
-                    ),
-                    "no_opportunity_reason": payload.get("no_opportunity_reason"),
-                },
-            )
-            return
-        if agent_type == "short_time_horizon":
-            self._upsert_agent_row(
-                table_name="short_time_horizon_analysis",
-                metadata=metadata,
-                status=result.status,
-                error_type=result.error_type,
-                error_text=result.error_text,
-                payload_columns={
-                    "insights_json": json.dumps(
-                        payload.get("insights", []),
-                        sort_keys=True,
-                    ),
-                    "summary": payload.get("summary"),
-                },
-            )
-            return
-        if agent_type == "talking_points":
-            self._upsert_agent_row(
-                table_name="talking_points_analysis",
-                metadata=metadata,
-                status=result.status,
-                error_type=result.error_type,
-                error_text=result.error_text,
-                payload_columns={
-                    "talking_points_json": json.dumps(
-                        payload.get("talking_points", []),
-                        sort_keys=True,
-                    ),
-                    "primary_headline": payload.get("primary_headline"),
-                },
-            )
-            return
-        raise ValueError(f"unsupported agent type: {agent_type}")
-
-    def _upsert_agent_row(
-        self,
-        *,
-        table_name: str,
-        metadata,
-        status: str,
-        error_type: str | None,
-        error_text: str | None,
-        payload_columns: dict[str, object],
-    ) -> None:
-        now = utc_now().isoformat()
-        values = {
-            "research_id": metadata.research_id,
-            "document_hash": metadata.document_hash,
-            "analysis_version": metadata.analysis_version,
-            "agent_type": metadata.agent_type,
-            "prompt_version": metadata.prompt_version,
-            "model_requested": metadata.model_requested,
-            "model_used": metadata.model_used,
-            "run_id": metadata.run_id,
-            "attempt_count": metadata.attempt_count,
-            "status": status,
-            "error_type": error_type,
-            "error_text": error_text,
-            "analyzed_at": metadata.analyzed_at.isoformat(),
-            "created_at": now,
-            "updated_at": now,
-            **payload_columns,
-        }
-        columns = list(values.keys())
-        placeholders = ", ".join("?" for _ in columns)
-        update_sql = ", ".join(
-            f"{column} = excluded.{column}"
-            for column in columns
-            if column
-            not in {
-                "research_id",
-                "document_hash",
-                "analysis_version",
-                "agent_type",
-                "created_at",
-            }
-        )
-        with self._connect() as conn:
-            conn.execute(
-                f"""
-                INSERT INTO {table_name} (
-                    {", ".join(columns)}
-                ) VALUES ({placeholders})
-                ON CONFLICT(research_id, document_hash, analysis_version, agent_type)
-                DO UPDATE SET {update_sql}
-                """,
-                tuple(values[column] for column in columns),
-            )
-
-    def get_agent_result(
-        self,
-        *,
-        table_name: str,
-        research_id: int,
-        document_hash: str,
-        analysis_version: str,
-    ) -> dict[str, object] | None:
-        with self._connect() as conn:
-            row = conn.execute(
-                f"""
-                SELECT *
-                FROM {table_name}
-                WHERE research_id = ? AND document_hash = ? AND analysis_version = ?
-                LIMIT 1
-                """,
-                (research_id, document_hash, analysis_version),
-            ).fetchone()
-        return dict(row) if row is not None else None
-
-    @staticmethod
-    def _base_model_dump(model) -> dict[str, object]:
-        dumper = getattr(model, "model_dump", None)
-        if callable(dumper):
-            return dumper()
-        return model.dict()
-
     def update_forecast_review_status(
         self,
         *,
@@ -1859,9 +1648,7 @@ class AnalysisStore:
                 "analysis_documents",
                 "analysis_chunks",
                 "analysis_assertions",
-                "trading_analysis",
-                "short_time_horizon_analysis",
-                "talking_points_analysis",
+                "document_analysis",
                 "forecast_candidates",
                 "analysis_reviews",
                 "world_nodes",

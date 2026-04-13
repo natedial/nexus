@@ -6,7 +6,6 @@ from research_analysis_layer.services.quality import QualityReviewer
 from research_analysis_layer.db.analysis_store import AnalysisStore
 from research_analysis_layer.models import HydratedParsedDocument, RunItemResult
 from research_analysis_layer.services import (
-    AgentExecutor,
     AssertionExtractor,
     Chunker,
     EvidenceBuilder,
@@ -30,7 +29,7 @@ class AnalyzeDocumentPipeline:
         lifecycle_service: LifecycleService,
         quality_reviewer: QualityReviewer,
         analysis_version: str,
-        agent_executor: AgentExecutor | None = None,
+        round_executor=None,
     ):
         self.store = store
         self.chunker = chunker
@@ -41,7 +40,7 @@ class AnalyzeDocumentPipeline:
         self.lifecycle_service = lifecycle_service
         self.quality_reviewer = quality_reviewer
         self.analysis_version = analysis_version
-        self.agent_executor = agent_executor
+        self.round_executor = round_executor
 
     def run(
         self,
@@ -109,17 +108,68 @@ class AnalyzeDocumentPipeline:
                 run_id=run_id,
             )
 
-        agent_summary = None
-        if not skip_agents and self.agent_executor is not None:
-            agent_summary = self.agent_executor.execute(
+        round_summary = None
+        if not skip_agents and self.round_executor is not None:
+            from research_analysis_layer.services.agent_registry import get_registry
+
+            registry = get_registry()
+            rounds = registry.get_rounds()
+            from research_analysis_layer.services.round_executor import AgentSpec
+
+            agent_specs = {}
+            tool_registry = self.round_executor.tool_registry
+            for round_cfg in rounds:
+                for agent_name in round_cfg.agents:
+                    agent_cfg = registry.get_agent(agent_name)
+                    if agent_cfg:
+                        tools = []
+                        if tool_registry and agent_cfg.tools:
+                            for tool_name in agent_cfg.tools:
+                                schema = tool_registry.get_schema(tool_name)
+                                if schema:
+                                    tools.append(schema)
+                        agent_specs[agent_name] = AgentSpec(
+                            name=agent_name,
+                            config=agent_cfg,
+                            tools=tools,
+                            max_tool_calls=agent_cfg.max_tool_calls,
+                            timeout_seconds=agent_cfg.timeout_seconds,
+                            retry_count=agent_cfg.retry_count,
+                            temperature=agent_cfg.temperature,
+                            output_schema=agent_cfg.output_schema,
+                        )
+            doc_analysis = self.round_executor.run(
                 document=document,
                 chunks=chunks,
                 evidence_units=evidence_units,
                 assertions=assertions,
                 run_id=run_id,
                 analysis_version=self.analysis_version,
-                selected_agents=selected_agents,
+                rounds=rounds,
+                agent_specs=agent_specs,
             )
+            if doc_analysis:
+                total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)
+                total_output = sum(rt.output_tokens for rt in doc_analysis.round_traces)
+                total_tool_calls = sum(
+                    rt.tool_call_count for rt in doc_analysis.round_traces
+                )
+                total_duration = sum(rt.duration_ms for rt in doc_analysis.round_traces)
+                self.store.write_document_analysis(
+                    document_key=doc_analysis.document_key,
+                    research_id=doc_analysis.research_id,
+                    document_hash=doc_analysis.document_hash,
+                    analysis_version=doc_analysis.analysis_version,
+                    run_id=str(doc_analysis.metadata.run_id),
+                    payload_json=doc_analysis.model_dump_json(),
+                    thesis=doc_analysis.thesis,
+                    confidence=doc_analysis.confidence,
+                    total_input_tokens=total_input,
+                    total_output_tokens=total_output,
+                    total_tool_calls=total_tool_calls,
+                    total_duration_ms=total_duration,
+                )
+                round_summary = doc_analysis
         return RunItemResult(
             status="success",
             chunk_count=len(chunks),
@@ -129,7 +179,7 @@ class AnalyzeDocumentPipeline:
             open_question_count=graph_result.open_question_count if graph_result else 0,
             quality_score=quality_report.score,
             quality_summary_json=quality_summary_json,
-            agent_success_count=agent_summary.success_count if agent_summary else 0,
-            agent_no_output_count=agent_summary.no_output_count if agent_summary else 0,
-            agent_error_count=agent_summary.error_count if agent_summary else 0,
+            agent_success_count=0,
+            agent_no_output_count=0,
+            agent_error_count=0,
         )

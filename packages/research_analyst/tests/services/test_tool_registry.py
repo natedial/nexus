@@ -144,6 +144,7 @@ class TestToolRegistry:
         ]""")
 
         registry = ToolRegistry()
+        registry._schemas.clear()
         registry.load_schema(schema_file)
 
         schemas = registry.get_all_schemas()

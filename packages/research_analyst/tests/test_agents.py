@@ -8,7 +8,6 @@ import tempfile
 import unittest
 
 from research_analysis_layer.config import Settings
-from research_analysis_layer.db.analysis_store import AnalysisStore
 from research_analysis_layer.main import command_list_agents
 from research_analysis_layer.models import (
     AssertionDraft,
@@ -18,8 +17,11 @@ from research_analysis_layer.models import (
     ParsedExcerpt,
     ParsedTheme,
 )
-from research_analysis_layer.services import AgentExecutor, AgentInputBuilder, Chunker, EvidenceBuilder
-from research_analysis_layer.services.agent_registry import AgentRegistry
+from research_analysis_layer.services import (
+    AgentInputBuilder,
+    Chunker,
+    EvidenceBuilder,
+)
 
 
 def make_settings(db_path: Path) -> Settings:
@@ -113,7 +115,9 @@ def make_document() -> HydratedParsedDocument:
 
 
 class StubLlmClient:
-    def __init__(self, response: dict[str, object] | None = None, error: Exception | None = None):
+    def __init__(
+        self, response: dict[str, object] | None = None, error: Exception | None = None
+    ):
         self.response = response or {}
         self.error = error
         self.calls: list[dict[str, object]] = []
@@ -173,148 +177,17 @@ class AgentsTest(unittest.TestCase):
         self.assertLessEqual(len(payload["themes"][0]["excerpts"][0]), 100)
         self.assertEqual(payload["document"]["metadata"]["publisher_slug"], "jpm")
 
-    def test_agent_executor_persists_successful_result(self) -> None:
-        document = make_document()
-        chunks = Chunker().chunk_document(document)
-        evidence_units = EvidenceBuilder().build_evidence(chunks, document)
-        assertions = [
-            AssertionDraft(
-                chunk_order=1,
-                assertion_order=1,
-                assertion_type="forecast",
-                text="Rates stay higher for longer because cuts are delayed.",
-                normalized_text="rates stay higher for longer because cuts are delayed",
-                summary_text="Higher for longer rates view",
-                time_horizon="weeks",
-            )
-        ]
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "analysis.db"
-            config_path = Path(tmpdir) / "agent_config.yaml"
-            config_path.write_text(
-                """
-agents:
-  trading_opportunities:
-    prompt: prompts/trading_opportunities.md
-    model: "claude-sonnet-4-20250514"
-    fallback_model: "claude-sonnet-4-20250514"
-    timeout_seconds: 30
-    retry_count: 2
-    priority: 1
-    table_name: "trading_analysis"
-                """.strip(),
-                encoding="utf-8",
-            )
-            store = AnalysisStore(db_path)
-            executor = AgentExecutor(
-                store=store,
-                registry=AgentRegistry(config_path=config_path),
-                llm_client=StubLlmClient(
-                    response={
-                        "opportunities": [
-                            {
-                                "thesis": "Front-end yields stay elevated",
-                                "direction": "short",
-                                "instrument": "2Y Treasury",
-                                "timeframe": "weeks",
-                                "conviction": "medium",
-                                "risk_reward_ratio": "1:2",
-                                "key_levels": "entry 4.7 stop 4.5 target 5.1",
-                                "rationale": "Cuts are being delayed by sticky inflation.",
-                                "supporting_excerpts": ["Cuts are less likely in June."],
-                                "risks": ["Soft data weakens materially"],
-                            }
-                        ],
-                        "no_opportunity_reason": None,
-                    }
-                ),
-                input_builder=AgentInputBuilder(),
-            )
-
-            summary = executor.execute(
-                document=document,
-                chunks=chunks,
-                evidence_units=evidence_units,
-                assertions=assertions,
-                run_id=99,
-                analysis_version="bootstrap-v1",
-                selected_agents=["trading_opportunities"],
-            )
-            row = store.get_agent_result(
-                table_name="trading_analysis",
-                research_id=1,
-                document_hash="hash123",
-                analysis_version="bootstrap-v1",
-            )
-
-        self.assertEqual(summary.success_count, 1)
-        self.assertEqual(summary.error_count, 0)
-        self.assertIsNotNone(row)
-        assert row is not None
-        self.assertEqual(row["status"], "success")
-        self.assertEqual(row["agent_type"], "trading_opportunities")
-        opportunities = json.loads(row["opportunities_json"])
-        self.assertEqual(opportunities[0]["instrument"], "2Y Treasury")
-
-    def test_agent_executor_persists_error_result(self) -> None:
-        document = make_document()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "analysis.db"
-            config_path = Path(tmpdir) / "agent_config.yaml"
-            config_path.write_text(
-                """
-agents:
-  talking_points:
-    prompt: prompts/talking_points.md
-    model: "claude-haiku-4-20250514"
-    fallback_model: "claude-haiku-4-20250514"
-    timeout_seconds: 30
-    retry_count: 2
-    priority: 1
-    table_name: "talking_points_analysis"
-                """.strip(),
-                encoding="utf-8",
-            )
-            store = AnalysisStore(db_path)
-            executor = AgentExecutor(
-                store=store,
-                registry=AgentRegistry(config_path=config_path),
-                llm_client=StubLlmClient(error=TimeoutError("timed out")),
-                input_builder=AgentInputBuilder(),
-            )
-
-            summary = executor.execute(
-                document=document,
-                chunks=Chunker().chunk_document(document),
-                evidence_units=[],
-                assertions=[],
-                run_id=101,
-                analysis_version="bootstrap-v1",
-                selected_agents=["talking_points"],
-            )
-            row = store.get_agent_result(
-                table_name="talking_points_analysis",
-                research_id=1,
-                document_hash="hash123",
-                analysis_version="bootstrap-v1",
-            )
-
-        self.assertEqual(summary.success_count, 0)
-        self.assertEqual(summary.error_count, 1)
-        self.assertIsNotNone(row)
-        assert row is not None
-        self.assertEqual(row["status"], "error")
-        self.assertIn("timed out", row["error_text"])
-
     def test_list_agents_command_outputs_registered_agents(self) -> None:
         buffer = io.StringIO()
         with redirect_stdout(buffer):
-            exit_code = command_list_agents(make_settings(Path("/tmp/test-analysis.db")))
+            exit_code = command_list_agents(
+                make_settings(Path("/tmp/test-analysis.db"))
+            )
 
         payload = json.loads(buffer.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertGreaterEqual(len(payload), 3)
-        self.assertEqual(payload[0]["name"], "trading_opportunities")
+        self.assertEqual(payload[0]["name"], "thesis")
 
 
 if __name__ == "__main__":

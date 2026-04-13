@@ -161,6 +161,9 @@ class RoundExecutor:
         return self._build_document_analysis(
             final_results=prior_outputs.get(rounds[-1].name, []),
             document=document,
+            chunks=chunks,
+            evidence_units=evidence_units,
+            assertions=assertions,
             run_id=run_id,
             analysis_version=analysis_version,
             round_traces=all_round_traces,
@@ -421,6 +424,9 @@ class RoundExecutor:
         *,
         final_results: list[AgentCallResult],
         document: Any,
+        chunks: list[Any],
+        evidence_units: list[Any],
+        assertions: list[Any],
         run_id: int,
         analysis_version: str,
         round_traces: list[RoundTrace],
@@ -449,6 +455,40 @@ class RoundExecutor:
                 "attempt_count": result.attempt_count,
                 "analyzed_at": datetime.now(timezone.utc).isoformat(),
             }
+            parsed["payload_json"] = {
+                "thesis": parsed.get("thesis", ""),
+                "contrarian_view": parsed.get("contrarian_view", ""),
+                "recommended_positioning": parsed.get("recommended_positioning", ""),
+                "trading_opportunities": parsed.get("trading_opportunities", []),
+                "short_time_horizon_insights": parsed.get(
+                    "short_time_horizon_insights", []
+                ),
+                "talking_points": parsed.get("talking_points", []),
+                "cross_document_references": parsed.get(
+                    "cross_document_references", []
+                ),
+                "quality": parsed.get("quality"),
+                "themes": parsed.get(
+                    "themes", [c.model_dump() for c in chunks] if chunks else []
+                ),
+                "trades": parsed.get("trades"),
+                "assertions": parsed.get(
+                    "assertions",
+                    [a.model_dump() for a in assertions] if assertions else [],
+                ),
+                "world_nodes": parsed.get("world_nodes", []),
+                "world_edges": parsed.get("world_edges", []),
+                "forecast_candidates": parsed.get("forecast_candidates", []),
+            }
+            parsed["quality"] = parsed["payload_json"].get("quality", {})
+            parsed["themes"] = parsed["payload_json"].get("themes", [])
+            parsed["trades"] = parsed["payload_json"].get("trades", [])
+            parsed["assertions"] = parsed["payload_json"].get("assertions", [])
+            parsed["world_nodes"] = parsed["payload_json"].get("world_nodes", [])
+            parsed["world_edges"] = parsed["payload_json"].get("world_edges", [])
+            parsed["forecast_candidates"] = parsed["payload_json"].get(
+                "forecast_candidates", []
+            )
             return DocumentAnalysis.model_validate(parsed)
 
         return None

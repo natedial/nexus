@@ -38,14 +38,6 @@ class TradingOpportunity(BaseModel):
     risks: list[str] = Field(default_factory=list)
 
 
-class TradingAnalysis(BaseModel):
-    """Complete trading analysis for a document."""
-
-    metadata: AgentExecutionMetadata
-    opportunities: list[TradingOpportunity] = Field(default_factory=list)
-    no_opportunity_reason: str | None = None
-
-
 class ShortTimeHorizonInsight(BaseModel):
     """Insight relevant to short-term (days/weeks) positioning."""
 
@@ -57,14 +49,6 @@ class ShortTimeHorizonInsight(BaseModel):
     relevance: list[str] = Field(default_factory=list)
 
 
-class ShortTimeHorizonAnalysis(BaseModel):
-    """Complete short-term analysis for a document."""
-
-    metadata: AgentExecutionMetadata
-    insights: list[ShortTimeHorizonInsight] = Field(default_factory=list)
-    summary: str = Field(..., max_length=300)
-
-
 class TalkingPoint(BaseModel):
     """A quotable, presentation-ready insight."""
 
@@ -73,14 +57,6 @@ class TalkingPoint(BaseModel):
     source_theme: str | None = None
     presentation_use: str = Field(..., pattern="^(headline|supporting|footnote)$")
     target_audience: str | None = Field(None, pattern="^(internal|client|all)$")
-
-
-class TalkingPointsAnalysis(BaseModel):
-    """Complete talking points for a document."""
-
-    metadata: AgentExecutionMetadata
-    talking_points: list[TalkingPoint] = Field(default_factory=list)
-    primary_headline: str | None = Field(None, max_length=200)
 
 
 class ToolCallTrace(BaseModel):
@@ -158,3 +134,24 @@ class DocumentAnalysis(BaseModel):
     round_traces: list[RoundTrace] = Field(default_factory=list)
     confidence: float = Field(..., ge=0, le=1)
     metadata: AgentExecutionMetadata
+    quality: dict[str, Any] = Field(
+        default_factory=dict, description="Quality assessment from quality reviewer"
+    )
+    themes: list[dict[str, Any]] = Field(
+        default_factory=list, description="Parsed themes from chunk phase"
+    )
+    trades: list[dict[str, Any]] = Field(
+        default_factory=list, description="Extracted trades from assertions"
+    )
+    assertions: list[dict[str, Any]] = Field(
+        default_factory=list, description="All extracted assertions"
+    )
+    world_nodes: list[dict[str, Any]] = Field(
+        default_factory=list, description="World graph nodes from resolution"
+    )
+    world_edges: list[dict[str, Any]] = Field(
+        default_factory=list, description="World graph edges from resolution"
+    )
+    forecast_candidates: list[dict[str, Any]] = Field(
+        default_factory=list, description="Forecast candidates extracted"
+    )

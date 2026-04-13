@@ -101,10 +101,13 @@ class Settings:
     agent_llm_api_key: str | None = None
     agent_llm_base_url: str | None = None
     agent_llm_timeout_seconds: int | None = None
-    analyst_round_mode: str = "legacy"
+    analyst_round_mode: str = "rounds"
     analyst_tools_enabled: bool = False
     distill_tool_module: str = "distill_tool.api"
     analyst_batch_out_dir: Path = Path("/var/research/analyst")
+    tholos_enabled: bool = False
+    tholos_base_url: str = "http://localhost:8004"
+    tholos_timeout_seconds: int = 30
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -163,12 +166,15 @@ class Settings:
                 if os.getenv("AGENT_LLM_TIMEOUT_SECONDS") is not None
                 else None
             ),
-            analyst_round_mode=os.getenv("ANALYST_ROUND_MODE", "legacy"),
+            analyst_round_mode=os.getenv("ANALYST_ROUND_MODE", "rounds"),
             analyst_tools_enabled=_env_bool("ANALYST_TOOLS_ENABLED", False),
             distill_tool_module=os.getenv("DISTILL_TOOL_MODULE", "distill_tool.api"),
             analyst_batch_out_dir=Path(
                 os.getenv("ANALYST_BATCH_OUT_DIR", "/var/research/analyst")
             ),
+            tholos_enabled=_env_bool("THOLOS_ENABLED", False),
+            tholos_base_url=os.getenv("THOLOS_BASE_URL", "http://localhost:8004"),
+            tholos_timeout_seconds=_env_int("THOLOS_TIMEOUT_SECONDS", 30),
         )
 
     @property

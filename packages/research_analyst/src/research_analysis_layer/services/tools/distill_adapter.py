@@ -9,7 +9,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_CORPUS_ROOT = Path(__file__).resolve().parents[4]
+_CORPUS_ROOT = Path(__file__).resolve().parents[5]
 _DEFAULT_DB_PATH = _CORPUS_ROOT / "research-store" / "data" / "distilled_corpus.db"
 
 
