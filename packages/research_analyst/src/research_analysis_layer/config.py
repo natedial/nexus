@@ -101,6 +101,10 @@ class Settings:
     agent_llm_api_key: str | None = None
     agent_llm_base_url: str | None = None
     agent_llm_timeout_seconds: int | None = None
+    analyst_round_mode: str = "legacy"
+    analyst_tools_enabled: bool = False
+    distill_tool_module: str = "distill_tool.api"
+    analyst_batch_out_dir: Path = Path("/var/research/analyst")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -115,7 +119,9 @@ class Settings:
             bool(agent_llm_api_key),
         )
         default_calendar_source_name = (
-            "scrivener" if calendar_match_source == "release_dates" else "economic_events"
+            "scrivener"
+            if calendar_match_source == "release_dates"
+            else "economic_events"
         )
         return cls(
             analysis_db_url=os.getenv("ANALYSIS_DB_URL", "sqlite:///data/analysis.db"),
@@ -157,6 +163,12 @@ class Settings:
                 if os.getenv("AGENT_LLM_TIMEOUT_SECONDS") is not None
                 else None
             ),
+            analyst_round_mode=os.getenv("ANALYST_ROUND_MODE", "legacy"),
+            analyst_tools_enabled=_env_bool("ANALYST_TOOLS_ENABLED", False),
+            distill_tool_module=os.getenv("DISTILL_TOOL_MODULE", "distill_tool.api"),
+            analyst_batch_out_dir=Path(
+                os.getenv("ANALYST_BATCH_OUT_DIR", "/var/research/analyst")
+            ),
         )
 
     @property
@@ -176,8 +188,7 @@ class Settings:
             errors.append(f"state db not found: {self.state_db_path}")
         elif not _path_has_processed_files(self.state_db_path):
             errors.append(
-                "state db missing processed_files table: "
-                f"{self.state_db_path}"
+                f"state db missing processed_files table: {self.state_db_path}"
             )
         if not self.parsed_db_url:
             errors.append("missing parsed db url: set PARSED_DB_URL or SUPABASE_URL")

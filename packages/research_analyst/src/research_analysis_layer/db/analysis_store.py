@@ -363,6 +363,25 @@ class AnalysisStore:
                     UNIQUE(research_id, document_hash, analysis_version, agent_type)
                 );
 
+                CREATE TABLE IF NOT EXISTS document_analysis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    document_key TEXT NOT NULL,
+                    research_id INTEGER NOT NULL,
+                    document_hash TEXT NOT NULL,
+                    analysis_version TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    thesis TEXT,
+                    confidence REAL,
+                    total_input_tokens INTEGER,
+                    total_output_tokens INTEGER,
+                    total_tool_calls INTEGER,
+                    total_duration_ms INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(research_id, document_hash, analysis_version)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_analysis_runs_completed_at
                     ON analysis_runs(completed_at);
                 CREATE INDEX IF NOT EXISTS idx_analysis_run_items_run_id
@@ -391,9 +410,15 @@ class AnalysisStore:
                     ON short_time_horizon_analysis(research_id, document_hash, analysis_version);
                 CREATE INDEX IF NOT EXISTS idx_talking_points_analysis_lookup
                     ON talking_points_analysis(research_id, document_hash, analysis_version);
+                CREATE INDEX IF NOT EXISTS document_analysis_research_id_idx
+                    ON document_analysis(research_id);
+                CREATE INDEX IF NOT EXISTS document_analysis_document_hash_idx
+                    ON document_analysis(document_hash);
                 """
             )
-            self._ensure_column(conn, "analysis_run_items", "quality_score", "REAL NULL")
+            self._ensure_column(
+                conn, "analysis_run_items", "quality_score", "REAL NULL"
+            )
             self._ensure_column(
                 conn,
                 "analysis_run_items",
@@ -430,6 +455,18 @@ class AnalysisStore:
                 "matched_calendar_source",
                 "TEXT NULL",
             )
+            self._ensure_column(conn, "analysis_run_items", "round_name", "TEXT NULL")
+            self._ensure_column(conn, "analysis_run_items", "agent_name", "TEXT NULL")
+            self._ensure_column(
+                conn, "analysis_run_items", "tool_call_count", "INTEGER NULL"
+            )
+            self._ensure_column(
+                conn, "analysis_run_items", "input_tokens", "INTEGER NULL"
+            )
+            self._ensure_column(
+                conn, "analysis_run_items", "output_tokens", "INTEGER NULL"
+            )
+            self._ensure_column(conn, "analysis_run_items", "stop_reason", "TEXT NULL")
 
     @staticmethod
     def _ensure_column(
@@ -1050,12 +1087,21 @@ class AnalysisStore:
             ).fetchall()
             for row in rows:
                 support_count = int(row["support_count"])
-                status = "reinforced" if support_count >= 3 else "supported" if support_count >= 2 else "proposed"
+                status = (
+                    "reinforced"
+                    if support_count >= 3
+                    else "supported"
+                    if support_count >= 2
+                    else "proposed"
+                )
                 authority_band = (
-                    "core" if support_count >= 8 else
-                    "established" if support_count >= 5 else
-                    "emerging" if support_count >= 3 else
-                    "seed"
+                    "core"
+                    if support_count >= 8
+                    else "established"
+                    if support_count >= 5
+                    else "emerging"
+                    if support_count >= 3
+                    else "seed"
                 )
                 conn.execute(
                     """
@@ -1085,18 +1131,30 @@ class AnalysisStore:
             ).fetchall()
             for row in rows:
                 support_count = int(row["support_count"])
-                status = "reinforced" if support_count >= 3 else "supported" if support_count >= 2 else "proposed"
+                status = (
+                    "reinforced"
+                    if support_count >= 3
+                    else "supported"
+                    if support_count >= 2
+                    else "proposed"
+                )
                 authority_band = (
-                    "structural" if support_count >= 8 else
-                    "established" if support_count >= 5 else
-                    "emerging" if support_count >= 3 else
-                    "seed"
+                    "structural"
+                    if support_count >= 8
+                    else "established"
+                    if support_count >= 5
+                    else "emerging"
+                    if support_count >= 3
+                    else "seed"
                 )
                 maturity = (
-                    "highway" if support_count >= 8 else
-                    "road" if support_count >= 5 else
-                    "path" if support_count >= 3 else
-                    "trace"
+                    "highway"
+                    if support_count >= 8
+                    else "road"
+                    if support_count >= 5
+                    else "path"
+                    if support_count >= 3
+                    else "trace"
                 )
                 conn.execute(
                     """
@@ -1139,9 +1197,7 @@ class AnalysisStore:
             ).fetchall()
         statuses = [row["status"] for row in rows]
         success_count = statuses.count("success")
-        skipped_count = sum(
-            1 for status in statuses if status.startswith("skipped_")
-        )
+        skipped_count = sum(1 for status in statuses if status.startswith("skipped_"))
         error_count = statuses.count("error")
         if error_count and success_count:
             status = "partial_success"
@@ -1478,7 +1534,9 @@ class AnalysisStore:
         """Persist one agent execution result row."""
 
         metadata = result.metadata
-        payload = self._base_model_dump(result.payload) if result.payload is not None else {}
+        payload = (
+            self._base_model_dump(result.payload) if result.payload is not None else {}
+        )
         if agent_type == "trading_opportunities":
             self._upsert_agent_row(
                 table_name="trading_analysis",
@@ -1563,7 +1621,8 @@ class AnalysisStore:
         update_sql = ", ".join(
             f"{column} = excluded.{column}"
             for column in columns
-            if column not in {
+            if column
+            not in {
                 "research_id",
                 "document_hash",
                 "analysis_version",

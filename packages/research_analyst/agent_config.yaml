@@ -33,3 +33,69 @@ agents:
 default_model: "claude-haiku-4-20250514"
 default_timeout_seconds: 60
 default_retry_count: 3
+
+# =============================================================================
+# Round-based pipeline configuration (inactive - for future use)
+# =============================================================================
+# Uncomment and configure to enable the round-based pipeline.
+# When active, this replaces the flat 'agents:' map above.
+#
+# rounds:
+#   - name: specialists
+#     type: parallel
+#     agents: [thesis, contrarian, positioning]
+#     receives: [input]
+#     fail_round_on_agent_error: false
+#   - name: synthesis
+#     type: sequential
+#     agents: [synthesizer]
+#     receives: [input, specialists]
+#
+# agents:
+#   thesis:
+#     prompt_path: prompts/agents/thesis.md
+#     model:
+#       primary: claude-sonnet-4-20250514
+#       fallback: claude-haiku-4-20250514
+#     output_schema: DocumentAngle
+#     tools: [research_search, research_corpus_info]
+#     max_tool_calls: 4
+#     timeout_seconds: 120
+#     retry_count: 2
+#     temperature: 0.4
+#
+#   contrarian:
+#     prompt_path: prompts/agents/contrarian.md
+#     model:
+#       primary: claude-sonnet-4-20250514
+#       fallback: claude-haiku-4-20250514
+#     output_schema: DocumentAngle
+#     tools: [research_search]
+#     max_tool_calls: 6
+#     timeout_seconds: 120
+#     retry_count: 2
+#     temperature: 0.4
+#
+#   positioning:
+#     prompt_path: prompts/agents/positioning.md
+#     model:
+#       primary: claude-haiku-4-20250514
+#       fallback: claude-haiku-4-20250514
+#     output_schema: DocumentAngle
+#     tools: []
+#     max_tool_calls: 0
+#     timeout_seconds: 60
+#     retry_count: 2
+#     temperature: 0.3
+#
+#   synthesizer:
+#     prompt_path: prompts/agents/synthesizer.md
+#     model:
+#       primary: claude-sonnet-4-20250514
+#       fallback: claude-sonnet-4-20250514
+#     output_schema: DocumentAnalysis
+#     tools: []
+#     max_tool_calls: 0
+#     timeout_seconds: 180
+#     retry_count: 2
+#     temperature: 0.3
