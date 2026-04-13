@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 _CORPUS_ROOT = Path(__file__).resolve().parents[5]
 _DEFAULT_DB_PATH = _CORPUS_ROOT / "research-store" / "data" / "distilled_corpus.db"
+_MAX_SEARCH_RESULTS = 8
+_MAX_EXCERPT_CHARS = 400
 
 
 class DistillAdapter:
@@ -112,12 +114,13 @@ def create_distill_handlers(
     adapter = adapter or DistillAdapter()
 
     def handle_search(input_data: dict[str, Any]) -> list[dict[str, Any]]:
-        return adapter.search(
+        results = adapter.search(
             input_data.get("query", ""),
             date_from=input_data.get("date_from"),
             date_to=input_data.get("date_to"),
             limit=input_data.get("limit", 10),
         )
+        return _sanitize_search_results(results)
 
     def handle_corpus_info(input_data: dict[str, Any]) -> dict[str, Any]:
         return adapter.corpus_info()
@@ -126,3 +129,34 @@ def create_distill_handlers(
         "research_search": handle_search,
         "research_corpus_info": handle_corpus_info,
     }
+
+
+def _sanitize_search_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce search results to a bounded, untrusted evidence payload."""
+    sanitized: list[dict[str, Any]] = []
+    for item in results[:_MAX_SEARCH_RESULTS]:
+        if not isinstance(item, dict):
+            continue
+        sanitized.append(
+            {
+                "chunk_id": item.get("chunk_id"),
+                "source_path": item.get("source_path"),
+                "source_date": item.get("source_date"),
+                "page_number": item.get("page_number"),
+                "text_excerpt": _truncate_excerpt(item.get("text")),
+                "hybrid_score": item.get("hybrid_score"),
+                "lexical_score": item.get("lexical_score"),
+                "semantic_score": item.get("semantic_score"),
+            }
+        )
+    return sanitized
+
+
+def _truncate_excerpt(value: Any) -> str:
+    """Bound untrusted corpus text before returning it to the model."""
+    if value is None:
+        return ""
+    text = " ".join(str(value).split())
+    if len(text) > _MAX_EXCERPT_CHARS:
+        text = text[:_MAX_EXCERPT_CHARS].rstrip() + "..."
+    return text

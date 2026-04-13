@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -49,6 +50,8 @@ class ToolRegistry:
         self._schemas: dict[str, dict] = {}
         self._executor = ThreadPoolExecutor(max_workers=4)
         self._rate_limiter = get_rate_limiter(rate_limit)
+        self._budget_lock = threading.Lock()
+        self._remaining_invocations: int | None = None
 
         if schema_path is not None:
             if not self._schema_path.exists():
@@ -108,6 +111,8 @@ class ToolRegistry:
         schema = self._schemas.get(tool_name)
         if not schema:
             return False, f"Unknown tool: {tool_name}"
+        if not isinstance(input_data, dict):
+            return False, "Tool input must be an object"
 
         params = schema.get("parameters", {})
         required = params.get("required", [])
@@ -116,6 +121,123 @@ class ToolRegistry:
         for field in required:
             if field not in input_data:
                 return False, f"Missing required field: {field}"
+
+        for field in input_data:
+            if field not in properties:
+                return False, f"Unknown field: {field}"
+
+        for field, value in input_data.items():
+            field_schema = properties.get(field, {})
+            is_valid, error = self._validate_value(value, field_schema, path=field)
+            if not is_valid:
+                return False, error
+
+        return True, ""
+
+    def set_invocation_budget(self, limit: int | None) -> None:
+        """Set a shared tool invocation budget for the current run."""
+        with self._budget_lock:
+            self._remaining_invocations = limit
+
+    def clear_invocation_budget(self) -> None:
+        """Clear any shared tool invocation budget."""
+        self.set_invocation_budget(None)
+
+    def _consume_budget(self) -> tuple[bool, str]:
+        """Atomically consume one tool invocation from the shared budget."""
+        with self._budget_lock:
+            if self._remaining_invocations is None:
+                return True, ""
+            if self._remaining_invocations <= 0:
+                return False, "Tool invocation budget exhausted"
+            self._remaining_invocations -= 1
+        return True, ""
+
+    def _validate_value(
+        self, value: Any, schema: dict[str, Any], *, path: str
+    ) -> tuple[bool, str]:
+        """Validate a value against a small JSON-schema-like subset."""
+        expected_type = schema.get("type")
+        if expected_type is None:
+            return True, ""
+
+        allowed_types = (
+            expected_type if isinstance(expected_type, list) else [expected_type]
+        )
+        if value is None:
+            if "null" in allowed_types:
+                return True, ""
+            return False, f"{path} must not be null"
+
+        primitive_validators = {
+            "string": lambda item: isinstance(item, str),
+            "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+            "number": lambda item: isinstance(item, (int, float))
+            and not isinstance(item, bool),
+            "boolean": lambda item: isinstance(item, bool),
+            "object": lambda item: isinstance(item, dict),
+            "array": lambda item: isinstance(item, list),
+        }
+
+        matched_type = None
+        for candidate in allowed_types:
+            validator = primitive_validators.get(candidate)
+            if validator and validator(value):
+                matched_type = candidate
+                break
+
+        if matched_type is None:
+            expected = ", ".join(str(item) for item in allowed_types)
+            return False, f"{path} must be of type {expected}"
+
+        if matched_type == "string":
+            min_length = schema.get("minLength")
+            if min_length is not None and len(value) < min_length:
+                return False, f"{path} must be at least {min_length} characters"
+            max_length = schema.get("maxLength")
+            if max_length is not None and len(value) > max_length:
+                return False, f"{path} must be at most {max_length} characters"
+            pattern = schema.get("pattern")
+            if pattern and re.fullmatch(pattern, value) is None:
+                return False, f"{path} does not match required pattern"
+
+        if matched_type in {"integer", "number"}:
+            minimum = schema.get("minimum")
+            if minimum is not None and value < minimum:
+                return False, f"{path} must be >= {minimum}"
+            maximum = schema.get("maximum")
+            if maximum is not None and value > maximum:
+                return False, f"{path} must be <= {maximum}"
+
+        if matched_type == "array":
+            item_schema = schema.get("items")
+            if item_schema:
+                for idx, item in enumerate(value):
+                    is_valid, error = self._validate_value(
+                        item, item_schema, path=f"{path}[{idx}]"
+                    )
+                    if not is_valid:
+                        return False, error
+
+        if matched_type == "object":
+            nested_properties = schema.get("properties", {})
+            required = schema.get("required", [])
+            allow_additional = schema.get("additionalProperties", True)
+            for field in required:
+                if field not in value:
+                    return False, f"{path}.{field} is required"
+            if nested_properties:
+                for field, item in value.items():
+                    if field in nested_properties:
+                        is_valid, error = self._validate_value(
+                            item,
+                            nested_properties[field],
+                            path=f"{path}.{field}",
+                        )
+                        if not is_valid:
+                            return False, error
+                    elif allow_additional is False:
+                        return False, f"Unknown field: {path}.{field}"
 
         return True, ""
 
@@ -138,6 +260,13 @@ class ToolRegistry:
             return {
                 "is_error": True,
                 "content": f"Input validation failed: {error_msg}",
+            }
+
+        allowed, budget_error = self._consume_budget()
+        if not allowed:
+            return {
+                "is_error": True,
+                "content": budget_error,
             }
 
         handler = self._handlers[name]

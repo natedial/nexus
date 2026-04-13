@@ -115,48 +115,57 @@ class RoundExecutor:
         all_round_traces: list[RoundTrace] = []
         total_tool_calls = 0
 
-        for round_config in rounds:
-            logger.info(
-                "Executing round: %s (%s)", round_config.name, round_config.type
-            )
+        if self.tool_registry is not None:
+            self.tool_registry.set_invocation_budget(max_total_tool_calls)
 
-            merged_input = self._build_merged_input(
-                document=document,
-                chunks=chunks,
-                evidence_units=evidence_units,
-                assertions=assertions,
-                receives=round_config.receives,
-                prior_outputs=prior_outputs,
-            )
-
-            if round_config.type == "parallel":
-                result = self._execute_parallel_round(
-                    round_config=round_config,
-                    agent_specs=agent_specs,
-                    merged_input=merged_input,
-                    run_id=run_id,
-                    analysis_version=analysis_version,
-                    max_total_tool_calls=max_total_tool_calls,
-                    total_tool_calls=total_tool_calls,
-                )
-            else:
-                result = self._execute_sequential_round(
-                    round_config=round_config,
-                    agent_specs=agent_specs,
-                    merged_input=merged_input,
-                    run_id=run_id,
-                    analysis_version=analysis_version,
-                    max_total_tool_calls=max_total_tool_calls,
-                    total_tool_calls=total_tool_calls,
+        try:
+            for round_config in rounds:
+                logger.info(
+                    "Executing round: %s (%s)", round_config.name, round_config.type
                 )
 
-            prior_outputs[round_config.name] = result.agent_results
-            total_tool_calls += result.tool_call_count
-            all_round_traces.append(self._build_round_trace(result))
+                merged_input = self._build_merged_input(
+                    document=document,
+                    chunks=chunks,
+                    evidence_units=evidence_units,
+                    assertions=assertions,
+                    receives=round_config.receives,
+                    prior_outputs=prior_outputs,
+                )
 
-            if result.failed_count > 0 and round_config.fail_round_on_agent_error:
-                logger.error("Round %s failed due to agent errors", round_config.name)
-                return None
+                if round_config.type == "parallel":
+                    result = self._execute_parallel_round(
+                        round_config=round_config,
+                        agent_specs=agent_specs,
+                        merged_input=merged_input,
+                        run_id=run_id,
+                        analysis_version=analysis_version,
+                        max_total_tool_calls=max_total_tool_calls,
+                        total_tool_calls=total_tool_calls,
+                    )
+                else:
+                    result = self._execute_sequential_round(
+                        round_config=round_config,
+                        agent_specs=agent_specs,
+                        merged_input=merged_input,
+                        run_id=run_id,
+                        analysis_version=analysis_version,
+                        max_total_tool_calls=max_total_tool_calls,
+                        total_tool_calls=total_tool_calls,
+                    )
+
+                prior_outputs[round_config.name] = result.agent_results
+                total_tool_calls += result.tool_call_count
+                all_round_traces.append(self._build_round_trace(result))
+
+                if result.failed_count > 0 and round_config.fail_round_on_agent_error:
+                    logger.error(
+                        "Round %s failed due to agent errors", round_config.name
+                    )
+                    return None
+        finally:
+            if self.tool_registry is not None:
+                self.tool_registry.clear_invocation_budget()
 
         return self._build_document_analysis(
             final_results=prior_outputs.get(rounds[-1].name, []),

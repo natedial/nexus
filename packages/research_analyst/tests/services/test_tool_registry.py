@@ -1,6 +1,7 @@
 """Tests for tool registry."""
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from research_analysis_layer.services.tools.registry import ToolRegistry
 
@@ -69,6 +70,38 @@ class TestToolRegistry:
         assert is_valid is False
         assert "Missing required field" in error
 
+    def test_validate_input_rejects_unknown_fields(self, tmp_path):
+        """Test input validation rejects unknown fields."""
+        schema_file = tmp_path / "test_schema.json"
+        schema_file.write_text("""[
+            {"name": "test_tool", "description": "A test tool", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}
+        ]""")
+
+        registry = ToolRegistry()
+        registry.load_schema(schema_file)
+
+        is_valid, error = registry.validate_input(
+            "test_tool", {"query": "hello", "extra": "nope"}
+        )
+        assert is_valid is False
+        assert "Unknown field" in error
+
+    def test_validate_input_enforces_pattern_and_numeric_bounds(self, tmp_path):
+        """Test schema validation enforces patterns and numeric bounds."""
+        schema_file = tmp_path / "test_schema.json"
+        schema_file.write_text("""[
+            {"name": "search_tool", "description": "A search tool", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "date_from": {"type": "string", "pattern": "^\\\\d{4}-\\\\d{2}-\\\\d{2}$"}, "limit": {"type": "integer", "minimum": 1, "maximum": 8}}, "required": ["query"]}}
+        ]""")
+
+        registry = ToolRegistry()
+        registry.load_schema(schema_file)
+
+        is_valid, error = registry.validate_input(
+            "search_tool", {"query": "hello", "date_from": "2026/04/13", "limit": 99}
+        )
+        assert is_valid is False
+        assert "date_from" in error or "limit" in error
+
     def test_invoke_error_handler(self, tmp_path):
         """Test tool invocation error handling."""
         schema_file = tmp_path / "test_schema.json"
@@ -120,6 +153,41 @@ class TestToolRegistry:
         result = registry.invoke("slow_tool", {}, timeout=0.1)
         assert result["is_error"] is True
         assert "timed out" in result["content"]
+
+    def test_invoke_respects_shared_budget_across_threads(self, tmp_path):
+        """Shared invocation budget is enforced atomically across threads."""
+        schema_file = tmp_path / "test_schema.json"
+        schema_file.write_text("""[
+            {"name": "limited_tool", "description": "A limited tool", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}
+        ]""")
+
+        registry = ToolRegistry()
+        registry.load_schema(schema_file)
+        seen_queries: list[str] = []
+
+        def handler(input_data):
+            seen_queries.append(input_data["query"])
+            return {"result": input_data["query"]}
+
+        registry.register_handler("limited_tool", handler)
+        registry.set_invocation_budget(1)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(
+                    registry.invoke, "limited_tool", {"query": f"q{idx}"}
+                )
+                for idx in range(2)
+            ]
+            results = [future.result() for future in futures]
+
+        assert len(seen_queries) == 1
+        assert sum(1 for result in results if result["is_error"]) == 1
+        assert any(
+            "budget exhausted" in result["content"].lower()
+            for result in results
+            if result["is_error"]
+        )
 
     def test_list_tools(self, tmp_path):
         """Test listing all tools."""

@@ -54,6 +54,90 @@ class TestAgentExecutorRounds(unittest.TestCase):
 
         self.assertIs(executor.tool_registry, tool_registry)
 
+    def test_run_sets_and_clears_shared_tool_budget(self):
+        """RoundExecutor configures the shared tool budget for a run."""
+        registry = MagicMock()
+        registry.load_prompt.return_value = "Prompt"
+        llm_client = MagicMock()
+        llm_client.generate_with_tools.return_value = AgentCallResult(
+            raw_text='{"document_key":"doc-1","research_id":1,"document_hash":"hash","analysis_version":"v1","thesis":"ok","contrarian_view":"counter","recommended_positioning":"hold","trading_opportunities":[],"short_time_horizon_insights":[],"talking_points":[],"cross_document_references":[],"confidence":0.8,"quality":{"score":0.9,"passed":true,"warnings":[]},"themes":[],"trades":[],"assertions":[],"world_nodes":[],"world_edges":[],"forecast_candidates":[]}',
+            parsed_output={
+                "document_key": "doc-1",
+                "research_id": 1,
+                "document_hash": "hash",
+                "analysis_version": "v1",
+                "thesis": "ok",
+                "contrarian_view": "counter",
+                "recommended_positioning": "hold",
+                "trading_opportunities": [],
+                "short_time_horizon_insights": [],
+                "talking_points": [],
+                "cross_document_references": [],
+                "confidence": 0.8,
+                "quality": {"score": 0.9, "passed": True, "warnings": []},
+                "themes": [],
+                "trades": [],
+                "assertions": [],
+                "world_nodes": [],
+                "world_edges": [],
+                "forecast_candidates": [],
+            },
+            tool_calls=[],
+            token_usage=TokenUsage(),
+            model_used="test-model",
+            stop_reason="end_turn",
+            attempt_count=1,
+        )
+        input_builder = MagicMock()
+        input_builder.build.return_value = {"document": "payload"}
+        input_builder.to_messages.return_value = [{"role": "user", "content": "payload"}]
+        tool_registry = MagicMock()
+
+        executor = RoundExecutor(
+            registry=registry,
+            llm_client=llm_client,
+            input_builder=input_builder,
+            tool_registry=tool_registry,
+        )
+        document = MagicMock()
+        document.research_id = 1
+        document.document_hash = "hash"
+        rounds = [
+            RoundConfig(
+                name="specialists",
+                type="parallel",
+                agents=["thesis"],
+                receives=["input"],
+            )
+        ]
+        agent_specs = {
+            "thesis": AgentSpec(
+                name="thesis",
+                config=MagicMock(model="test-model"),
+                tools=[],
+                max_tool_calls=2,
+                timeout_seconds=60,
+                retry_count=1,
+                temperature=0.4,
+                output_schema="DocumentAngle",
+            )
+        }
+
+        executor.run(
+            document=document,
+            chunks=[],
+            evidence_units=[],
+            assertions=[],
+            run_id=1,
+            analysis_version="v1",
+            rounds=rounds,
+            agent_specs=agent_specs,
+            max_total_tool_calls=3,
+        )
+
+        tool_registry.set_invocation_budget.assert_called_once_with(3)
+        tool_registry.clear_invocation_budget.assert_called_once()
+
     def test_round_config_creation(self):
         """RoundConfig can be created with agent list."""
         config = RoundConfig(
