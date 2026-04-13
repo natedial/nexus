@@ -7,6 +7,7 @@ from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
 from typing import Dict, Any
 from urllib.parse import urlencode
+from urllib.parse import urlparse
 import base64
 import hashlib
 import hmac
@@ -369,13 +370,16 @@ class PDFGenerator:
             return ""
 
         viewer_url = Config.DOCUMENT_VIEWER_URL
+        if not self._is_secure_viewer_url(viewer_url):
+            return ""
         token = self._sign_document_link(doc_id)
+        if not token:
+            return ""
 
         useful_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'useful'})}"
         flag_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'flag'})}"
         view_params = {'id': doc_id}
-        if token:
-            view_params['token'] = token
+        view_params['token'] = token
         view_url = f"{viewer_url}?{urlencode(view_params)}"
 
         return (
@@ -402,6 +406,14 @@ class PDFGenerator:
         ).digest()
         signature_b64 = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
         return f"{payload_b64}.{signature_b64}"
+
+    @staticmethod
+    def _is_secure_viewer_url(viewer_url: str | None) -> bool:
+        """Return True when the configured document viewer URL is HTTPS."""
+        if not viewer_url:
+            return False
+        parsed = urlparse(viewer_url)
+        return parsed.scheme == "https" and bool(parsed.netloc)
 
     def _get_content_width(self) -> float:
         """Return available content width in inches based on page margins."""

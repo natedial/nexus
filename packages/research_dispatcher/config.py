@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,6 +28,14 @@ def parse_trade_conviction_filter(raw: str | None, default: str = "high") -> str
     if candidate in VALID_TRADE_CONVICTION_FILTERS:
         return candidate
     raise ValueError("FILTER_TRADE_CONVICTION must be one of: high, medium, all")
+
+
+def _is_https_url(value: str | None) -> bool:
+    """Return True when the value is a valid HTTPS URL."""
+    if not value:
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme == "https" and bool(parsed.netloc)
 
 
 class Config:
@@ -126,3 +135,12 @@ class Config:
         missing = [key for key in required if not getattr(cls, key)]
         if missing:
             raise ValueError(f"Missing required configuration: {', '.join(missing)}")
+        if cls.FEEDBACK_ENABLED:
+            if not cls.DOCUMENT_LINK_SECRET:
+                raise ValueError(
+                    "DOCUMENT_LINK_SECRET is required when FEEDBACK_ENABLED=true"
+                )
+            if not _is_https_url(cls.DOCUMENT_VIEWER_URL):
+                raise ValueError(
+                    "DOCUMENT_VIEWER_URL must be a valid HTTPS URL when FEEDBACK_ENABLED=true"
+                )

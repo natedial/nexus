@@ -1,8 +1,10 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from reportlab.platypus import PageBreak, Paragraph
 
+from config import Config
 from src.pdf_generator import PDFGenerator
 
 
@@ -51,6 +53,36 @@ class PDFGeneratorTests(unittest.TestCase):
         self.assertIsInstance(elements[0], Paragraph)
         self.assertEqual(elements[0].getPlainText(), "Executive Summary")
         self.assertFalse(any(isinstance(element, PageBreak) for element in elements[:2]))
+
+    def test_feedback_links_omitted_without_signing_secret(self):
+        with patch.object(Config, "FEEDBACK_ENABLED", True), patch.object(
+            Config, "DOCUMENT_VIEWER_URL", "https://example.com/viewer"
+        ), patch.object(Config, "DOCUMENT_LINK_SECRET", ""):
+            self.assertEqual(
+                self.generator._create_feedback_links("doc-1", "item-1"),
+                "",
+            )
+
+    def test_feedback_links_omitted_for_insecure_viewer_url(self):
+        with patch.object(Config, "FEEDBACK_ENABLED", True), patch.object(
+            Config, "DOCUMENT_VIEWER_URL", "http://example.com/viewer"
+        ), patch.object(Config, "DOCUMENT_LINK_SECRET", "secret"):
+            self.assertEqual(
+                self.generator._create_feedback_links("doc-1", "item-1"),
+                "",
+            )
+
+    def test_feedback_links_include_signed_full_text_url_for_secure_viewer(self):
+        with patch.object(Config, "FEEDBACK_ENABLED", True), patch.object(
+            Config, "DOCUMENT_VIEWER_URL", "https://example.com/viewer"
+        ), patch.object(Config, "DOCUMENT_LINK_SECRET", "secret"), patch.object(
+            Config, "FEEDBACK_BASE_URL", "https://feedback.example.com/submit"
+        ):
+            links = self.generator._create_feedback_links("doc-1", "item-1")
+
+        self.assertIn("Full Text", links)
+        self.assertIn("https://example.com/viewer?", links)
+        self.assertIn("token=", links)
 
 
 if __name__ == "__main__":
