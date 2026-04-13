@@ -16,4 +16,7 @@ COPY distill_tool /app/distill_tool
 RUN pip install --upgrade pip \
     && pip install -e . pytest
 
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import distill_tool; print('ok')"
+
 CMD ["bash"]

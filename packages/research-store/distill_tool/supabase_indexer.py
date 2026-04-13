@@ -45,11 +45,11 @@ from research_pipeline_ops import PipelineOpsClient, make_document_key
 class SupabaseDocument:
     id: int
     source_date: str | None
-    source: str | None
-    document_name: str | None
-    document_hash: str | None
-    file_id: str | None
-    parsed_data: Any
+    source: str | None = None
+    document_name: str | None = None
+    document_hash: str | None = None
+    file_id: str | None = None
+    parsed_data: Any = None
 
 
 @dataclass(frozen=True)
