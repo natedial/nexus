@@ -1928,3 +1928,62 @@ class AnalysisStore:
             uploaded_at=row["uploaded_at"],
             created_run_id=row["created_run_id"],
         )
+
+    def write_document_analysis(
+        self,
+        *,
+        document_key: str,
+        research_id: int,
+        document_hash: str,
+        analysis_version: str,
+        run_id: str,
+        payload_json: str,
+        thesis: str | None,
+        confidence: float | None,
+        total_input_tokens: int,
+        total_output_tokens: int,
+        total_tool_calls: int,
+        total_duration_ms: int,
+    ) -> None:
+        """Write or update a document analysis record.
+
+        Uses idempotent upsert on (research_id, document_hash, analysis_version).
+        """
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO document_analysis (
+                    document_key, research_id, document_hash, analysis_version,
+                    run_id, payload_json, thesis, confidence,
+                    total_input_tokens, total_output_tokens, total_tool_calls,
+                    total_duration_ms, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(research_id, document_hash, analysis_version) DO UPDATE SET
+                    run_id = excluded.run_id,
+                    payload_json = excluded.payload_json,
+                    thesis = excluded.thesis,
+                    confidence = excluded.confidence,
+                    total_input_tokens = excluded.total_input_tokens,
+                    total_output_tokens = excluded.total_output_tokens,
+                    total_tool_calls = excluded.total_tool_calls,
+                    total_duration_ms = excluded.total_duration_ms,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    document_key,
+                    research_id,
+                    document_hash,
+                    analysis_version,
+                    run_id,
+                    payload_json,
+                    thesis,
+                    confidence,
+                    total_input_tokens,
+                    total_output_tokens,
+                    total_tool_calls,
+                    total_duration_ms,
+                    now,
+                    now,
+                ),
+            )

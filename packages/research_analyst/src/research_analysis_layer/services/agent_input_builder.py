@@ -54,8 +54,12 @@ class AgentInputBuilder:
         assertions: list[AssertionDraft],
     ) -> dict[str, object]:
         parsed_data = document.document.parsed_data
-        metadata = parsed_data.get("metadata", {}) if isinstance(parsed_data, dict) else {}
-        full_text = parsed_data.get("full_text") if isinstance(parsed_data, dict) else None
+        metadata = (
+            parsed_data.get("metadata", {}) if isinstance(parsed_data, dict) else {}
+        )
+        full_text = (
+            parsed_data.get("full_text") if isinstance(parsed_data, dict) else None
+        )
         payload = {
             "agent_type": agent_type,
             "document": {
@@ -108,8 +112,12 @@ class AgentInputBuilder:
             ],
             "deterministic_analysis": {
                 "chunks": [self._chunk_dict(chunk) for chunk in chunks],
-                "evidence_units": [self._evidence_dict(unit) for unit in evidence_units],
-                "assertions": [self._assertion_dict(assertion) for assertion in assertions],
+                "evidence_units": [
+                    self._evidence_dict(unit) for unit in evidence_units
+                ],
+                "assertions": [
+                    self._assertion_dict(assertion) for assertion in assertions
+                ],
             },
         }
         return payload
@@ -167,7 +175,72 @@ class AgentInputBuilder:
         if is_dataclass(value):
             return asdict(value)
         if isinstance(value, dict):
-            return {str(key): AgentInputBuilder._json_safe(item) for key, item in value.items()}
+            return {
+                str(key): AgentInputBuilder._json_safe(item)
+                for key, item in value.items()
+            }
         if isinstance(value, list):
             return [AgentInputBuilder._json_safe(item) for item in value]
         return value
+
+    def to_messages(self, input_data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Convert merged input data to Anthropic-shaped messages.
+
+        Args:
+            input_data: Dict with 'base', 'specialists', etc. from round config
+
+        Returns:
+            List of message dicts suitable for Anthropic messages API
+        """
+        import json
+
+        messages = []
+
+        if "base" in input_data:
+            base = input_data["base"]
+            base_text = json.dumps(base, ensure_ascii=True, sort_keys=True)
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": base_text}],
+                }
+            )
+
+        for round_name, round_data in input_data.items():
+            if round_name == "base" or round_name == "last_result":
+                continue
+            if isinstance(round_data, list):
+                for angle in round_data:
+                    if hasattr(angle, "model_dump"):
+                        angle_dict = angle.model_dump()
+                    else:
+                        angle_dict = angle
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(
+                                        angle_dict, ensure_ascii=True, sort_keys=True
+                                    ),
+                                }
+                            ],
+                        }
+                    )
+
+        if "last_result" in input_data:
+            last = input_data["last_result"]
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(last, ensure_ascii=True, sort_keys=True),
+                        }
+                    ],
+                }
+            )
+
+        return messages
