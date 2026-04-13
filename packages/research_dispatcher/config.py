@@ -26,83 +26,102 @@ def parse_trade_conviction_filter(raw: str | None, default: str = "high") -> str
         return "all"
     if candidate in VALID_TRADE_CONVICTION_FILTERS:
         return candidate
-    raise ValueError(
-        "FILTER_TRADE_CONVICTION must be one of: high, medium, all"
-    )
+    raise ValueError("FILTER_TRADE_CONVICTION must be one of: high, medium, all")
 
 
 class Config:
     """Application configuration loaded from environment variables."""
 
     # Supabase
-    SUPABASE_URL = os.getenv('SUPABASE_URL')
-    SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
     # LLM API Keys (for cross-document synthesis)
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
-    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')  # Optional
-    DEEPINFRA_API_KEY = os.getenv('DEEPINFRA_API_KEY')  # Optional
+    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Optional
+    DEEPINFRA_API_KEY = os.getenv("DEEPINFRA_API_KEY")  # Optional
 
     # Synthesis toggle
-    ENABLE_SYNTHESIS = os.getenv('ENABLE_SYNTHESIS', 'true').lower() in ('true', '1', 'yes')
+    ENABLE_SYNTHESIS = os.getenv("ENABLE_SYNTHESIS", "true").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
     # Skill-based pipeline (two-stage synthesis instead of monolithic prompt)
-    USE_SKILL_PIPELINE = os.getenv('USE_SKILL_PIPELINE', 'false').lower() in ('true', '1', 'yes')
+    USE_SKILL_PIPELINE = os.getenv("USE_SKILL_PIPELINE", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
     # Email
-    SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-    SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
-    SMTP_USERNAME = os.getenv('SMTP_USERNAME')
-    SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
-    EMAIL_FROM = os.getenv('EMAIL_FROM')
-    EMAIL_TO = os.getenv('EMAIL_TO')
+    SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+    EMAIL_FROM = os.getenv("EMAIL_FROM")
+    EMAIL_TO = os.getenv("EMAIL_TO")
 
     # Report
-    REPORT_TITLE = os.getenv('REPORT_TITLE', 'Document Analysis Report')
-    ANALYST_BATCH_PATH = os.getenv('ANALYST_BATCH_PATH', '').strip()
-    DISPATCH_DB_PATH = os.getenv('DISPATCH_DB_PATH', os.path.join('state', 'dispatch_history.db'))
+    REPORT_TITLE = os.getenv("REPORT_TITLE", "Document Analysis Report")
+    ANALYST_BATCH_PATH = os.getenv("ANALYST_BATCH_PATH", "").strip()
+    DISPATCH_DB_PATH = os.getenv(
+        "DISPATCH_DB_PATH", os.path.join("state", "dispatch_history.db")
+    )
 
     # Mode: debug (doesn't update synthesized) or production (updates synthesized)
-    MODE = os.getenv('MODE', 'debug').lower()
+    MODE = os.getenv("MODE", "debug").lower()
     LEGACY_SYNTHESIZED_UPDATES = os.getenv(
-        'LEGACY_SYNTHESIZED_UPDATES',
-        'false',
-    ).lower() in ('true', '1', 'yes')
+        "LEGACY_SYNTHESIZED_UPDATES",
+        "false",
+    ).lower() in ("true", "1", "yes")
 
     # Feedback links (Supabase Edge Function)
     FEEDBACK_BASE_URL = os.getenv(
-        'FEEDBACK_BASE_URL',
-        'https://qeyhmsqepsenhvtkryjh.supabase.co/functions/v1/feedback'
+        "FEEDBACK_BASE_URL",
+        "https://qeyhmsqepsenhvtkryjh.supabase.co/functions/v1/feedback",
     )
 
     # Document viewer (static HTML page on S3)
     DOCUMENT_VIEWER_URL = os.getenv(
-        'DOCUMENT_VIEWER_URL',
-        'http://research-dispatch-viewer.s3-website-us-east-1.amazonaws.com/document-viewer.html'
+        "DOCUMENT_VIEWER_URL",
+        "http://research-dispatch-viewer.s3-website-us-east-1.amazonaws.com/document-viewer.html",
     )
-    DOCUMENT_LINK_SECRET = os.getenv('DOCUMENT_LINK_SECRET', '')
-    DOCUMENT_LINK_TTL_DAYS = _int_from_env('DOCUMENT_LINK_TTL_DAYS', 7)
+    DOCUMENT_LINK_SECRET = os.getenv("DOCUMENT_LINK_SECRET", "")
+    DOCUMENT_LINK_TTL_DAYS = _int_from_env("DOCUMENT_LINK_TTL_DAYS", 7)
 
     # Filters
-    DATE_RANGE_DAYS = _int_from_env('DATE_RANGE_DAYS', 3)  # Number of days to look back
-    FILTER_SOURCES = os.getenv('FILTER_SOURCES', '')  # Comma-separated list of sources (empty = all)
-    FILTER_REGION = os.getenv('FILTER_REGION', '')  # Filter by region: US, EU, UK, Japan, China, EM, Global (empty = all)
-    FILTER_ASSET_FOCUS = os.getenv('FILTER_ASSET_FOCUS', '')  # Filter by asset: rates, credit, FX, equities, commodities, multi-asset (empty = all)
+    DATE_RANGE_DAYS = _int_from_env("DATE_RANGE_DAYS", 3)  # Number of days to look back
+    FILTER_SOURCES = os.getenv(
+        "FILTER_SOURCES", ""
+    )  # Comma-separated list of sources (empty = all)
+    FILTER_REGION = os.getenv(
+        "FILTER_REGION", ""
+    )  # Filter by region: US, EU, UK, Japan, China, EM, Global (empty = all)
+    FILTER_ASSET_FOCUS = os.getenv(
+        "FILTER_ASSET_FOCUS", ""
+    )  # Filter by asset: rates, credit, FX, equities, commodities, multi-asset (empty = all)
     FILTER_TRADE_CONVICTION = parse_trade_conviction_filter(
-        os.getenv('FILTER_TRADE_CONVICTION', 'high')
+        os.getenv("FILTER_TRADE_CONVICTION", "high")
     )  # Filter trades: high, medium, all (default: high; low aliases to all)
-    CALENDAR_COUNTRY = os.getenv('CALENDAR_COUNTRY', 'US')  # Country for calendar events
+    CALENDAR_COUNTRY = os.getenv(
+        "CALENDAR_COUNTRY", "US"
+    )  # Country for calendar events
 
     # Interactive links (feedback and document viewer)
-    FEEDBACK_ENABLED = os.getenv('FEEDBACK_ENABLED', 'false').lower() == 'true'
+    FEEDBACK_ENABLED = os.getenv("FEEDBACK_ENABLED", "false").lower() == "true"
 
     @classmethod
     def validate(cls):
         """Validate that all required configuration is present."""
         required = [
-            'SUPABASE_URL', 'SUPABASE_KEY',
-            'SMTP_USERNAME', 'SMTP_PASSWORD',
-            'EMAIL_FROM', 'EMAIL_TO'
+            "SUPABASE_URL",
+            "SUPABASE_KEY",
+            "SMTP_USERNAME",
+            "SMTP_PASSWORD",
+            "EMAIL_FROM",
+            "EMAIL_TO",
         ]
         missing = [key for key in required if not getattr(cls, key)]
         if missing:

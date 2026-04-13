@@ -280,6 +280,10 @@ class DispatchDocument:
     world_nodes: list[DispatchWorldNode] = field(default_factory=list)
     world_edges: list[DispatchWorldEdge] = field(default_factory=list)
     forecast_candidates: list[DispatchForecastCandidate] = field(default_factory=list)
+    thesis: str | None = None
+    contrarian_view: str | None = None
+    recommended_positioning: str | None = None
+    cross_document_references: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DispatchDocument":
@@ -300,15 +304,34 @@ class DispatchDocument:
             asset_focus=data.get("asset_focus"),
             document_link=data.get("document_link"),
             quality=DispatchQuality.from_dict(data.get("quality")),
-            themes=[DispatchTheme.from_dict(item) for item in _dict_list(data.get("themes"))],
-            trades=[DispatchTrade.from_dict(item) for item in _dict_list(data.get("trades"))],
-            assertions=[DispatchAssertion.from_dict(item) for item in _dict_list(data.get("assertions"))],
-            world_nodes=[DispatchWorldNode.from_dict(item) for item in _dict_list(data.get("world_nodes"))],
-            world_edges=[DispatchWorldEdge.from_dict(item) for item in _dict_list(data.get("world_edges"))],
+            themes=[
+                DispatchTheme.from_dict(item) for item in _dict_list(data.get("themes"))
+            ],
+            trades=[
+                DispatchTrade.from_dict(item) for item in _dict_list(data.get("trades"))
+            ],
+            assertions=[
+                DispatchAssertion.from_dict(item)
+                for item in _dict_list(data.get("assertions"))
+            ],
+            world_nodes=[
+                DispatchWorldNode.from_dict(item)
+                for item in _dict_list(data.get("world_nodes"))
+            ],
+            world_edges=[
+                DispatchWorldEdge.from_dict(item)
+                for item in _dict_list(data.get("world_edges"))
+            ],
             forecast_candidates=[
                 DispatchForecastCandidate.from_dict(item)
                 for item in _dict_list(data.get("forecast_candidates"))
             ],
+            thesis=data.get("thesis"),
+            contrarian_view=data.get("contrarian_view"),
+            recommended_positioning=data.get("recommended_positioning"),
+            cross_document_references=_string_list(
+                data.get("cross_document_references")
+            ),
         )
 
     def to_legacy_record(self) -> dict[str, Any]:
@@ -383,7 +406,7 @@ class DispatchDocument:
             ],
         }
 
-        return {
+        result = {
             "id": self.research_id,
             "document_hash": self.document_hash,
             "document_name": self.document_name,
@@ -402,6 +425,15 @@ class DispatchDocument:
                 "blocking_issues": list(self.quality.blocking_issues),
             },
         }
+        if self.thesis:
+            result["thesis"] = self.thesis
+        if self.contrarian_view:
+            result["contrarian_view"] = self.contrarian_view
+        if self.recommended_positioning:
+            result["recommended_positioning"] = self.recommended_positioning
+        if self.cross_document_references:
+            result["cross_document_references"] = list(self.cross_document_references)
+        return result
 
 
 @dataclass(slots=True)
