@@ -7,7 +7,14 @@ from typing import Any
 
 from research_analysis_layer.models import (
     AnalysisChunkDraft,
+    AgentInputAssertion,
+    AgentInputChunk,
+    AgentInputDocument,
+    AgentInputEvidenceUnit,
+    AgentInputPayload,
+    AgentInputTheme,
     AssertionDraft,
+    DeterministicAnalysisPayload,
     EvidenceUnitDraft,
     HydratedParsedDocument,
 )
@@ -60,67 +67,78 @@ class AgentInputBuilder:
         full_text = (
             parsed_data.get("full_text") if isinstance(parsed_data, dict) else None
         )
-        payload = {
-            "agent_type": agent_type,
-            "document": {
-                "research_id": document.research_id,
-                "file_id": document.file_id,
-                "document_hash": document.document_hash,
-                "document_name": document.document.document_name,
-                "document_title": document.document.document_title,
-                "source": document.document.source,
-                "source_date": document.document.source_date,
-                "publisher": document.document.publisher,
-                "area": document.document.area,
-                "region": document.document.region,
-                "asset_focus": document.document.asset_focus,
-                "document_link": document.document.document_link,
-                "trade_count": document.document.trade_count,
-                "theme_count": document.document.theme_count,
-                "metadata": metadata,
-                "full_text_excerpt": _truncate(
+        payload = AgentInputPayload(
+            agent_type=agent_type,
+            document=AgentInputDocument(
+                research_id=document.research_id,
+                file_id=document.file_id,
+                document_hash=document.document_hash,
+                document_name=document.document.document_name,
+                document_title=document.document.document_title,
+                source=document.document.source,
+                source_date=document.document.source_date,
+                publisher=document.document.publisher,
+                area=document.document.area,
+                region=document.document.region,
+                asset_focus=document.document.asset_focus,
+                document_link=document.document.document_link,
+                trade_count=document.document.trade_count,
+                theme_count=document.document.theme_count,
+                metadata=metadata,
+                full_text_excerpt=_truncate(
                     full_text if isinstance(full_text, str) else None,
                     self.max_full_text_chars,
                 ),
-            },
-            "themes": [
-                {
-                    "theme_id": hydrated.theme.id,
-                    "theme_order": hydrated.theme.theme_order,
-                    "label": hydrated.theme.label,
-                    "scope": hydrated.theme.scope,
-                    "primary_category": hydrated.theme.primary_category,
-                    "relevance": list(hydrated.theme.relevance),
-                    "classification": hydrated.theme.classification,
-                    "strength": hydrated.theme.strength,
-                    "confidence": hydrated.theme.confidence,
-                    "evidence_count": hydrated.theme.evidence_count,
-                    "mention_count": hydrated.theme.mention_count,
-                    "context": _truncate(
+            ),
+            themes=[
+                AgentInputTheme(
+                    theme_id=hydrated.theme.id,
+                    theme_order=hydrated.theme.theme_order,
+                    label=hydrated.theme.label,
+                    scope=hydrated.theme.scope,
+                    primary_category=hydrated.theme.primary_category,
+                    relevance=list(hydrated.theme.relevance),
+                    classification=hydrated.theme.classification,
+                    strength=hydrated.theme.strength,
+                    confidence=hydrated.theme.confidence,
+                    evidence_count=hydrated.theme.evidence_count,
+                    mention_count=hydrated.theme.mention_count,
+                    context=_truncate(
                         hydrated.theme.context,
                         self.max_theme_context_chars,
-                    ),
-                    "directionality": hydrated.theme.directionality,
-                    "argument_structure": hydrated.theme.argument_structure,
-                    "excerpts": [
-                        _truncate(excerpt.excerpt_text, self.max_excerpt_chars)
-                        for excerpt in hydrated.excerpts[: self.max_excerpts_per_theme]
-                        if excerpt.excerpt_text.strip()
+                    )
+                    or "",
+                    directionality=hydrated.theme.directionality,
+                    argument_structure=hydrated.theme.argument_structure,
+                    excerpts=[
+                        excerpt_text
+                        for excerpt_text in (
+                            _truncate(excerpt.excerpt_text, self.max_excerpt_chars)
+                            for excerpt in hydrated.excerpts[
+                                : self.max_excerpts_per_theme
+                            ]
+                            if excerpt.excerpt_text.strip()
+                        )
+                        if excerpt_text
                     ],
-                }
+                )
                 for hydrated in document.themes
             ],
-            "deterministic_analysis": {
-                "chunks": [self._chunk_dict(chunk) for chunk in chunks],
-                "evidence_units": [
-                    self._evidence_dict(unit) for unit in evidence_units
+            deterministic_analysis=DeterministicAnalysisPayload(
+                chunks=[
+                    AgentInputChunk(**self._chunk_dict(chunk)) for chunk in chunks
                 ],
-                "assertions": [
-                    self._assertion_dict(assertion) for assertion in assertions
+                evidence_units=[
+                    AgentInputEvidenceUnit(**self._evidence_dict(unit))
+                    for unit in evidence_units
                 ],
-            },
-        }
-        return payload
+                assertions=[
+                    AgentInputAssertion(**self._assertion_dict(assertion))
+                    for assertion in assertions
+                ],
+            ),
+        )
+        return payload.model_dump(mode="python")
 
     def _chunk_dict(self, chunk: AnalysisChunkDraft) -> dict[str, object]:
         return {

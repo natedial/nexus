@@ -16,6 +16,7 @@ from research_analysis_layer.models import (
     ParsedDocument,
     ParsedExcerpt,
     ParsedTheme,
+    render_payload_structure_markdown,
 )
 from research_analysis_layer.services import (
     AgentInputBuilder,
@@ -188,6 +189,116 @@ class AgentsTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertGreaterEqual(len(payload), 3)
         self.assertEqual(payload[0]["name"], "thesis")
+
+
+def test_synthesizer_prompt_mentions_key_contract_points():
+    """The synthesizer prompt must document the real input shape and the
+    output sub-schemas, and must clearly mark orchestrator-overridden fields."""
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    content = registry.load_prompt("synthesizer")
+    assert content is not None
+
+    # It describes the specialist input shape correctly.
+    assert "DocumentAngle" in content or "specialists" in content.lower()
+
+    # It documents the sub-schemas for structured outputs.
+    assert "TradingOpportunity" in content
+    assert "TalkingPoint" in content
+    assert "ShortTimeHorizonInsight" in content
+
+    # It tells the model the orchestrator will override identity fields.
+    assert "document_key" in content
+    assert "orchestrator" in content.lower()
+
+    # It tells the model to merge specialist cross_document_refs.
+    assert "cross_document_ref" in content
+    assert "merge" in content.lower() or "union" in content.lower()
+
+    # It does not reference the old misleading phrase.
+    assert "evidence pack" not in content.lower()
+
+
+def test_payload_structure_component_matches_runtime_schema():
+    component_path = (
+        Path(__file__).resolve().parents[1]
+        / "prompts/agents/_components/payload_structure.md"
+    )
+    assert component_path.read_text().strip() == render_payload_structure_markdown()
+
+
+def test_thesis_prompt_uses_shared_components():
+    """The thesis prompt must pull in payload_structure, research_search_guide,
+    and confidence_rubric, and must point at deterministic_analysis.assertions."""
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    content = registry.load_prompt("thesis")
+    assert content is not None
+
+    # Includes were resolved (fragment content present, directive absent).
+    assert "{{include:" not in content
+    assert "Confidence calibration" in content  # from confidence_rubric.md
+    assert "deterministic_analysis" in content   # from payload_structure.md
+    assert "research_search" in content          # from research_search_guide.md
+
+    # Core instruction is preserved.
+    assert "thesis" in content.lower()
+    assert "DocumentAngle" in content or '"angle": "thesis"' in content
+
+
+def test_contrarian_prompt_uses_shared_components_and_search_strategy():
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    content = registry.load_prompt("contrarian")
+    assert content is not None
+
+    assert "{{include:" not in content
+    assert "Confidence calibration" in content
+    assert "deterministic_analysis" in content
+    assert "research_search" in content
+
+    # Contrarian-specific: explicit tool budget guidance.
+    assert "6" in content  # 6 tool calls budget from agent_config.yaml
+    assert '"angle": "contrarian"' in content or "angle=\"contrarian\"" in content
+
+
+def test_positioning_prompt_uses_assertions_and_has_no_tools():
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    content = registry.load_prompt("positioning")
+    assert content is not None
+
+    assert "{{include:" not in content
+    assert "Confidence calibration" in content
+    assert "deterministic_analysis" in content
+    # Positioning has no tools — the prompt must say so.
+    assert "no tools" in content.lower() or "no research_search" in content.lower()
+    # It must specifically direct the agent at polarity / time_horizon.
+    assert "polarity" in content
+    assert "time_horizon" in content
+
+
+def test_thesis_config_tools_match_prompt_documentation():
+    """Every tool granted to thesis must be documented in its prompt."""
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    thesis_cfg = registry.get_agent("thesis")
+    assert thesis_cfg is not None
+
+    prompt = registry.load_prompt("thesis")
+    assert prompt is not None
+
+    for tool in thesis_cfg.tools or []:
+        assert tool in prompt, (
+            f"thesis config grants tool {tool!r} but the prompt does not "
+            f"document when/how to use it — either document it or remove "
+            f"it from agent_config.yaml"
+        )
 
 
 if __name__ == "__main__":

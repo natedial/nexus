@@ -1,5 +1,15 @@
 """Model exports."""
 
+from .agent_inputs import (
+    AgentInputAssertion,
+    AgentInputChunk,
+    AgentInputDocument,
+    AgentInputEvidenceUnit,
+    AgentInputPayload,
+    AgentInputTheme,
+    DeterministicAnalysisPayload,
+    render_payload_structure_markdown,
+)
 from .agent_outputs import (
     AgentExecutionMetadata,
     TalkingPoint,
@@ -28,7 +38,14 @@ __all__ = [
     "AnalysisChunkDraft",
     "AnalysisRun",
     "AgentExecutionMetadata",
+    "AgentInputAssertion",
+    "AgentInputChunk",
+    "AgentInputDocument",
+    "AgentInputEvidenceUnit",
+    "AgentInputPayload",
+    "AgentInputTheme",
     "AssertionDraft",
+    "DeterministicAnalysisPayload",
     "EdgeResolution",
     "EvidenceUnitDraft",
     "GraphUpdateResult",
@@ -48,4 +65,5 @@ __all__ = [
     "TalkingPoint",
     "TradingOpportunity",
     "ShortTimeHorizonInsight",
+    "render_payload_structure_markdown",
 ]
