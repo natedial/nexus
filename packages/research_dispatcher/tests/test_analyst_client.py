@@ -65,6 +65,37 @@ class AnalystBatchClientTests(unittest.TestCase):
                             "review_status": "approved",
                         }
                     ],
+                    "trading_opportunities": [
+                        {
+                            "thesis": "Bear steepener via supply pressure",
+                            "direction": "short",
+                            "instrument": "10Y Treasury",
+                            "timeframe": "weeks",
+                            "conviction": "high",
+                            "rationale": "Supply and fiscal risk lift long-end yields.",
+                            "supporting_excerpts": ["Term premium is rising."],
+                            "risks": ["Soft payrolls could flatten the curve."],
+                        }
+                    ],
+                    "short_time_horizon_insights": [
+                        {
+                            "theme": "Payroll downside risk",
+                            "insight": "A soft NFP print would validate front-end receivers.",
+                            "timeframe_ref": "days",
+                            "confidence": "medium",
+                            "supporting_excerpt": "Payrolls should undershoot consensus.",
+                            "relevance": ["macro", "rates"],
+                        }
+                    ],
+                    "talking_points": [
+                        {
+                            "text": "Rates desks are being paid to fade soft-landing confidence.",
+                            "context": "Supply and payroll risk both point at higher volatility.",
+                            "source_theme": "Higher term premium",
+                            "presentation_use": "headline",
+                            "target_audience": "internal",
+                        }
+                    ],
                 }
             ],
             "cross_document_signals": {"repeated_assertions": [{"key": "payrolls_miss"}]},
@@ -79,6 +110,18 @@ class AnalystBatchClientTests(unittest.TestCase):
         self.assertEqual(len(batch.documents), 1)
         self.assertEqual(batch.documents[0].research_id, 101)
         self.assertEqual(batch.documents[0].themes[0].label, "Higher term premium")
+        self.assertEqual(
+            batch.documents[0].trading_opportunities[0].instrument,
+            "10Y Treasury",
+        )
+        self.assertEqual(
+            batch.documents[0].short_time_horizon_insights[0].timeframe_ref,
+            "days",
+        )
+        self.assertEqual(
+            batch.documents[0].talking_points[0].presentation_use,
+            "headline",
+        )
         self.assertEqual(
             batch.cross_document_signals["repeated_assertions"][0]["key"],
             "payrolls_miss",

@@ -78,6 +78,36 @@ class ThroughlineInputBuilderTests(unittest.TestCase):
                                 "timeframe": "weeks",
                             }
                         ],
+                        "trading_opportunities": [
+                            {
+                                "thesis": "Carry favors curve steepeners",
+                                "direction": "long",
+                                "instrument": "5s30s UST curve",
+                                "timeframe": "weeks",
+                                "conviction": "high",
+                                "rationale": "Curve carry remains attractive into payrolls.",
+                                "supporting_excerpts": ["Curve carry is attractive."],
+                            }
+                        ],
+                        "short_time_horizon_insights": [
+                            {
+                                "theme": "Payroll downside risk",
+                                "insight": "A soft payrolls print supports front-end receivers.",
+                                "timeframe_ref": "days",
+                                "confidence": "medium",
+                                "supporting_excerpt": "Payrolls should miss consensus.",
+                                "relevance": ["macro"],
+                            }
+                        ],
+                        "talking_points": [
+                            {
+                                "text": "Carry and payroll risk both favor owning duration into data.",
+                                "context": "The desk should stay open to front-end rallies.",
+                                "source_theme": "Higher term premium",
+                                "presentation_use": "headline",
+                                "target_audience": "internal",
+                            }
+                        ],
                         "assertions": [
                             {
                                 "summary_text": "Payrolls should miss consensus.",
@@ -124,6 +154,18 @@ class ThroughlineInputBuilderTests(unittest.TestCase):
         self.assertEqual(payload["batch_key"], "2026-04-01:us:rates")
         self.assertEqual(payload["analysis_version"], "2026-04-01")
         self.assertEqual(payload["themes"][0]["quality_score"], 91.0)
+        self.assertEqual(
+            payload["trading_opportunities"][0]["instrument"],
+            "5s30s UST curve",
+        )
+        self.assertEqual(
+            payload["short_time_horizon_insights"][0]["timeframe_ref"],
+            "days",
+        )
+        self.assertEqual(
+            payload["talking_points"][0]["presentation_use"],
+            "headline",
+        )
         self.assertEqual(payload["assertions"][0]["summary_text"], "Payrolls should miss consensus.")
         self.assertEqual(payload["world_nodes"][0]["canonical_label"], "Term premium")
         self.assertEqual(payload["forecasts"][0]["event_name"], "Nonfarm Payrolls")
@@ -150,6 +192,23 @@ class ThroughlineInputBuilderTests(unittest.TestCase):
                         "document_link": "https://example.test/doc/12",
                         "themes": [{"label": "Carry remains attractive"}],
                         "trades": [{"text": "Own front-end carry"}],
+                        "trading_opportunities": [
+                            {
+                                "thesis": "Front-end carry stays attractive",
+                                "direction": "long",
+                                "instrument": "2Y Treasury",
+                                "timeframe": "weeks",
+                                "conviction": "medium",
+                                "rationale": "Carry remains supportive.",
+                            }
+                        ],
+                        "talking_points": [
+                            {
+                                "text": "Carry remains attractive despite cut repricing noise.",
+                                "context": "Desk note summary.",
+                                "presentation_use": "supporting",
+                            }
+                        ],
                     }
                 ],
             }
@@ -161,6 +220,14 @@ class ThroughlineInputBuilderTests(unittest.TestCase):
         self.assertEqual(legacy[0]["id"], 12)
         self.assertEqual(legacy[0]["parsed_data"]["metadata"]["publisher"], "Morgan Stanley")
         self.assertEqual(legacy[0]["parsed_data"]["themes"][0]["label"], "Carry remains attractive")
+        self.assertEqual(
+            legacy[0]["parsed_data"]["trading_opportunities"][0]["instrument"],
+            "2Y Treasury",
+        )
+        self.assertEqual(
+            legacy[0]["talking_points"][0]["presentation_use"],
+            "supporting",
+        )
 
 
 if __name__ == "__main__":

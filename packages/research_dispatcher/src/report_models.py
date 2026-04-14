@@ -262,6 +262,116 @@ class DispatchForecastCandidate:
 
 
 @dataclass(slots=True)
+class DispatchTradingOpportunity:
+    thesis: str = ""
+    direction: str = "neutral"
+    instrument: str = ""
+    timeframe: str = "weeks"
+    conviction: str = "medium"
+    risk_reward_ratio: str | None = None
+    key_levels: str | None = None
+    rationale: str = ""
+    supporting_excerpts: list[str] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DispatchTradingOpportunity":
+        return cls(
+            thesis=str(data.get("thesis") or ""),
+            direction=str(data.get("direction") or "neutral"),
+            instrument=str(data.get("instrument") or ""),
+            timeframe=str(data.get("timeframe") or "weeks"),
+            conviction=str(data.get("conviction") or "medium"),
+            risk_reward_ratio=data.get("risk_reward_ratio"),
+            key_levels=data.get("key_levels"),
+            rationale=str(data.get("rationale") or ""),
+            supporting_excerpts=_string_list(data.get("supporting_excerpts")),
+            risks=_string_list(data.get("risks")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "thesis": self.thesis,
+            "direction": self.direction,
+            "instrument": self.instrument,
+            "timeframe": self.timeframe,
+            "conviction": self.conviction,
+            "rationale": self.rationale,
+            "supporting_excerpts": list(self.supporting_excerpts),
+            "risks": list(self.risks),
+        }
+        if self.risk_reward_ratio is not None:
+            data["risk_reward_ratio"] = self.risk_reward_ratio
+        if self.key_levels is not None:
+            data["key_levels"] = self.key_levels
+        return data
+
+
+@dataclass(slots=True)
+class DispatchShortTimeHorizonInsight:
+    theme: str = ""
+    insight: str = ""
+    timeframe_ref: str = "days"
+    confidence: str = "medium"
+    supporting_excerpt: str = ""
+    relevance: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DispatchShortTimeHorizonInsight":
+        return cls(
+            theme=str(data.get("theme") or ""),
+            insight=str(data.get("insight") or ""),
+            timeframe_ref=str(data.get("timeframe_ref") or "days"),
+            confidence=str(data.get("confidence") or "medium"),
+            supporting_excerpt=str(data.get("supporting_excerpt") or ""),
+            relevance=_string_list(data.get("relevance")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "theme": self.theme,
+            "insight": self.insight,
+            "timeframe_ref": self.timeframe_ref,
+            "confidence": self.confidence,
+            "supporting_excerpt": self.supporting_excerpt,
+        }
+        if self.relevance:
+            data["relevance"] = list(self.relevance)
+        return data
+
+
+@dataclass(slots=True)
+class DispatchTalkingPoint:
+    text: str = ""
+    context: str = ""
+    source_theme: str | None = None
+    presentation_use: str = "supporting"
+    target_audience: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DispatchTalkingPoint":
+        return cls(
+            text=str(data.get("text") or ""),
+            context=str(data.get("context") or ""),
+            source_theme=data.get("source_theme"),
+            presentation_use=str(data.get("presentation_use") or "supporting"),
+            target_audience=data.get("target_audience"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "text": self.text,
+            "context": self.context,
+            "presentation_use": self.presentation_use,
+        }
+        if self.source_theme is not None:
+            data["source_theme"] = self.source_theme
+        if self.target_audience is not None:
+            data["target_audience"] = self.target_audience
+        return data
+
+
+@dataclass(slots=True)
 class DispatchCorpusReference:
     chunk_id: str = ""
     source_path: str = ""
@@ -319,6 +429,11 @@ class DispatchDocument:
     thesis: str | None = None
     contrarian_view: str | None = None
     recommended_positioning: str | None = None
+    trading_opportunities: list[DispatchTradingOpportunity] = field(default_factory=list)
+    short_time_horizon_insights: list[DispatchShortTimeHorizonInsight] = field(
+        default_factory=list
+    )
+    talking_points: list[DispatchTalkingPoint] = field(default_factory=list)
     cross_document_references: list[DispatchCorpusReference] = field(default_factory=list)
 
     @classmethod
@@ -365,6 +480,18 @@ class DispatchDocument:
             thesis=data.get("thesis"),
             contrarian_view=data.get("contrarian_view"),
             recommended_positioning=data.get("recommended_positioning"),
+            trading_opportunities=[
+                DispatchTradingOpportunity.from_dict(item)
+                for item in _dict_list(data.get("trading_opportunities"))
+            ],
+            short_time_horizon_insights=[
+                DispatchShortTimeHorizonInsight.from_dict(item)
+                for item in _dict_list(data.get("short_time_horizon_insights"))
+            ],
+            talking_points=[
+                DispatchTalkingPoint.from_dict(item)
+                for item in _dict_list(data.get("talking_points"))
+            ],
             cross_document_references=[
                 DispatchCorpusReference.from_dict(item)
                 for item in _dict_list(data.get("cross_document_references"))
@@ -441,6 +568,16 @@ class DispatchDocument:
                 }
                 for forecast in self.forecast_candidates
             ],
+            "trading_opportunities": [
+                opportunity.to_dict() for opportunity in self.trading_opportunities
+            ],
+            "short_time_horizon_insights": [
+                insight.to_dict()
+                for insight in self.short_time_horizon_insights
+            ],
+            "talking_points": [
+                point.to_dict() for point in self.talking_points
+            ],
         }
 
         result = {
@@ -468,6 +605,19 @@ class DispatchDocument:
             result["contrarian_view"] = self.contrarian_view
         if self.recommended_positioning:
             result["recommended_positioning"] = self.recommended_positioning
+        if self.trading_opportunities:
+            result["trading_opportunities"] = [
+                opportunity.to_dict() for opportunity in self.trading_opportunities
+            ]
+        if self.short_time_horizon_insights:
+            result["short_time_horizon_insights"] = [
+                insight.to_dict()
+                for insight in self.short_time_horizon_insights
+            ]
+        if self.talking_points:
+            result["talking_points"] = [
+                point.to_dict() for point in self.talking_points
+            ]
         if self.cross_document_references:
             result["cross_document_references"] = [
                 item.to_legacy_dict() for item in self.cross_document_references

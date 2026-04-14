@@ -85,6 +85,9 @@ class ThroughlineInputBuilder:
     def build_from_batch(self, batch: DispatchBatch) -> dict[str, Any]:
         themes: list[dict[str, Any]] = []
         trades: list[dict[str, Any]] = []
+        trading_opportunities: list[dict[str, Any]] = []
+        short_time_horizon_insights: list[dict[str, Any]] = []
+        talking_points: list[dict[str, Any]] = []
         assertions: list[dict[str, Any]] = []
         forecasts: list[dict[str, Any]] = []
         world_nodes: list[dict[str, Any]] = []
@@ -135,6 +138,54 @@ class ThroughlineInputBuilder:
                         "conviction": trade.conviction,
                         "timeframe": trade.timeframe,
                         "rationale": trade.rationale,
+                        "quality_score": document.quality.score,
+                    }
+                )
+
+            for opportunity in document.trading_opportunities:
+                trading_opportunities.append(
+                    {
+                        "source": document.source,
+                        "document": document.document_name,
+                        "thesis": opportunity.thesis,
+                        "direction": opportunity.direction,
+                        "instrument": opportunity.instrument,
+                        "timeframe": opportunity.timeframe,
+                        "conviction": opportunity.conviction,
+                        "risk_reward_ratio": opportunity.risk_reward_ratio,
+                        "key_levels": opportunity.key_levels,
+                        "rationale": opportunity.rationale,
+                        "supporting_excerpts": list(opportunity.supporting_excerpts),
+                        "risks": list(opportunity.risks),
+                        "quality_score": document.quality.score,
+                    }
+                )
+
+            for insight in document.short_time_horizon_insights:
+                short_time_horizon_insights.append(
+                    {
+                        "source": document.source,
+                        "document": document.document_name,
+                        "theme": insight.theme,
+                        "insight": insight.insight,
+                        "timeframe_ref": insight.timeframe_ref,
+                        "confidence": insight.confidence,
+                        "supporting_excerpt": insight.supporting_excerpt,
+                        "relevance": list(insight.relevance),
+                        "quality_score": document.quality.score,
+                    }
+                )
+
+            for point in document.talking_points:
+                talking_points.append(
+                    {
+                        "source": document.source,
+                        "document": document.document_name,
+                        "text": point.text,
+                        "context": point.context,
+                        "source_theme": point.source_theme,
+                        "presentation_use": point.presentation_use,
+                        "target_audience": point.target_audience,
                         "quality_score": document.quality.score,
                     }
                 )
@@ -208,6 +259,9 @@ class ThroughlineInputBuilder:
         return {
             "themes": themes,
             "trades": trades,
+            "trading_opportunities": trading_opportunities,
+            "short_time_horizon_insights": short_time_horizon_insights,
+            "talking_points": talking_points,
             "assertions": assertions,
             "forecasts": forecasts,
             "world_nodes": world_nodes,

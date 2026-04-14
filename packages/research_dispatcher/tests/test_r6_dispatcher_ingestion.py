@@ -61,6 +61,32 @@ class TestR6DispatcherIngestion(unittest.TestCase):
                     "thesis": "Test thesis",
                     "contrarian_view": "Contrarian view",
                     "recommended_positioning": "Position",
+                    "trading_opportunities": [
+                        {
+                            "thesis": "Fade front-end cuts",
+                            "direction": "short",
+                            "instrument": "2Y Treasury",
+                            "timeframe": "days",
+                            "conviction": "medium",
+                            "rationale": "Cuts are being repriced too aggressively.",
+                        }
+                    ],
+                    "short_time_horizon_insights": [
+                        {
+                            "theme": "Payroll downside risk",
+                            "insight": "Payrolls could miss quickly enough to rally the front end.",
+                            "timeframe_ref": "days",
+                            "confidence": "medium",
+                            "supporting_excerpt": "Test assertion",
+                        }
+                    ],
+                    "talking_points": [
+                        {
+                            "text": "Front-end repricing remains vulnerable to soft labor data.",
+                            "context": "Desk framing for near-term positioning.",
+                            "presentation_use": "headline",
+                        }
+                    ],
                     "cross_document_references": [
                         {
                             "chunk_id": "chunk-1",
@@ -90,6 +116,9 @@ class TestR6DispatcherIngestion(unittest.TestCase):
         self.assertEqual(len(doc.world_nodes), 1)
         self.assertEqual(len(doc.world_edges), 1)
         self.assertEqual(len(doc.forecast_candidates), 1)
+        self.assertEqual(len(doc.trading_opportunities), 1)
+        self.assertEqual(len(doc.short_time_horizon_insights), 1)
+        self.assertEqual(len(doc.talking_points), 1)
         self.assertEqual(len(doc.cross_document_references), 1)
         self.assertEqual(doc.cross_document_references[0].chunk_id, "chunk-1")
 
@@ -142,6 +171,32 @@ class TestR6DispatcherIngestion(unittest.TestCase):
                     "thesis": "Test thesis",
                     "contrarian_view": "Contrarian",
                     "recommended_positioning": "Position",
+                    "trading_opportunities": [
+                        {
+                            "thesis": "Stay long carry",
+                            "direction": "long",
+                            "instrument": "2Y Treasury",
+                            "timeframe": "weeks",
+                            "conviction": "medium",
+                            "rationale": "Carry remains supportive.",
+                        }
+                    ],
+                    "short_time_horizon_insights": [
+                        {
+                            "theme": "Payroll watch",
+                            "insight": "Soft labor data would help duration.",
+                            "timeframe_ref": "days",
+                            "confidence": "medium",
+                            "supporting_excerpt": "Assertion",
+                        }
+                    ],
+                    "talking_points": [
+                        {
+                            "text": "Carry remains attractive into payrolls.",
+                            "context": "Desk note summary.",
+                            "presentation_use": "supporting",
+                        }
+                    ],
                     "cross_document_references": [
                         {
                             "chunk_id": "chunk-1",
@@ -167,9 +222,13 @@ class TestR6DispatcherIngestion(unittest.TestCase):
         self.assertIn("parsed_data", record)
         self.assertIn("themes", record["parsed_data"])
         self.assertIn("trades", record["parsed_data"])
+        self.assertIn("trading_opportunities", record["parsed_data"])
+        self.assertIn("short_time_horizon_insights", record["parsed_data"])
+        self.assertIn("talking_points", record["parsed_data"])
         self.assertIn("metadata", record["parsed_data"])
         self.assertEqual(record["parsed_data"]["metadata"]["region"], "US")
         self.assertEqual(record["parsed_data"]["metadata"]["asset_focus"], "rates")
+        self.assertEqual(record["parsed_data"]["trading_opportunities"][0]["instrument"], "2Y Treasury")
         self.assertEqual(record["cross_document_references"][0]["chunk_id"], "chunk-1")
 
     def test_analyst_export_roundtrip_integration(self):
