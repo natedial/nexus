@@ -61,6 +61,15 @@ class TestR6DispatcherIngestion(unittest.TestCase):
                     "thesis": "Test thesis",
                     "contrarian_view": "Contrarian view",
                     "recommended_positioning": "Position",
+                    "cross_document_references": [
+                        {
+                            "chunk_id": "chunk-1",
+                            "source_path": "/tmp/doc-a.pdf",
+                            "source_date": "2026-04-09",
+                            "text": "Supporting passage",
+                            "relevance_score": 0.82,
+                        }
+                    ],
                 }
             ],
             "cross_document_signals": {},
@@ -81,6 +90,8 @@ class TestR6DispatcherIngestion(unittest.TestCase):
         self.assertEqual(len(doc.world_nodes), 1)
         self.assertEqual(len(doc.world_edges), 1)
         self.assertEqual(len(doc.forecast_candidates), 1)
+        self.assertEqual(len(doc.cross_document_references), 1)
+        self.assertEqual(doc.cross_document_references[0].chunk_id, "chunk-1")
 
     def test_to_legacy_records_produces_expected_fields(self):
         """to_legacy_records() produces fields expected by synthesis/formatting."""
@@ -131,6 +142,15 @@ class TestR6DispatcherIngestion(unittest.TestCase):
                     "thesis": "Test thesis",
                     "contrarian_view": "Contrarian",
                     "recommended_positioning": "Position",
+                    "cross_document_references": [
+                        {
+                            "chunk_id": "chunk-1",
+                            "source_path": "/tmp/doc-a.pdf",
+                            "source_date": "2026-04-09",
+                            "text": "Supporting passage",
+                            "relevance_score": 0.82,
+                        }
+                    ],
                 }
             ],
             "cross_document_signals": {},
@@ -150,6 +170,7 @@ class TestR6DispatcherIngestion(unittest.TestCase):
         self.assertIn("metadata", record["parsed_data"])
         self.assertEqual(record["parsed_data"]["metadata"]["region"], "US")
         self.assertEqual(record["parsed_data"]["metadata"]["asset_focus"], "rates")
+        self.assertEqual(record["cross_document_references"][0]["chunk_id"], "chunk-1")
 
     def test_analyst_export_roundtrip_integration(self):
         """Full round-trip: analyst export JSON → dispatcher ingestion."""

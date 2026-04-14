@@ -262,6 +262,42 @@ class DispatchForecastCandidate:
 
 
 @dataclass(slots=True)
+class DispatchCorpusReference:
+    chunk_id: str = ""
+    source_path: str = ""
+    source_date: str | None = None
+    text: str = ""
+    relevance_score: float | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DispatchCorpusReference":
+        relevance_score = data.get("relevance_score")
+        if relevance_score is not None:
+            try:
+                relevance_score = float(relevance_score)
+            except (TypeError, ValueError):
+                relevance_score = None
+        return cls(
+            chunk_id=str(data.get("chunk_id") or ""),
+            source_path=str(data.get("source_path") or ""),
+            source_date=data.get("source_date"),
+            text=str(data.get("text") or ""),
+            relevance_score=relevance_score,
+        )
+
+    def to_legacy_dict(self) -> dict[str, Any]:
+        data = {
+            "chunk_id": self.chunk_id,
+            "source_path": self.source_path,
+            "source_date": self.source_date,
+            "text": self.text,
+        }
+        if self.relevance_score is not None:
+            data["relevance_score"] = self.relevance_score
+        return data
+
+
+@dataclass(slots=True)
 class DispatchDocument:
     research_id: int
     document_hash: str | None = None
@@ -283,7 +319,7 @@ class DispatchDocument:
     thesis: str | None = None
     contrarian_view: str | None = None
     recommended_positioning: str | None = None
-    cross_document_references: list[str] = field(default_factory=list)
+    cross_document_references: list[DispatchCorpusReference] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DispatchDocument":
@@ -329,9 +365,10 @@ class DispatchDocument:
             thesis=data.get("thesis"),
             contrarian_view=data.get("contrarian_view"),
             recommended_positioning=data.get("recommended_positioning"),
-            cross_document_references=_string_list(
-                data.get("cross_document_references")
-            ),
+            cross_document_references=[
+                DispatchCorpusReference.from_dict(item)
+                for item in _dict_list(data.get("cross_document_references"))
+            ],
         )
 
     def to_legacy_record(self) -> dict[str, Any]:
@@ -432,7 +469,9 @@ class DispatchDocument:
         if self.recommended_positioning:
             result["recommended_positioning"] = self.recommended_positioning
         if self.cross_document_references:
-            result["cross_document_references"] = list(self.cross_document_references)
+            result["cross_document_references"] = [
+                item.to_legacy_dict() for item in self.cross_document_references
+            ]
         return result
 
 
