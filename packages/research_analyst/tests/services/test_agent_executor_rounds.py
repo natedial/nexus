@@ -90,7 +90,9 @@ class TestAgentExecutorRounds(unittest.TestCase):
         )
         input_builder = MagicMock()
         input_builder.build.return_value = {"document": "payload"}
-        input_builder.to_messages.return_value = [{"role": "user", "content": "payload"}]
+        input_builder.to_messages.return_value = [
+            {"role": "user", "content": "payload"}
+        ]
         tool_registry = MagicMock()
 
         executor = RoundExecutor(
@@ -406,7 +408,7 @@ class TestRoundExecutorEdgeCases(unittest.TestCase):
         angle = executor._extract_angle_from_result(agent_result)
 
         self.assertEqual(angle.angle, "thesis")
-        self.assertEqual(angle.summary, "No output available")
+        self.assertEqual(angle.summary, "Specialist output unavailable")
 
     def test_create_error_result(self):
         """_create_error_result creates error AgentCallResult."""
@@ -425,6 +427,143 @@ class TestRoundExecutorEdgeCases(unittest.TestCase):
         self.assertIsNone(result.parsed_output)
         self.assertEqual(result.stop_reason, "error")
         self.assertEqual(result.tool_calls, [])
+
+
+class TestRoundExecutorEndToEnd(unittest.TestCase):
+    """End-to-end smoke tests wiring the full round pipeline together."""
+
+    @staticmethod
+    def _make_document(*, research_id: int, document_hash: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            research_id=research_id,
+            document_hash=document_hash,
+            file_id=None,
+            document=SimpleNamespace(
+                document_name="doc.pdf",
+                document_title="Test Doc",
+                source="test",
+                source_date="2026-04-14",
+                publisher="test",
+                area=None,
+                region=None,
+                asset_focus=None,
+                document_link=None,
+                trade_count=0,
+                theme_count=0,
+                parsed_data={},
+            ),
+            themes=[],
+        )
+
+    def test_round_executor_end_to_end_with_blank_identity_fields(self):
+        """A synthesizer output with blank identity fields must still produce a
+        valid DocumentAnalysis because the orchestrator stamps them."""
+        from research_analysis_layer.services.agent_llm_client import (
+            AgentCallResult,
+            TokenUsage,
+        )
+        from research_analysis_layer.services.agent_registry import AgentRegistry
+        from research_analysis_layer.services.agent_input_builder import AgentInputBuilder
+        from research_analysis_layer.services.round_executor import (
+            AgentSpec,
+            RoundExecutor,
+        )
+
+        def fake_generate_with_tools(**kwargs):
+            system_prompt = kwargs.get("system_prompt", "")
+            # Synthesizer returns blank identity fields — orchestrator must stamp them.
+            if "Synthesizer Agent" in system_prompt:
+                return AgentCallResult(
+                    raw_text="",
+                    parsed_output={
+                        "document_key": "",
+                        "research_id": 0,
+                        "document_hash": "",
+                        "analysis_version": "",
+                        "thesis": "fused thesis",
+                        "contrarian_view": "fused counter",
+                        "recommended_positioning": "fused positioning",
+                        "trading_opportunities": [],
+                        "short_time_horizon_insights": [],
+                        "talking_points": [],
+                        "cross_document_references": [],
+                        "confidence": 0.75,
+                    },
+                    tool_calls=[],
+                    token_usage=TokenUsage(),
+                    model_used="claude-sonnet-4-20250514",
+                    stop_reason="end_turn",
+                    attempt_count=1,
+                )
+            # Specialists return a minimal valid DocumentAngle.
+            return AgentCallResult(
+                raw_text="",
+                parsed_output={
+                    "angle": "thesis",
+                    "summary": "a thesis",
+                    "key_claims": [],
+                    "cross_document_refs": [],
+                    "risks": [],
+                    "confidence": 0.8,
+                },
+                tool_calls=[],
+                token_usage=TokenUsage(),
+                model_used="claude-sonnet-4-20250514",
+                stop_reason="end_turn",
+                attempt_count=1,
+            )
+
+        class FakeClient:
+            generate_with_tools = staticmethod(fake_generate_with_tools)
+
+        registry = AgentRegistry()
+        executor = RoundExecutor(
+            registry=registry,
+            llm_client=FakeClient(),
+            input_builder=AgentInputBuilder(),
+            tool_registry=None,
+        )
+
+        document = self._make_document(research_id=99, document_hash="hash-xyz")
+        rounds = registry.get_rounds()
+        agent_specs = {
+            name: AgentSpec(
+                name=name,
+                config=registry.get_agent(name),
+                tools=[],
+                max_tool_calls=0,
+                timeout_seconds=60,
+                retry_count=1,
+                temperature=0.4,
+                output_schema="DocumentAngle",
+            )
+            for round_cfg in rounds
+            for name in round_cfg.agents
+        }
+
+        analysis = executor.run(
+            document=document,
+            chunks=[],
+            evidence_units=[],
+            assertions=[],
+            run_id=1,
+            analysis_version="v2",
+            rounds=rounds,
+            agent_specs=agent_specs,
+        )
+
+        self.assertIsNotNone(analysis)
+        self.assertEqual(analysis.document_key, "doc:99:hash-xyz")
+        self.assertEqual(analysis.research_id, 99)
+        self.assertEqual(analysis.document_hash, "hash-xyz")
+        self.assertEqual(analysis.analysis_version, "v2")
+        self.assertEqual(analysis.thesis, "fused thesis")
+        self.assertAlmostEqual(analysis.confidence, 0.75)
+        self.assertEqual(analysis.quality, {})
+        self.assertEqual(analysis.trades, [])
+        self.assertEqual(analysis.assertions, [])
 
 
 if __name__ == "__main__":

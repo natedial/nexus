@@ -122,35 +122,61 @@ class DispatchBatchExporter:
     def _row_to_document(self, row: dict[str, Any]) -> dict[str, Any]:
         """Convert a database row to a dispatch document."""
         row_dict = dict(row) if not isinstance(row, dict) else row
-        payload = json.loads(row_dict["payload_json"])
+        analysis_payload = json.loads(row_dict["payload_json"])
+        payload = (
+            analysis_payload.get("payload_json", {})
+            if isinstance(analysis_payload, dict)
+            else {}
+        )
+        document_payload = (
+            payload.get("document", {})
+            if isinstance(payload.get("document"), dict)
+            else {}
+        )
 
         return {
             "document_key": row_dict["document_key"],
-            "document_name": row_dict["document_key"],
+            "document_name": document_payload.get("document_name")
+            or row_dict["document_key"],
             "research_id": row_dict["research_id"],
             "document_hash": row_dict["document_hash"],
-            "source": payload.get("source", ""),
-            "source_date": payload.get("source_date", ""),
-            "publisher": payload.get("publisher", ""),
-            "region": payload.get("region", ""),
-            "asset_focus": payload.get("asset_focus", ""),
-            "document_link": payload.get("document_link", ""),
-            "quality": payload.get("quality", {}),
-            "themes": payload.get("themes", []),
-            "trades": payload.get("trades", []),
-            "assertions": payload.get("assertions", []),
-            "world_nodes": payload.get("world_nodes", []),
-            "world_edges": payload.get("world_edges", []),
-            "forecast_candidates": payload.get("forecast_candidates", []),
+            "file_id": document_payload.get("file_id"),
+            "source": document_payload.get("source", ""),
+            "source_date": document_payload.get("source_date", ""),
+            "publisher": document_payload.get("publisher", ""),
+            "region": document_payload.get("region", ""),
+            "asset_focus": document_payload.get("asset_focus", ""),
+            "document_link": document_payload.get("document_link", ""),
+            "quality": analysis_payload.get("quality") or payload.get("quality", {}),
+            "themes": analysis_payload.get("themes") or payload.get("themes", []),
+            "trades": analysis_payload.get("trades") or payload.get("trades", []),
+            "assertions": analysis_payload.get("assertions")
+            or payload.get("assertions", []),
+            "world_nodes": analysis_payload.get("world_nodes")
+            or payload.get("world_nodes", []),
+            "world_edges": analysis_payload.get("world_edges")
+            or payload.get("world_edges", []),
+            "forecast_candidates": analysis_payload.get("forecast_candidates")
+            or payload.get("forecast_candidates", []),
             "thesis": row_dict.get("thesis", ""),
-            "contrarian_view": payload.get("contrarian_view", ""),
-            "recommended_positioning": payload.get("recommended_positioning", ""),
-            "cross_document_references": payload.get("cross_document_references", []),
-            "trading_opportunities": payload.get("trading_opportunities", []),
-            "short_time_horizon_insights": payload.get(
-                "short_time_horizon_insights", []
-            ),
-            "talking_points": payload.get("talking_points", []),
+            "contrarian_view": analysis_payload.get("contrarian_view")
+            or payload.get("contrarian_view", ""),
+            "recommended_positioning": analysis_payload.get(
+                "recommended_positioning"
+            )
+            or payload.get("recommended_positioning", ""),
+            "cross_document_references": analysis_payload.get(
+                "cross_document_references"
+            )
+            or payload.get("cross_document_references", []),
+            "trading_opportunities": analysis_payload.get("trading_opportunities")
+            or payload.get("trading_opportunities", []),
+            "short_time_horizon_insights": analysis_payload.get(
+                "short_time_horizon_insights"
+            )
+            or payload.get("short_time_horizon_insights", []),
+            "talking_points": analysis_payload.get("talking_points")
+            or payload.get("talking_points", []),
         }
 
     def export_to_file(

@@ -80,6 +80,8 @@ class AnalyzeDocumentPipeline:
             ]
             assertions.extend(self.assertion_extractor.extract(chunk, chunk_evidence))
 
+        nodes = []
+        edges = []
         if agent_only:
             graph_result = None
         else:
@@ -143,6 +145,10 @@ class AnalyzeDocumentPipeline:
                 chunks=chunks,
                 evidence_units=evidence_units,
                 assertions=assertions,
+                quality_report=quality_report,
+                node_resolutions=nodes,
+                edge_resolutions=edges,
+                forecast_candidates=[],
                 run_id=run_id,
                 analysis_version=self.analysis_version,
                 rounds=rounds,

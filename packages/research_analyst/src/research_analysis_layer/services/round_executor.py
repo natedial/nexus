@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -89,6 +89,10 @@ class RoundExecutor:
         chunks: list[Any],
         evidence_units: list[Any],
         assertions: list[Any],
+        quality_report: Any | None = None,
+        node_resolutions: list[Any] | None = None,
+        edge_resolutions: list[Any] | None = None,
+        forecast_candidates: list[Any] | None = None,
         run_id: int,
         analysis_version: str,
         rounds: list[RoundConfig],
@@ -173,6 +177,10 @@ class RoundExecutor:
             chunks=chunks,
             evidence_units=evidence_units,
             assertions=assertions,
+            quality_report=quality_report,
+            node_resolutions=node_resolutions or [],
+            edge_resolutions=edge_resolutions or [],
+            forecast_candidates=forecast_candidates or [],
             run_id=run_id,
             analysis_version=analysis_version,
             round_traces=all_round_traces,
@@ -261,8 +269,11 @@ class RoundExecutor:
                     agent_name, result = future.result()
                     agent_results.append(result)
                 except Exception as e:
-                    logger.exception("Agent %s failed with exception", futures[future])
-                    agent_results.append(self._create_error_result(str(e)))
+                    failed_name = futures[future]
+                    logger.exception("Agent %s failed with exception", failed_name)
+                    err = self._create_error_result(str(e))
+                    err.agent_name = failed_name
+                    agent_results.append(err)
 
         duration_ms = int((time.time() - start_time) * 1000)
         return self._build_round_result(round_config.name, agent_results, duration_ms)
@@ -327,7 +338,11 @@ class RoundExecutor:
         """Run a single agent with retries."""
         prompt = self.registry.load_prompt(agent_name)
         if not prompt:
-            return self._create_error_result(f"Prompt not found for {agent_name}")
+            error_result = self._create_error_result(
+                f"Prompt not found for {agent_name}"
+            )
+            error_result.agent_name = agent_name
+            return error_result
 
         messages = self.input_builder.to_messages(merged_input)
         last_error = None
@@ -343,6 +358,7 @@ class RoundExecutor:
                     timeout_seconds=spec.timeout_seconds,
                 )
                 if result.parsed_output:
+                    result.agent_name = agent_name
                     return result
             except Exception as e:
                 last_error = e
@@ -350,21 +366,52 @@ class RoundExecutor:
                     "Agent %s attempt %d failed: %s", agent_name, attempt + 1, e
                 )
 
-        return self._create_error_result(
+        error_result = self._create_error_result(
             str(last_error) if last_error else "Max retries exceeded"
         )
+        error_result.agent_name = agent_name
+        return error_result
 
     def _extract_angle_from_result(self, result: AgentCallResult) -> DocumentAngle:
-        """Extract DocumentAngle from agent result."""
+        """Extract a DocumentAngle from an agent result.
+
+        Falls back to an empty DocumentAngle stamped with the correct angle
+        when parsing or validation fails, so a failed specialist does not
+        masquerade as a different specialist downstream.
+        """
+        from pydantic import ValidationError
+
+        fallback_angle = self._fallback_angle_for(result.agent_name)
+
         if result.parsed_output and isinstance(result.parsed_output, dict):
-            return DocumentAngle.model_validate(result.parsed_output)
+            try:
+                return DocumentAngle.model_validate(result.parsed_output)
+            except ValidationError as e:
+                logger.warning(
+                    "Specialist %s returned invalid DocumentAngle: %s",
+                    result.agent_name or "unknown",
+                    e,
+                )
+
         return DocumentAngle(
-            angle="thesis",
-            summary="No output available",
+            angle=fallback_angle,
+            summary="Specialist output unavailable",
             key_claims=[],
+            cross_document_refs=[],
             risks=[],
             confidence=0.0,
         )
+
+    @staticmethod
+    def _fallback_angle_for(agent_name: str | None) -> str:
+        """Map an agent name to its DocumentAngle.angle literal.
+
+        Defaults to 'thesis' only when the agent name is unknown — which
+        should not happen after this fix but is a safe default.
+        """
+        if agent_name in ("thesis", "contrarian", "positioning"):
+            return agent_name
+        return "thesis"
 
     def _merge_sequential_input(
         self, current_input: dict[str, Any], result: AgentCallResult
@@ -428,6 +475,20 @@ class RoundExecutor:
             attempt_count=1,
         )
 
+    @staticmethod
+    def _canonical_document_key(
+        *,
+        research_id: int | None,
+        document_hash: str | None,
+        file_id: str | None,
+    ) -> str:
+        """Return the canonical document key, matching run_batch._document_key."""
+        if file_id:
+            return f"file:{file_id}"
+        if research_id is not None and document_hash:
+            return f"doc:{research_id}:{document_hash}"
+        return ""
+
     def _build_document_analysis(
         self,
         *,
@@ -436,6 +497,10 @@ class RoundExecutor:
         chunks: list[Any],
         evidence_units: list[Any],
         assertions: list[Any],
+        quality_report: Any | None = None,
+        node_resolutions: list[Any] | None = None,
+        edge_resolutions: list[Any] | None = None,
+        forecast_candidates: list[Any] | None = None,
         run_id: int,
         analysis_version: str,
         round_traces: list[RoundTrace],
@@ -450,6 +515,26 @@ class RoundExecutor:
 
         parsed = result.parsed_output
         if isinstance(parsed, dict):
+            deterministic_payload = self._build_deterministic_payload(
+                document=document,
+                chunks=chunks,
+                evidence_units=evidence_units,
+                assertions=assertions,
+                quality_report=quality_report,
+                node_resolutions=node_resolutions or [],
+                edge_resolutions=edge_resolutions or [],
+                forecast_candidates=forecast_candidates or [],
+            )
+            # Orchestrator is authoritative for identity fields — the model
+            # has no reliable way to know document_key or analysis_version.
+            parsed["research_id"] = document.research_id
+            parsed["document_hash"] = document.document_hash or ""
+            parsed["analysis_version"] = analysis_version
+            parsed["document_key"] = self._canonical_document_key(
+                research_id=document.research_id,
+                document_hash=document.document_hash,
+                file_id=getattr(document, "file_id", None),
+            )
             parsed["round_traces"] = [rt.model_dump() for rt in round_traces]
             parsed["metadata"] = {
                 "research_id": document.research_id,
@@ -465,29 +550,34 @@ class RoundExecutor:
                 "analyzed_at": datetime.now(timezone.utc).isoformat(),
             }
             parsed["payload_json"] = {
+                "document": deterministic_payload["document"],
                 "thesis": parsed.get("thesis", ""),
                 "contrarian_view": parsed.get("contrarian_view", ""),
                 "recommended_positioning": parsed.get("recommended_positioning", ""),
-                "trading_opportunities": parsed.get("trading_opportunities", []),
-                "short_time_horizon_insights": parsed.get(
-                    "short_time_horizon_insights", []
+                "trading_opportunities": parsed.get("trading_opportunities") or [],
+                "short_time_horizon_insights": (
+                    parsed.get("short_time_horizon_insights") or []
                 ),
-                "talking_points": parsed.get("talking_points", []),
-                "cross_document_references": parsed.get(
-                    "cross_document_references", []
+                "talking_points": parsed.get("talking_points") or [],
+                "cross_document_references": (
+                    parsed.get("cross_document_references") or []
                 ),
-                "quality": parsed.get("quality"),
-                "themes": parsed.get(
-                    "themes", [c.model_dump() for c in chunks] if chunks else []
+                "quality": parsed.get("quality") or deterministic_payload["quality"],
+                "themes": parsed.get("themes") or deterministic_payload["themes"],
+                "trades": parsed.get("trades") or deterministic_payload["trades"],
+                "assertions": (
+                    parsed.get("assertions") or deterministic_payload["assertions"]
                 ),
-                "trades": parsed.get("trades"),
-                "assertions": parsed.get(
-                    "assertions",
-                    [a.model_dump() for a in assertions] if assertions else [],
+                "world_nodes": (
+                    parsed.get("world_nodes") or deterministic_payload["world_nodes"]
                 ),
-                "world_nodes": parsed.get("world_nodes", []),
-                "world_edges": parsed.get("world_edges", []),
-                "forecast_candidates": parsed.get("forecast_candidates", []),
+                "world_edges": (
+                    parsed.get("world_edges") or deterministic_payload["world_edges"]
+                ),
+                "forecast_candidates": (
+                    parsed.get("forecast_candidates")
+                    or deterministic_payload["forecast_candidates"]
+                ),
             }
             parsed["quality"] = parsed["payload_json"].get("quality", {})
             parsed["themes"] = parsed["payload_json"].get("themes", [])
@@ -495,9 +585,138 @@ class RoundExecutor:
             parsed["assertions"] = parsed["payload_json"].get("assertions", [])
             parsed["world_nodes"] = parsed["payload_json"].get("world_nodes", [])
             parsed["world_edges"] = parsed["payload_json"].get("world_edges", [])
+            parsed["trading_opportunities"] = parsed["payload_json"].get(
+                "trading_opportunities", []
+            )
+            parsed["short_time_horizon_insights"] = parsed["payload_json"].get(
+                "short_time_horizon_insights", []
+            )
+            parsed["talking_points"] = parsed["payload_json"].get(
+                "talking_points", []
+            )
+            parsed["cross_document_references"] = parsed["payload_json"].get(
+                "cross_document_references", []
+            )
             parsed["forecast_candidates"] = parsed["payload_json"].get(
                 "forecast_candidates", []
             )
             return DocumentAnalysis.model_validate(parsed)
 
         return None
+
+    def _build_deterministic_payload(
+        self,
+        *,
+        document: Any,
+        chunks: list[Any],
+        evidence_units: list[Any],
+        assertions: list[Any],
+        quality_report: Any | None,
+        node_resolutions: list[Any],
+        edge_resolutions: list[Any],
+        forecast_candidates: list[Any],
+    ) -> dict[str, Any]:
+        """Build pipeline-owned payload sections from deterministic inputs."""
+        parsed_doc = getattr(document, "document", None)
+        parsed_data = parsed_doc.parsed_data if parsed_doc is not None else {}
+        metadata = (
+            parsed_data.get("metadata", {})
+            if isinstance(parsed_data, dict)
+            and isinstance(parsed_data.get("metadata"), dict)
+            else {}
+        )
+
+        return {
+            "document": {
+                "research_id": getattr(document, "research_id", None),
+                "file_id": getattr(document, "file_id", None),
+                "document_hash": getattr(document, "document_hash", None),
+                "document_name": getattr(parsed_doc, "document_name", None),
+                "document_title": getattr(parsed_doc, "document_title", None),
+                "source": getattr(parsed_doc, "source", None),
+                "source_date": getattr(parsed_doc, "source_date", None),
+                "publisher": getattr(parsed_doc, "publisher", None),
+                "area": getattr(parsed_doc, "area", None),
+                "region": getattr(parsed_doc, "region", None),
+                "asset_focus": getattr(parsed_doc, "asset_focus", None),
+                "document_link": getattr(parsed_doc, "document_link", None),
+                "trade_count": getattr(parsed_doc, "trade_count", 0),
+                "theme_count": getattr(parsed_doc, "theme_count", 0),
+                "metadata": metadata,
+            },
+            "quality": self._quality_payload(quality_report),
+            "themes": self._theme_payload(document),
+            "trades": self._legacy_trade_payload(parsed_data),
+            "chunks": [self._json_safe(chunk) for chunk in chunks],
+            "evidence_units": [self._json_safe(unit) for unit in evidence_units],
+            "assertions": [self._json_safe(assertion) for assertion in assertions],
+            "world_nodes": [self._json_safe(node) for node in node_resolutions],
+            "world_edges": [self._json_safe(edge) for edge in edge_resolutions],
+            "forecast_candidates": [
+                self._json_safe(candidate) for candidate in forecast_candidates
+            ],
+        }
+
+    @staticmethod
+    def _quality_payload(report: Any | None) -> dict[str, Any]:
+        if report is None:
+            return {}
+        return {
+            "score": getattr(report, "score", None),
+            "passed": bool(getattr(report, "passed", False)),
+            "warnings": list(getattr(report, "warnings", [])),
+            "blocking_issues": list(getattr(report, "blocking_issues", [])),
+            "metrics": dict(getattr(report, "metrics", {})),
+        }
+
+    @staticmethod
+    def _theme_payload(document: Any) -> list[dict[str, Any]]:
+        payload: list[dict[str, Any]] = []
+        for hydrated in getattr(document, "themes", []):
+            theme = hydrated.theme
+            payload.append(
+                {
+                    "theme_id": theme.id,
+                    "theme_order": theme.theme_order,
+                    "label": theme.label,
+                    "scope": theme.scope,
+                    "primary_category": theme.primary_category,
+                    "relevance": list(theme.relevance),
+                    "classification": theme.classification,
+                    "strength": theme.strength,
+                    "confidence": theme.confidence,
+                    "evidence_count": theme.evidence_count,
+                    "mention_count": theme.mention_count,
+                    "context": theme.context,
+                    "directionality": theme.directionality,
+                    "argument_structure": theme.argument_structure,
+                    "excerpts": [
+                        excerpt.excerpt_text
+                        for excerpt in getattr(hydrated, "excerpts", [])
+                    ],
+                }
+            )
+        return payload
+
+    @staticmethod
+    def _legacy_trade_payload(parsed_data: Any) -> list[dict[str, Any]]:
+        if not isinstance(parsed_data, dict):
+            return []
+        trades = parsed_data.get("trades")
+        if not isinstance(trades, list):
+            return []
+        return [trade for trade in trades if isinstance(trade, dict)]
+
+    @classmethod
+    def _json_safe(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if hasattr(value, "model_dump"):
+            return cls._json_safe(value.model_dump())
+        if is_dataclass(value):
+            return cls._json_safe(asdict(value))
+        if isinstance(value, dict):
+            return {str(key): cls._json_safe(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [cls._json_safe(item) for item in value]
+        return value
