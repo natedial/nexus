@@ -53,6 +53,7 @@ class AgentCallResult:
     model_used: str = ""
     stop_reason: str = ""
     attempt_count: int = 1
+    agent_name: str | None = None
 
 
 class AgentLlmClient(Protocol):

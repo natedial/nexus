@@ -64,3 +64,91 @@ Pull requests should include:
 ## Architecture Notes
 
 The active codebase implements the analysis layer between `research_parser` and `research_dispatcher`. Keep new code and plans aligned with those ownership boundaries: parser owns normalized extraction, this repo owns chunk/assertion/graph/forecast analysis, and dispatcher consumes downstream outputs.
+
+## Eval Infrastructure
+
+This repo includes an eval framework for measuring and monitoring analysis agent quality. See [`plans/2026-04-14-analysis-agent-eval-infrastructure-spec.md`](plans/2026-04-14-analysis-agent-eval-infrastructure-spec.md) for the full spec.
+
+### Golden Dataset
+
+Golden documents are in `evals/golden/`:
+- `documents/` — Source markdown documents
+- `annotations.jsonl` — Expected outputs for each document
+
+Run validation:
+```bash
+pytest tests/evals/test_golden_dataset.py -v
+```
+
+### CLI Commands
+
+Run eval on golden set:
+```bash
+python -m research_analysis_layer.evals run \
+  --golden evals/golden/ \
+  --output evals/results/ \
+  --agents thesis,positioning,contrarian,synthesizer
+```
+
+Run with LLM judge:
+```bash
+python -m research_analysis_layer.evals run \
+  --golden evals/golden/ \
+  --output evals/results/ \
+  --judge \
+  --judge-model claude-haiku-4-5-20251001
+```
+
+Compare to baseline:
+```bash
+python -m research_analysis_layer.evals compare \
+  --baseline evals/baselines/main.json
+```
+
+Export training captures:
+```bash
+python -m research_analysis_layer.evals export \
+  --start 2026-04-01 \
+  --min-confidence 0.75 \
+  --output data/training_sets/april.jsonl
+```
+
+### Programmatic Usage
+
+```python
+from research_analysis_layer.evals import (
+    AgentEvalRunner,
+    LLMJudge,
+    EvalDatabase,
+    TrainingCaptureManager,
+)
+
+runner = AgentEvalRunner(
+    llm_client=llm_client,
+    golden_path=Path("evals/golden/"),
+    output_dir=Path("evals/results/"),
+    eval_db=EvalDatabase("evals/eval.db"),
+    training_capture=TrainingCaptureManager(Path("evals/captures/")),
+)
+
+summary = runner.run_golden(use_judge=True)
+runner.save_results(summary)
+```
+
+### Setting a Baseline
+
+After a successful eval run, save the results as a baseline:
+```python
+from research_analysis_layer.evals import EvalDatabase, compute_golden_set_hash
+from pathlib import Path
+
+db = EvalDatabase("evals/eval.db")
+db.save_baseline(
+    baseline_name="main",
+    metrics={
+        "schema_validity_rate": 0.95,
+        "confidence_avg": 0.82,
+    },
+    golden_set_hash=compute_golden_set_hash(Path("evals/golden/")),
+)
+```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -170,12 +171,34 @@ class AgentRegistry:
         )
         return None
 
+    _INCLUDE_PATTERN = re.compile(r"\{\{include:\s*(?P<path>[^}]+?)\s*\}\}")
+
     def load_prompt(self, agent_name: str) -> str | None:
-        """Load the prompt content for an agent."""
+        """Load the prompt content for an agent, resolving {{include: path}} refs.
+
+        Include paths are resolved relative to the prompt file's directory. The
+        resolver is non-recursive: included fragments are not themselves scanned
+        for {{include}} directives. This keeps the mechanism simple and rules out
+        circular includes.
+        """
         path = self.resolve_prompt_path(agent_name)
         if not path:
             return None
-        return path.read_text().strip()
+
+        content = path.read_text()
+        base_dir = path.parent
+
+        def _resolve(match: re.Match) -> str:
+            rel = match.group("path").strip()
+            include_path = (base_dir / rel).resolve()
+            if not include_path.exists():
+                raise FileNotFoundError(
+                    f"Prompt include not found: {rel} "
+                    f"(resolved to {include_path}, referenced from {path})"
+                )
+            return include_path.read_text().rstrip()
+
+        return self._INCLUDE_PATTERN.sub(_resolve, content).strip()
 
     def get_table_name(self, agent_name: str) -> str | None:
         """Get the Supabase table name for an agent."""

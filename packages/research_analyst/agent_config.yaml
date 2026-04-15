@@ -19,7 +19,7 @@ agents:
       primary: claude-sonnet-4-20250514
       fallback: claude-haiku-4-20250514
     output_schema: DocumentAngle
-    tools: [research_search, research_corpus_info]
+    tools: [research_search]
     max_tool_calls: 4
     timeout_seconds: 120
     retry_count: 2
