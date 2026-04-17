@@ -144,7 +144,7 @@ class TestTholosWorkflow:
         assert result.parsed_output == {"result": "done"}
         assert len(result.tool_calls) == 1
         assert result.tool_calls[0].name == "research_search"
-        assert result.tool_calls[0].success is True
+        assert result.tool_calls[0].is_error is False
         second_messages = captured_payloads[1]["messages"]
         tool_result_text = second_messages[-1]["content"][0]["content"]
         assert "untrusted data" in tool_result_text.lower()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stdout
+from datetime import datetime, timezone
 import io
 import json
 from pathlib import Path
@@ -187,21 +188,50 @@ class AgentsTest(unittest.TestCase):
 
         payload = json.loads(buffer.getvalue())
         self.assertEqual(exit_code, 0)
-        self.assertGreaterEqual(len(payload), 3)
-        self.assertEqual(payload[0]["name"], "thesis")
+        names = {item["name"] for item in payload}
+        self.assertIn("proposer_thesis", names)
+        self.assertIn("challenger", names)
+        self.assertIn("synthesizer", names)
+        synthesizer = next(item for item in payload if item["name"] == "synthesizer")
+        self.assertEqual(synthesizer["output_schema"], "DocumentAnalysis")
+
+    def test_agent_input_builder_serializes_datetime_payloads(self) -> None:
+        builder = AgentInputBuilder()
+        messages = builder.to_messages(
+            {
+                "base": {"document": {"title": "Example"}},
+                "forum_context": {
+                    "arguments": [
+                        {
+                            "argument_id": "arg-1",
+                            "created_at": datetime(
+                                2026, 4, 15, 12, 0, tzinfo=timezone.utc
+                            ),
+                        }
+                    ]
+                },
+            }
+        )
+
+        forum_payload = json.loads(messages[1]["content"][0]["text"])
+        self.assertEqual(
+            forum_payload["arguments"][0]["created_at"],
+            "2026-04-15T12:00:00+00:00",
+        )
 
 
 def test_synthesizer_prompt_mentions_key_contract_points():
-    """The synthesizer prompt must document the real input shape and the
-    output sub-schemas, and must clearly mark orchestrator-overridden fields."""
+    """The debate synthesizer must consume adjudicated forum state, not raw
+    specialist summaries, and still describe the downstream output contract."""
     from research_analysis_layer.services.agent_registry import AgentRegistry
 
     registry = AgentRegistry()
     content = registry.load_prompt("synthesizer")
     assert content is not None
 
-    # It describes the specialist input shape correctly.
-    assert "DocumentAngle" in content or "specialists" in content.lower()
+    assert "forum_context" in content
+    assert "accepted/synthesized" in content
+    assert "verdict" in content.lower()
 
     # It documents the sub-schemas for structured outputs.
     assert "TradingOpportunity" in content
@@ -212,12 +242,7 @@ def test_synthesizer_prompt_mentions_key_contract_points():
     assert "document_key" in content
     assert "orchestrator" in content.lower()
 
-    # It tells the model to merge specialist cross_document_refs.
-    assert "cross_document_ref" in content
-    assert "merge" in content.lower() or "union" in content.lower()
-
-    # It does not reference the old misleading phrase.
-    assert "evidence pack" not in content.lower()
+    assert "Do not resolve raw disagreement yourself" in content
 
 
 def test_payload_structure_component_matches_runtime_schema():
@@ -299,6 +324,40 @@ def test_thesis_config_tools_match_prompt_documentation():
             f"document when/how to use it — either document it or remove "
             f"it from agent_config.yaml"
         )
+
+
+def test_debate_round_config_loads_expected_rounds():
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    rounds = registry.get_rounds()
+
+    assert [round_config.name for round_config in rounds] == [
+        "proposal",
+        "challenge",
+        "rebuttal",
+        "adjudication",
+        "synthesis",
+    ]
+    assert rounds[0].writes_forum_state is True
+    assert rounds[1].receives_forum_state is True
+    assert rounds[-1].target_selector == "accepted_only"
+
+
+def test_debate_prompts_load_with_includes_resolved():
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+
+    for agent_name in (
+        "proposer_thesis",
+        "challenger",
+        "rebuttal",
+        "adjudicator",
+    ):
+        content = registry.load_prompt(agent_name)
+        assert content is not None
+        assert "{{include:" not in content
 
 
 if __name__ == "__main__":

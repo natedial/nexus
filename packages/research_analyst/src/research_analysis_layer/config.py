@@ -108,6 +108,13 @@ class Settings:
     tholos_enabled: bool = False
     tholos_base_url: str = "http://localhost:8004"
     tholos_timeout_seconds: int = 30
+    eval_capture_enabled: bool = False
+    eval_captures_dir: Path = Path("evals/captures")
+
+    @property
+    def anthropic_api_key(self) -> str | None:
+        """Legacy property for ANTHROPIC_API_KEY env var."""
+        return os.getenv("ANTHROPIC_API_KEY") or self.agent_llm_api_key
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -175,6 +182,8 @@ class Settings:
             tholos_enabled=_env_bool("THOLOS_ENABLED", False),
             tholos_base_url=os.getenv("THOLOS_BASE_URL", "http://localhost:8004"),
             tholos_timeout_seconds=_env_int("THOLOS_TIMEOUT_SECONDS", 30),
+            eval_capture_enabled=_env_bool("EVAL_CAPTURE_ENABLED", False),
+            eval_captures_dir=Path(os.getenv("EVAL_CAPTURES_DIR", "evals/captures")),
         )
 
     @property
@@ -212,9 +221,13 @@ class Settings:
         if self.agent_execution_enabled:
             if not self.agent_llm_provider:
                 errors.append("missing agent llm provider: set AGENT_LLM_PROVIDER")
-            elif self.agent_llm_provider not in {"anthropic"}:
+            elif self.agent_llm_provider not in {
+                "anthropic",
+                "openai",
+                "openai_compatible",
+            }:
                 errors.append(
-                    "invalid agent llm provider: expected anthropic, "
+                    "invalid agent llm provider: expected anthropic, openai, or openai_compatible, "
                     f"received {self.agent_llm_provider!r}"
                 )
             if not self.agent_llm_api_key:

@@ -122,7 +122,15 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
         AnthropicAgentLlmClient,
     )
 
-    llm_client = AnthropicAgentLlmClient(api_key=settings.anthropic_api_key)
+    api_key = settings.agent_llm_api_key or settings.anthropic_api_key
+    if not api_key:
+        print(
+            "Error: ANTHROPIC_API_KEY or AGENT_LLM_API_KEY environment variable required",
+            file=sys.stderr,
+        )
+        return 1
+
+    llm_client = AnthropicAgentLlmClient(api_key=api_key)
 
     runner = AgentEvalRunner(
         llm_client=llm_client,

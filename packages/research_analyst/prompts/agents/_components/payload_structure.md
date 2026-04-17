@@ -26,6 +26,7 @@ The first user message is a JSON object — not raw document text. Parse it and 
   "themes": [
     {
       "theme_id": <int>,
+      "theme_key": "<theme-{id} or null>",
       "theme_order": <int>,
       "label": "<short theme name>",
       "scope": "<string or null>",
@@ -46,6 +47,7 @@ The first user message is a JSON object — not raw document text. Parse it and 
     "chunks": [
       {
         "chunk_order": <int>,
+        "chunk_key": "<chunk-{order} or null>",
         "chunk_type": "<string>",
         "title": "<string>",
         "text": "<up to 900 chars>",
@@ -59,7 +61,9 @@ The first user message is a JSON object — not raw document text. Parse it and 
     "evidence_units": [
       {
         "chunk_order": <int>,
+        "chunk_key": "<chunk-{order} or null>",
         "evidence_order": <int>,
+        "evidence_key": "<chunk-{order}:evidence-{evidence_order} or null>",
         "evidence_type": "<string>",
         "text": "<up to 400 chars>",
         "normalized_text": "<up to 400 chars or null>",
@@ -71,7 +75,9 @@ The first user message is a JSON object — not raw document text. Parse it and 
     "assertions": [
       {
         "chunk_order": <int>,
+        "chunk_key": "<chunk-{order} or null>",
         "assertion_order": <int>,
+        "assertion_key": "<chunk-{order}:assertion-{assertion_order} or null>",
         "assertion_type": "<claim|forecast|risk|...>",
         "text": "<up to 500 chars>",
         "summary_text": "<up to 500 chars>",
@@ -92,7 +98,7 @@ The first user message is a JSON object — not raw document text. Parse it and 
 }
 ```
 
-**Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, and authority — do not re-derive these from the excerpt. `themes[].directionality` and `themes[].strength` are your fastest path to the document's stance. Reach for `document.full_text_excerpt` only when the themes and assertions are silent on a point you need.
+**Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, authority, and stable `assertion_key`s — do not re-derive these from the excerpt. `themes[].directionality` and `themes[].strength` are your fastest path to the document's stance. Reach for `document.full_text_excerpt` only when the themes and assertions are silent on a point you need.
 
 ## Empty-payload fallback
 

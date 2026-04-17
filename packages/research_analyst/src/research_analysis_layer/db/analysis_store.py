@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
-from typing import Iterator
+from typing import Any, Iterator
 
 from research_analysis_layer.clocks import utc_now
 from research_analysis_layer.config import Settings
@@ -342,6 +342,116 @@ class AnalysisStore:
                     ON document_analysis(research_id);
                 CREATE INDEX IF NOT EXISTS document_analysis_document_hash_idx
                     ON document_analysis(document_hash);
+
+                -- Debate forum tables
+                CREATE TABLE IF NOT EXISTS debate_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL UNIQUE,
+                    research_id INTEGER NOT NULL,
+                    document_hash TEXT NOT NULL,
+                    analysis_version TEXT NOT NULL,
+                    run_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(research_id, document_hash, analysis_version, run_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS debate_turns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    turn_id TEXT NOT NULL UNIQUE,
+                    session_id TEXT NOT NULL,
+                    turn_name TEXT NOT NULL,
+                    turn_order INTEGER NOT NULL,
+                    agent_name TEXT NOT NULL,
+                    target_argument_ids_json TEXT NOT NULL,
+                    turn_summary TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS debate_arguments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    argument_id TEXT NOT NULL UNIQUE,
+                    session_id TEXT NOT NULL,
+                    turn_name TEXT NOT NULL,
+                    agent_name TEXT NOT NULL,
+                    thesis_type TEXT NOT NULL,
+                    argument_text TEXT NOT NULL,
+                    target_claim_id TEXT NULL,
+                    cited_chunk_keys_json TEXT NOT NULL,
+                    cited_evidence_keys_json TEXT NOT NULL,
+                    cited_assertion_keys_json TEXT NOT NULL,
+                    uncertainty REAL NOT NULL DEFAULT 0.0,
+                    qualifier_text TEXT NULL,
+                    target_instrument TEXT NULL,
+                    time_horizon TEXT NULL,
+                    invalidation_condition TEXT NULL,
+                    metadata_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS debate_relations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    relation_id TEXT NOT NULL UNIQUE,
+                    session_id TEXT NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    source_argument_id TEXT NOT NULL,
+                    target_argument_id TEXT NOT NULL,
+                    strength REAL NOT NULL DEFAULT 0.5,
+                    explanation TEXT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS debate_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    score_id TEXT NOT NULL UNIQUE,
+                    session_id TEXT NOT NULL,
+                    argument_id TEXT NOT NULL,
+                    deterministic_features_json TEXT NOT NULL,
+                    pairwise_wins INTEGER NOT NULL DEFAULT 0,
+                    pairwise_losses INTEGER NOT NULL DEFAULT 0,
+                    pairwise_ties INTEGER NOT NULL DEFAULT 0,
+                    llm_judge_score REAL NULL,
+                    final_score REAL NOT NULL DEFAULT 0.0,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS debate_verdicts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    verdict_id TEXT NOT NULL UNIQUE,
+                    session_id TEXT NOT NULL,
+                    argument_id TEXT NOT NULL,
+                    verdict_label TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    synthesizes_from_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                -- Debate indexes
+                CREATE INDEX IF NOT EXISTS idx_debate_sessions_doc
+                    ON debate_sessions(research_id, document_hash, analysis_version);
+                CREATE INDEX IF NOT EXISTS idx_debate_sessions_run
+                    ON debate_sessions(run_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_turns_session
+                    ON debate_turns(session_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_arguments_session
+                    ON debate_arguments(session_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_arguments_target
+                    ON debate_arguments(target_claim_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_relations_session
+                    ON debate_relations(session_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_relations_source
+                    ON debate_relations(source_argument_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_relations_target
+                    ON debate_relations(target_argument_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_scores_session
+                    ON debate_scores(session_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_scores_argument
+                    ON debate_scores(argument_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_verdicts_session
+                    ON debate_verdicts(session_id);
+                CREATE INDEX IF NOT EXISTS idx_debate_verdicts_argument
+                    ON debate_verdicts(argument_id);
                 """
             )
             self._ensure_column(
@@ -1617,8 +1727,30 @@ class AnalysisStore:
                 """,
                 (research_id, doc_hash),
             ).fetchone()
+            document_analysis_row = conn.execute(
+                """
+                SELECT document_key, research_id, document_hash, analysis_version, run_id,
+                       payload_json, thesis, confidence, total_input_tokens,
+                       total_output_tokens, total_tool_calls, total_duration_ms,
+                       created_at, updated_at
+                FROM document_analysis
+                WHERE research_id = ? AND document_hash = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (research_id, doc_hash),
+            ).fetchone()
+        debate_session = self._load_debate_session_for_review(research_id, doc_hash)
         return {
             "document": dict(document_row),
+            "document_analysis": (
+                {
+                    **dict(document_analysis_row),
+                    "payload_json": json.loads(document_analysis_row["payload_json"]),
+                }
+                if document_analysis_row is not None
+                else None
+            ),
             "quality": (
                 {
                     "quality_score": quality_row["quality_score"],
@@ -1638,6 +1770,12 @@ class AnalysisStore:
             "assertions": [dict(row) for row in assertions],
             "world_nodes": [dict(row) for row in node_rows],
             "world_edges": [dict(row) for row in edge_rows],
+            "debate_session": debate_session["session"] if debate_session else None,
+            "debate_turns": debate_session["turns"] if debate_session else [],
+            "debate_arguments": debate_session["arguments"] if debate_session else [],
+            "debate_relations": debate_session["relations"] if debate_session else [],
+            "debate_scores": debate_session["scores"] if debate_session else [],
+            "debate_verdicts": debate_session["verdicts"] if debate_session else [],
         }
 
     def get_analysis_counts(self) -> dict[str, int]:
@@ -1774,3 +1912,425 @@ class AnalysisStore:
                     now,
                 ),
             )
+
+    def create_debate_session(
+        self,
+        session_id: str,
+        research_id: int,
+        document_hash: str,
+        analysis_version: str,
+        run_id: int,
+    ) -> None:
+        """Create a new debate session.
+
+        Uses idempotent upsert on (research_id, document_hash, analysis_version, run_id).
+        """
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO debate_sessions (
+                    session_id, research_id, document_hash, analysis_version,
+                    run_id, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(research_id, document_hash, analysis_version, run_id) DO UPDATE SET
+                    session_id = excluded.session_id,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    session_id,
+                    research_id,
+                    document_hash,
+                    analysis_version,
+                    run_id,
+                    "active",
+                    now,
+                    now,
+                ),
+            )
+
+    def update_debate_session_status(
+        self,
+        session_id: str,
+        status: str,
+    ) -> None:
+        """Update the status of a debate session."""
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE debate_sessions
+                SET status = ?, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (status, now, session_id),
+            )
+
+    def write_debate_turn(
+        self,
+        turn_id: str,
+        session_id: str,
+        turn_name: str,
+        turn_order: int,
+        agent_name: str,
+        target_argument_ids: list[str],
+        turn_summary: str,
+    ) -> None:
+        """Write a debate turn to the database."""
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO debate_turns (
+                    turn_id, session_id, turn_name, turn_order, agent_name,
+                    target_argument_ids_json, turn_summary, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    turn_id,
+                    session_id,
+                    turn_name,
+                    turn_order,
+                    agent_name,
+                    json.dumps(target_argument_ids),
+                    turn_summary,
+                    now,
+                ),
+            )
+
+    def write_debate_arguments(
+        self,
+        arguments: list[dict[str, Any]],
+    ) -> None:
+        """Write multiple debate arguments to the database."""
+        if not arguments:
+            return
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            for arg in arguments:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO debate_arguments (
+                        argument_id, session_id, turn_name, agent_name, thesis_type,
+                        argument_text, target_claim_id,
+                        cited_chunk_keys_json, cited_evidence_keys_json, cited_assertion_keys_json,
+                        uncertainty, qualifier_text, target_instrument, time_horizon,
+                        invalidation_condition, metadata_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        arg["argument_id"],
+                        arg["session_id"],
+                        arg["turn_name"],
+                        arg["agent_name"],
+                        arg.get("thesis_type", "thesis"),
+                        arg["argument_text"],
+                        arg.get("target_claim_id"),
+                        json.dumps(arg.get("cited_chunk_keys", [])),
+                        json.dumps(arg.get("cited_evidence_keys", [])),
+                        json.dumps(arg.get("cited_assertion_keys", [])),
+                        arg.get("uncertainty", 0.0),
+                        arg.get("qualifier_text"),
+                        arg.get("target_instrument"),
+                        arg.get("time_horizon"),
+                        arg.get("invalidation_condition"),
+                        json.dumps(arg.get("metadata", {})),
+                        now,
+                    ),
+                )
+
+    def write_debate_relations(
+        self,
+        relations: list[dict[str, Any]],
+    ) -> None:
+        """Write multiple debate relations to the database."""
+        if not relations:
+            return
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            for rel in relations:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO debate_relations (
+                        relation_id, session_id, relation_type,
+                        source_argument_id, target_argument_id,
+                        strength, explanation, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        rel["relation_id"],
+                        rel["session_id"],
+                        rel["relation_type"],
+                        rel["source_argument_id"],
+                        rel["target_argument_id"],
+                        rel.get("strength", 0.5),
+                        rel.get("explanation"),
+                        now,
+                    ),
+                )
+
+    def write_debate_scores(
+        self,
+        scores: list[dict[str, Any]],
+    ) -> None:
+        """Write multiple debate scores to the database."""
+        if not scores:
+            return
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            for score in scores:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO debate_scores (
+                        score_id, session_id, argument_id,
+                        deterministic_features_json,
+                        pairwise_wins, pairwise_losses, pairwise_ties,
+                        llm_judge_score, final_score, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        score["score_id"],
+                        score["session_id"],
+                        score["argument_id"],
+                        json.dumps(score.get("deterministic_features", {})),
+                        score.get("pairwise_wins", 0),
+                        score.get("pairwise_losses", 0),
+                        score.get("pairwise_ties", 0),
+                        score.get("llm_judge_score"),
+                        score.get("final_score", 0.0),
+                        now,
+                    ),
+                )
+
+    def write_debate_verdicts(
+        self,
+        verdicts: list[dict[str, Any]],
+    ) -> None:
+        """Write multiple debate verdicts to the database."""
+        if not verdicts:
+            return
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            for v in verdicts:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO debate_verdicts (
+                        verdict_id, session_id, argument_id,
+                        verdict_label, reason, synthesizes_from_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        v["verdict_id"],
+                        v["session_id"],
+                        v["argument_id"],
+                        v["verdict_label"],
+                        v.get("reason", ""),
+                        json.dumps(v.get("synthesizes_from", [])),
+                        now,
+                    ),
+                )
+
+    def load_debate_session(self, session_id: str) -> dict[str, Any] | None:
+        """Load a complete debate session with all related data."""
+        with self._connect() as conn:
+            session_row = conn.execute(
+                "SELECT * FROM debate_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if session_row is None:
+                return None
+
+            turns = conn.execute(
+                "SELECT * FROM debate_turns WHERE session_id = ? ORDER BY turn_order",
+                (session_id,),
+            ).fetchall()
+
+            arguments = conn.execute(
+                "SELECT * FROM debate_arguments WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+
+            relations = conn.execute(
+                "SELECT * FROM debate_relations WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+
+            scores = conn.execute(
+                "SELECT * FROM debate_scores WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+
+            verdicts = conn.execute(
+                "SELECT * FROM debate_verdicts WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+
+        return {
+            "session": dict(session_row),
+            "turns": [self._debate_turn_from_row(row) for row in turns],
+            "arguments": [self._debate_argument_from_row(row) for row in arguments],
+            "relations": [self._debate_relation_from_row(row) for row in relations],
+            "scores": [self._debate_score_from_row(row) for row in scores],
+            "verdicts": [self._debate_verdict_from_row(row) for row in verdicts],
+        }
+
+    def load_latest_debate_for_document(
+        self,
+        research_id: int,
+        document_hash: str,
+        analysis_version: str,
+    ) -> dict[str, Any] | None:
+        """Load the latest debate session for a document."""
+        with self._connect() as conn:
+            session_row = conn.execute(
+                """
+                SELECT * FROM debate_sessions
+                WHERE research_id = ? AND document_hash = ? AND analysis_version = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (research_id, document_hash, analysis_version),
+            ).fetchone()
+            if session_row is None:
+                return None
+            return self.load_debate_session(session_row["session_id"])
+
+    def prune_superseded_debate_sessions(
+        self,
+        research_id: int | None = None,
+        document_hash: str | None = None,
+        analysis_version: str | None = None,
+    ) -> int:
+        """Prune superseded debate sessions per retention policy.
+
+        Keeps the latest debate session for each (research_id, document_hash, analysis_version)
+        and all sessions from the last 30 days.
+        """
+        now = utc_now()
+        from datetime import timedelta
+
+        cutoff_date = (now - timedelta(days=30)).isoformat()
+
+        query = """
+            SELECT session_id, research_id, document_hash, analysis_version, created_at, status
+            FROM debate_sessions
+            WHERE 1 = 1
+        """
+        params: list[object] = []
+
+        if research_id is not None:
+            query += " AND research_id = ?"
+            params.append(research_id)
+        if document_hash is not None:
+            query += " AND document_hash = ?"
+            params.append(document_hash)
+        if analysis_version is not None:
+            query += " AND analysis_version = ?"
+            params.append(analysis_version)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        sessions_to_keep = set()
+        sessions_by_key: dict[tuple, list[dict]] = {}
+
+        for row in rows:
+            key = (row["research_id"], row["document_hash"], row["analysis_version"])
+            if key not in sessions_by_key:
+                sessions_by_key[key] = []
+            sessions_by_key[key].append(dict(row))
+
+        for key, sessions in sessions_by_key.items():
+            sessions.sort(key=lambda x: x["created_at"], reverse=True)
+            if sessions:
+                sessions_to_keep.add(sessions[0]["session_id"])
+                for s in sessions[1:]:
+                    if s["created_at"] >= cutoff_date:
+                        sessions_to_keep.add(s["session_id"])
+
+        deleted_count = 0
+        with self._connect() as conn:
+            for row in rows:
+                if row["session_id"] not in sessions_to_keep:
+                    conn.execute(
+                        "DELETE FROM debate_verdicts WHERE session_id = ?",
+                        (row["session_id"],),
+                    )
+                    conn.execute(
+                        "DELETE FROM debate_scores WHERE session_id = ?",
+                        (row["session_id"],),
+                    )
+                    conn.execute(
+                        "DELETE FROM debate_relations WHERE session_id = ?",
+                        (row["session_id"],),
+                    )
+                    conn.execute(
+                        "DELETE FROM debate_arguments WHERE session_id = ?",
+                        (row["session_id"],),
+                    )
+                    conn.execute(
+                        "DELETE FROM debate_turns WHERE session_id = ?",
+                        (row["session_id"],),
+                    )
+                    conn.execute(
+                        "DELETE FROM debate_sessions WHERE session_id = ?",
+                        (row["session_id"],),
+                    )
+                    deleted_count += 1
+
+        return deleted_count
+
+    @staticmethod
+    def _debate_turn_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            **dict(row),
+            "target_argument_ids": json.loads(row["target_argument_ids_json"]),
+        }
+
+    def _load_debate_session_for_review(
+        self, research_id: int, document_hash: str
+    ) -> dict[str, Any] | None:
+        """Load the latest debate session for review output."""
+        with self._connect() as conn:
+            session_row = conn.execute(
+                """
+                SELECT *
+                FROM debate_sessions
+                WHERE research_id = ? AND document_hash = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (research_id, document_hash),
+            ).fetchone()
+            if session_row is None:
+                return None
+            return self.load_debate_session(session_row["session_id"])
+
+    @staticmethod
+    def _debate_argument_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            **dict(row),
+            "cited_chunk_keys": json.loads(row["cited_chunk_keys_json"]),
+            "cited_evidence_keys": json.loads(row["cited_evidence_keys_json"]),
+            "cited_assertion_keys": json.loads(row["cited_assertion_keys_json"]),
+            "metadata": json.loads(row["metadata_json"]),
+        }
+
+    @staticmethod
+    def _debate_relation_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return dict(row)
+
+    @staticmethod
+    def _debate_score_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            **dict(row),
+            "deterministic_features": json.loads(row["deterministic_features_json"]),
+        }
+
+    @staticmethod
+    def _debate_verdict_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            **dict(row),
+            "synthesizes_from": json.loads(row["synthesizes_from_json"]),
+        }

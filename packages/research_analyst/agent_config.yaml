@@ -1,62 +1,172 @@
 # Round-based Agent Registry Configuration
-# Active configuration for the multi-round debate pipeline
+# Debate rounds are active. Legacy specialist agents remain registered for fallback
+# and prompt regression coverage.
 
 rounds:
-  - name: specialists
-    type: parallel
-    agents: [thesis, contrarian, positioning]
-    receives: [input]
-    fail_round_on_agent_error: false
-  - name: synthesis
-    type: sequential
-    agents: [synthesizer]
-    receives: [input, specialists]
+    - name: proposal
+      type: parallel
+      agents: [proposer_thesis, proposer_positioning]
+      receives: [input]
+      output_schema: DebateRoundOutput
+      writes_forum_state: true
+      receives_forum_state: false
+      target_selector: proposal_targets
+      fail_round_on_agent_error: false
+
+    - name: challenge
+      type: parallel
+      agents: [challenger]
+      receives: [input]
+      output_schema: DebateRoundOutput
+      writes_forum_state: true
+      receives_forum_state: true
+      target_selector: challenge_targets
+      fail_round_on_agent_error: false
+
+    - name: rebuttal
+      type: parallel
+      agents: [rebuttal]
+      receives: [input]
+      output_schema: DebateRoundOutput
+      writes_forum_state: true
+      receives_forum_state: true
+      target_selector: rebuttal_targets
+      fail_round_on_agent_error: false
+
+    - name: adjudication
+      type: sequential
+      agents: [adjudicator]
+      receives: [input]
+      output_schema: DebateRoundOutput
+      writes_forum_state: true
+      receives_forum_state: true
+      target_selector: all
+      fail_round_on_agent_error: false
+
+    - name: synthesis
+      type: sequential
+      agents: [synthesizer]
+      receives: [input]
+      output_schema: DocumentAnalysis
+      writes_forum_state: false
+      receives_forum_state: true
+      target_selector: accepted_only
+      fail_round_on_agent_error: false
 
 agents:
-  thesis:
-    prompt_path: prompts/agents/thesis.md
-    model:
-      primary: claude-sonnet-4-20250514
-      fallback: claude-haiku-4-20250514
-    output_schema: DocumentAngle
-    tools: [research_search]
-    max_tool_calls: 4
-    timeout_seconds: 120
-    retry_count: 2
-    temperature: 0.4
+    thesis:
+        prompt_path: prompts/agents/thesis.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DocumentAngle
+        tools: [research_search]
+        max_tool_calls: 4
+        timeout_seconds: 120
+        retry_count: 2
+        temperature: 0.4
+        priority: 10
 
-  contrarian:
-    prompt_path: prompts/agents/contrarian.md
-    model:
-      primary: claude-sonnet-4-20250514
-      fallback: claude-haiku-4-20250514
-    output_schema: DocumentAngle
-    tools: [research_search]
-    max_tool_calls: 6
-    timeout_seconds: 120
-    retry_count: 2
-    temperature: 0.4
+    contrarian:
+        prompt_path: prompts/agents/contrarian.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DocumentAngle
+        tools: [research_search]
+        max_tool_calls: 6
+        timeout_seconds: 120
+        retry_count: 2
+        temperature: 0.4
+        priority: 20
 
-  positioning:
-    prompt_path: prompts/agents/positioning.md
-    model:
-      primary: claude-haiku-4-20250514
-      fallback: claude-haiku-4-20250514
-    output_schema: DocumentAngle
-    tools: []
-    max_tool_calls: 0
-    timeout_seconds: 60
-    retry_count: 2
-    temperature: 0.3
+    positioning:
+        prompt_path: prompts/agents/positioning.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DocumentAngle
+        tools: []
+        max_tool_calls: 0
+        timeout_seconds: 60
+        retry_count: 2
+        temperature: 0.3
+        priority: 30
 
-  synthesizer:
-    prompt_path: prompts/agents/synthesizer.md
-    model:
-      primary: claude-sonnet-4-20250514
-      fallback: claude-sonnet-4-20250514
-    output_schema: DocumentAnalysis
-    tools: []
-    max_tool_calls: 0
-    timeout_seconds: 180
-    retry_count: 2
-    temperature: 0.3
+    proposer_thesis:
+        prompt_path: prompts/agents/debate/proposer_thesis.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DebateRoundOutput
+        tools: [research_search]
+        max_tool_calls: 3
+        timeout_seconds: 120
+        retry_count: 2
+        temperature: 0.3
+        priority: 40
+
+    proposer_positioning:
+        prompt_path: prompts/agents/debate/proposer_positioning.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DebateRoundOutput
+        tools: []
+        max_tool_calls: 0
+        timeout_seconds: 90
+        retry_count: 2
+        temperature: 0.3
+        priority: 50
+
+    challenger:
+        prompt_path: prompts/agents/debate/challenger.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DebateRoundOutput
+        tools: [research_search]
+        max_tool_calls: 4
+        timeout_seconds: 120
+        retry_count: 2
+        temperature: 0.3
+        priority: 60
+
+    rebuttal:
+        prompt_path: prompts/agents/debate/rebuttal.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DebateRoundOutput
+        tools: []
+        max_tool_calls: 0
+        timeout_seconds: 90
+        retry_count: 2
+        temperature: 0.3
+        priority: 70
+
+    adjudicator:
+        prompt_path: prompts/agents/debate/adjudicator.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DebateRoundOutput
+        tools: []
+        max_tool_calls: 0
+        timeout_seconds: 120
+        retry_count: 2
+        temperature: 0.2
+        priority: 80
+
+    synthesizer:
+        prompt_path: prompts/agents/debate/synthesizer.md
+        model:
+            primary: gpt-5-mini
+            fallback: gpt-5-nano
+        output_schema: DocumentAnalysis
+        tools: []
+        max_tool_calls: 0
+        timeout_seconds: 180
+        retry_count: 2
+        temperature: 0.2
+        priority: 90

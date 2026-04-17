@@ -124,6 +124,14 @@ class AgentRegistry:
                         fail_round_on_agent_error=round_data.get(
                             "fail_round_on_agent_error", False
                         ),
+                        output_schema=round_data.get("output_schema", ""),
+                        writes_forum_state=round_data.get(
+                            "writes_forum_state", False
+                        ),
+                        receives_forum_state=round_data.get(
+                            "receives_forum_state", False
+                        ),
+                        target_selector=round_data.get("target_selector"),
                     )
                 )
 

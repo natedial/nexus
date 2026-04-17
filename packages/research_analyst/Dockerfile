@@ -7,6 +7,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY agent_config.yaml ./
+COPY prompts ./prompts
 COPY src ./src
 COPY scripts ./scripts
 

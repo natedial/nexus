@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -93,6 +94,7 @@ class AgentInputBuilder:
             themes=[
                 AgentInputTheme(
                     theme_id=hydrated.theme.id,
+                    theme_key=f"theme-{hydrated.theme.id}",
                     theme_order=hydrated.theme.theme_order,
                     label=hydrated.theme.label,
                     scope=hydrated.theme.scope,
@@ -143,6 +145,7 @@ class AgentInputBuilder:
     def _chunk_dict(self, chunk: AnalysisChunkDraft) -> dict[str, object]:
         return {
             "chunk_order": chunk.chunk_order,
+            "chunk_key": f"chunk-{chunk.chunk_order}",
             "chunk_type": chunk.chunk_type,
             "title": chunk.title,
             "text": _truncate(chunk.text, self.max_chunk_chars),
@@ -159,7 +162,11 @@ class AgentInputBuilder:
             source_ref = asdict(source_ref)
         return {
             "chunk_order": unit.chunk_order,
+            "chunk_key": f"chunk-{unit.chunk_order}",
             "evidence_order": unit.evidence_order,
+            "evidence_key": (
+                f"chunk-{unit.chunk_order}:evidence-{unit.evidence_order}"
+            ),
             "evidence_type": unit.evidence_type,
             "text": _truncate(unit.text, self.max_evidence_chars),
             "normalized_text": _truncate(unit.normalized_text, self.max_evidence_chars),
@@ -171,7 +178,11 @@ class AgentInputBuilder:
     def _assertion_dict(self, assertion: AssertionDraft) -> dict[str, object]:
         return {
             "chunk_order": assertion.chunk_order,
+            "chunk_key": f"chunk-{assertion.chunk_order}",
             "assertion_order": assertion.assertion_order,
+            "assertion_key": (
+                f"chunk-{assertion.chunk_order}:assertion-{assertion.assertion_order}"
+            ),
             "assertion_type": assertion.assertion_type,
             "text": _truncate(assertion.text, self.max_assertion_chars),
             "summary_text": _truncate(assertion.summary_text, self.max_assertion_chars),
@@ -190,8 +201,10 @@ class AgentInputBuilder:
 
     @staticmethod
     def _json_safe(value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.isoformat()
         if is_dataclass(value):
-            return asdict(value)
+            return AgentInputBuilder._json_safe(asdict(value))
         if isinstance(value, dict):
             return {
                 str(key): AgentInputBuilder._json_safe(item)
@@ -215,7 +228,7 @@ class AgentInputBuilder:
         messages = []
 
         if "base" in input_data:
-            base = input_data["base"]
+            base = self._json_safe(input_data["base"])
             base_text = json.dumps(base, ensure_ascii=True, sort_keys=True)
             messages.append(
                 {
@@ -224,31 +237,43 @@ class AgentInputBuilder:
                 }
             )
 
+        def _message_text(payload: Any) -> str:
+            if hasattr(payload, "model_dump"):
+                payload = payload.model_dump(mode="python")
+            payload = self._json_safe(payload)
+            return json.dumps(payload, ensure_ascii=True, sort_keys=True)
+
         for round_name, round_data in input_data.items():
             if round_name == "base" or round_name == "last_result":
                 continue
             if isinstance(round_data, list):
-                for angle in round_data:
-                    if hasattr(angle, "model_dump"):
-                        angle_dict = angle.model_dump()
-                    else:
-                        angle_dict = angle
+                for item in round_data:
                     messages.append(
                         {
                             "role": "user",
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(
-                                        angle_dict, ensure_ascii=True, sort_keys=True
-                                    ),
+                                    "text": _message_text(item),
                                 }
                             ],
                         }
                     )
+            else:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": _message_text(round_data),
+                            }
+                        ],
+                    }
+                )
 
         if "last_result" in input_data:
-            last = input_data["last_result"]
+            last = self._json_safe(input_data["last_result"])
             messages.append(
                 {
                     "role": "user",

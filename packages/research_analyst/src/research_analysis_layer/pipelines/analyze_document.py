@@ -30,6 +30,7 @@ class AnalyzeDocumentPipeline:
         quality_reviewer: QualityReviewer,
         analysis_version: str,
         round_executor=None,
+        eval_trigger=None,
     ):
         self.store = store
         self.chunker = chunker
@@ -41,6 +42,7 @@ class AnalyzeDocumentPipeline:
         self.quality_reviewer = quality_reviewer
         self.analysis_version = analysis_version
         self.round_executor = round_executor
+        self._eval_trigger = eval_trigger
 
     def run(
         self,
@@ -154,28 +156,59 @@ class AnalyzeDocumentPipeline:
                 rounds=rounds,
                 agent_specs=agent_specs,
             )
-            if doc_analysis:
-                total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)
-                total_output = sum(rt.output_tokens for rt in doc_analysis.round_traces)
-                total_tool_calls = sum(
-                    rt.tool_call_count for rt in doc_analysis.round_traces
+            if doc_analysis is None:
+                return RunItemResult(
+                    status="error",
+                    chunk_count=len(chunks),
+                    assertion_count=len(assertions),
+                    node_upsert_count=graph_result.node_upsert_count
+                    if graph_result
+                    else 0,
+                    edge_upsert_count=graph_result.edge_upsert_count
+                    if graph_result
+                    else 0,
+                    open_question_count=graph_result.open_question_count
+                    if graph_result
+                    else 0,
+                    quality_score=quality_report.score,
+                    quality_summary_json=quality_summary_json,
+                    error_type="agent_no_output",
+                    error_text="synthesizer did not produce a valid DocumentAnalysis",
+                    agent_no_output_count=1,
                 )
-                total_duration = sum(rt.duration_ms for rt in doc_analysis.round_traces)
-                self.store.write_document_analysis(
-                    document_key=doc_analysis.document_key,
-                    research_id=doc_analysis.research_id,
-                    document_hash=doc_analysis.document_hash,
-                    analysis_version=doc_analysis.analysis_version,
-                    run_id=str(doc_analysis.metadata.run_id),
-                    payload_json=doc_analysis.model_dump_json(),
-                    thesis=doc_analysis.thesis,
-                    confidence=doc_analysis.confidence,
-                    total_input_tokens=total_input,
-                    total_output_tokens=total_output,
-                    total_tool_calls=total_tool_calls,
-                    total_duration_ms=total_duration,
-                )
-                round_summary = doc_analysis
+
+            total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)
+            total_output = sum(rt.output_tokens for rt in doc_analysis.round_traces)
+            total_tool_calls = sum(
+                rt.tool_call_count for rt in doc_analysis.round_traces
+            )
+            total_duration = sum(rt.duration_ms for rt in doc_analysis.round_traces)
+            self.store.write_document_analysis(
+                document_key=doc_analysis.document_key,
+                research_id=doc_analysis.research_id,
+                document_hash=doc_analysis.document_hash,
+                analysis_version=doc_analysis.analysis_version,
+                run_id=str(doc_analysis.metadata.run_id),
+                payload_json=doc_analysis.model_dump_json(),
+                thesis=doc_analysis.thesis,
+                confidence=doc_analysis.confidence,
+                total_input_tokens=total_input,
+                total_output_tokens=total_output,
+                total_tool_calls=total_tool_calls,
+                total_duration_ms=total_duration,
+            )
+            round_summary = doc_analysis
+
+            if self._eval_trigger is not None:
+                try:
+                    self._eval_trigger.fire_async(
+                        document_id=str(document.document_hash),
+                        agent_output=round_summary.model_dump(),
+                        confidence=round_summary.confidence,
+                    )
+                except Exception:
+                    pass
+
         return RunItemResult(
             status="success",
             chunk_count=len(chunks),
@@ -189,3 +222,8 @@ class AnalyzeDocumentPipeline:
             agent_no_output_count=0,
             agent_error_count=0,
         )
+
+    def shutdown(self) -> None:
+        """Clean up resources, including eval trigger executor."""
+        if self._eval_trigger is not None:
+            self._eval_trigger.shutdown(wait=True)

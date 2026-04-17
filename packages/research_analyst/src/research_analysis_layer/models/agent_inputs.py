@@ -33,6 +33,7 @@ class AgentInputTheme(BaseModel):
     """Theme-level signal from the parser-owned normalization pass."""
 
     theme_id: int
+    theme_key: str | None = None
     theme_order: int
     label: str
     scope: str | None = None
@@ -53,6 +54,7 @@ class AgentInputChunk(BaseModel):
     """Chunk-level deterministic context."""
 
     chunk_order: int
+    chunk_key: str | None = None
     chunk_type: str
     title: str
     text: str | None = None
@@ -67,7 +69,9 @@ class AgentInputEvidenceUnit(BaseModel):
     """Evidence unit attached to a deterministic chunk."""
 
     chunk_order: int
+    chunk_key: str | None = None
     evidence_order: int
+    evidence_key: str | None = None
     evidence_type: str
     text: str | None = None
     normalized_text: str | None = None
@@ -80,7 +84,9 @@ class AgentInputAssertion(BaseModel):
     """Deterministic assertion extracted from the document."""
 
     chunk_order: int
+    chunk_key: str | None = None
     assertion_order: int
+    assertion_key: str | None = None
     assertion_type: str
     text: str | None = None
     summary_text: str | None = None
@@ -147,6 +153,7 @@ def render_payload_structure_markdown() -> str:
           "themes": [
             {
               "theme_id": <int>,
+              "theme_key": "<theme-{id} or null>",
               "theme_order": <int>,
               "label": "<short theme name>",
               "scope": "<string or null>",
@@ -167,6 +174,7 @@ def render_payload_structure_markdown() -> str:
             "chunks": [
               {
                 "chunk_order": <int>,
+                "chunk_key": "<chunk-{order} or null>",
                 "chunk_type": "<string>",
                 "title": "<string>",
                 "text": "<up to 900 chars>",
@@ -180,7 +188,9 @@ def render_payload_structure_markdown() -> str:
             "evidence_units": [
               {
                 "chunk_order": <int>,
+                "chunk_key": "<chunk-{order} or null>",
                 "evidence_order": <int>,
+                "evidence_key": "<chunk-{order}:evidence-{evidence_order} or null>",
                 "evidence_type": "<string>",
                 "text": "<up to 400 chars>",
                 "normalized_text": "<up to 400 chars or null>",
@@ -192,7 +202,9 @@ def render_payload_structure_markdown() -> str:
             "assertions": [
               {
                 "chunk_order": <int>,
+                "chunk_key": "<chunk-{order} or null>",
                 "assertion_order": <int>,
+                "assertion_key": "<chunk-{order}:assertion-{assertion_order} or null>",
                 "assertion_type": "<claim|forecast|risk|...>",
                 "text": "<up to 500 chars>",
                 "summary_text": "<up to 500 chars>",
@@ -213,7 +225,7 @@ def render_payload_structure_markdown() -> str:
         }
         ```
 
-        **Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, and authority — do not re-derive these from the excerpt. `themes[].directionality` and `themes[].strength` are your fastest path to the document's stance. Reach for `document.full_text_excerpt` only when the themes and assertions are silent on a point you need.
+        **Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, authority, and stable `assertion_key`s — do not re-derive these from the excerpt. `themes[].directionality` and `themes[].strength` are your fastest path to the document's stance. Reach for `document.full_text_excerpt` only when the themes and assertions are silent on a point you need.
 
         ## Empty-payload fallback
 

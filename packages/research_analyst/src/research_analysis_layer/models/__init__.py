@@ -33,6 +33,24 @@ from .forecast_models import (
 from .quality_models import DocumentQualityReport
 from .run_models import AnalysisRun, ParserStateRecord, RunItemResult, SelectionDecision
 from .world_models import EdgeResolution, GraphUpdateResult, NodeResolution
+from .debate_models import (
+    ArgumentMetadata,
+    ChallengeMode,
+    DebateArgument,
+    DebateRelation,
+    DebateRelationType,
+    DebateRoundOutput,
+    DebateScore,
+    DebateSession,
+    DebateTurn,
+    DebateVerdict,
+    DebateVerdictLabel,
+    DeterministicScoreFeature,
+    ForumContext,
+    RebuttalStance,
+    StableEvidenceKey,
+    ThesisType,
+)
 
 __all__ = [
     "AnalysisChunkDraft",
@@ -66,4 +84,21 @@ __all__ = [
     "TradingOpportunity",
     "ShortTimeHorizonInsight",
     "render_payload_structure_markdown",
+    # Debate models
+    "ArgumentMetadata",
+    "ChallengeMode",
+    "DebateArgument",
+    "DebateRelation",
+    "DebateRelationType",
+    "DebateRoundOutput",
+    "DebateScore",
+    "DebateSession",
+    "DebateTurn",
+    "DebateVerdict",
+    "DebateVerdictLabel",
+    "DeterministicScoreFeature",
+    "ForumContext",
+    "RebuttalStance",
+    "StableEvidenceKey",
+    "ThesisType",
 ]

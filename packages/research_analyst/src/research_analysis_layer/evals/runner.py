@@ -14,6 +14,13 @@ from research_analysis_layer.evals.comparison import (
     compare_outputs,
     compute_confidence,
 )
+from research_analysis_layer.models.agent_inputs import (
+    AgentInputDocument,
+    AgentInputTheme,
+    AgentInputAssertion,
+    DeterministicAnalysisPayload,
+    AgentInputPayload,
+)
 from research_analysis_layer.models.agent_outputs import DocumentAnalysis
 
 if TYPE_CHECKING:
@@ -223,6 +230,11 @@ class AgentEvalRunner:
         self.training_capture = training_capture
         self._run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
+        if self.agent_registry is None:
+            from research_analysis_layer.services.agent_registry import AgentRegistry
+
+            self.agent_registry = AgentRegistry()
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def run_single(
@@ -272,7 +284,10 @@ class AgentEvalRunner:
         judge_scores = None
         judge_reasoning = None
         if use_judge:
-            judge_scores, judge_reasoning = self._run_judge(primary_output, expected)
+            source_document = golden_doc.get("content", "")[:8000]
+            judge_scores, judge_reasoning = self._run_judge(
+                primary_output, expected, source_document
+            )
 
         total_latency = sum(latencies.values())
 
@@ -311,13 +326,18 @@ class AgentEvalRunner:
 
             structured_input = _extract_golden_input(golden_doc.get("content", ""))
 
+            config = self.agent_registry.get_agent(
+                "synthesizer"
+            ) or self.agent_registry.get_agent(agent_types[0])
+            model_name = config.model if config else "claude-sonnet-4-20250514"
+
             self.training_capture.capture(
                 document_id=document_id,
                 input_data=structured_input,
                 output_data=primary_output,
                 metadata={
                     "agent_type": ",".join(agent_types),
-                    "model": "claude-sonnet-4-20250514",
+                    "model": model_name,
                     "confidence": confidence,
                     "schema_valid": schema_valid,
                     "latency_ms": total_latency,
@@ -357,38 +377,60 @@ class AgentEvalRunner:
         return self._summarize_results(results)
 
     def _run_agent(self, agent_type: str, golden_doc: dict) -> dict:
-        """Run a single agent on a golden document.
+        """Run a single agent on a golden document."""
+        config = self.agent_registry.get_agent(agent_type)
+        if config is None:
+            raise ValueError(f"unknown agent '{agent_type}'")
 
-        This is a placeholder - actual implementation would:
-        1. Load agent prompt from registry
-        2. Build input payload from golden doc
-        3. Call LLM with structured output
-        4. Parse and return result
-        """
-        prompt_path = (
-            self.golden_path.parent.parent / "prompts" / "evals" / "placeholder.md"
+        prompt = self.agent_registry.load_prompt(agent_type)
+        if prompt is None:
+            raise RuntimeError(f"prompt missing for '{agent_type}'")
+
+        structured_input = _extract_golden_input(golden_doc["content"])
+
+        themes = []
+        for i, t in enumerate(structured_input["themes"]):
+            theme_data = {"theme_id": i, "theme_order": i, "confidence": "medium", **t}
+            try:
+                themes.append(AgentInputTheme(**theme_data))
+            except Exception:
+                pass
+
+        assertions = []
+        for i, a in enumerate(structured_input["assertions"]):
+            assertion_data = {
+                "chunk_order": 0,
+                "assertion_order": i,
+                "assertion_type": "claim",
+                **a,
+            }
+            try:
+                assertions.append(AgentInputAssertion(**assertion_data))
+            except Exception:
+                pass
+
+        payload = AgentInputPayload(
+            agent_type=agent_type,
+            document=AgentInputDocument(
+                research_id=0,
+                document_name=golden_doc["document_id"],
+                source=golden_doc.get("source_type"),
+                full_text_excerpt=structured_input["document_text"][:12000],
+            ),
+            themes=themes,
+            deterministic_analysis=DeterministicAnalysisPayload(
+                assertions=assertions,
+            ),
         )
 
-        if prompt_path.exists():
-            prompt = prompt_path.read_text()
-        else:
-            prompt = f"You are a {agent_type} agent. Analyze this document."
-
-        user_payload = {
-            "document": {
-                "full_text_excerpt": golden_doc["content"][:5000],
-            },
-            "metadata": {
-                "document_id": golden_doc["document_id"],
-            },
-        }
+        payload_dict = payload.model_dump(mode="python")
 
         try:
             result = self.llm_client.generate_structured(
                 system_prompt=prompt,
-                user_payload=user_payload,
-                model="claude-sonnet-4-20250514",
-                timeout_seconds=120,
+                user_payload=payload_dict,
+                model=config.model,
+                timeout_seconds=config.timeout_seconds,
             )
             return result
         except Exception as e:

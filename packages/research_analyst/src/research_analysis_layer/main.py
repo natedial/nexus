@@ -111,7 +111,19 @@ def build_app(settings: Settings) -> RunBatchPipeline:
             llm_client=llm_client,
             input_builder=AgentInputBuilder(),
             tool_registry=tool_registry,
+            analysis_store=store,
         )
+
+    eval_trigger = None
+    if settings.eval_capture_enabled:
+        import atexit
+        from research_analysis_layer.evals.training_capture import (
+            TrainingCaptureManager,
+        )
+        from research_analysis_layer.evals.trigger import EvalTrigger
+
+        eval_trigger = EvalTrigger(TrainingCaptureManager(settings.eval_captures_dir))
+        atexit.register(eval_trigger.shutdown)
 
     analyze_document = AnalyzeDocumentPipeline(
         store=store,
@@ -124,7 +136,9 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         quality_reviewer=QualityReviewer(settings),
         analysis_version=settings.analysis_version,
         round_executor=round_executor,
+        eval_trigger=eval_trigger,
     )
+
     ops = PipelineOpsClient.from_env(
         default_spool_db_path=str(
             settings.analysis_db_path.parent / "pipeline_ops_spool.db"
@@ -209,6 +223,7 @@ def command_run(
         agents=agents,
     )
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
+    pipeline.analyze_document.shutdown()
     return 0 if result.error_count == 0 else 1
 
 
@@ -544,6 +559,9 @@ def command_list_agents(settings: Settings) -> int:
             "priority": config.priority,
             "table_name": config.table_name,
             "prompt_path": config.prompt_path,
+            "tools": config.tools or [],
+            "max_tool_calls": config.max_tool_calls,
+            "output_schema": config.output_schema,
             "prompt_resolved": registry.resolve_prompt_path(config.name) is not None,
         }
         for config in registry.list_agents()

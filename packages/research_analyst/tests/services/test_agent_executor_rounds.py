@@ -16,6 +16,7 @@ from research_analysis_layer.services.agent_llm_client import (
     TokenUsage,
 )
 from research_analysis_layer.models.agent_outputs import RoundTrace
+from research_analysis_layer.db.analysis_store import AnalysisStore
 
 
 class TestAgentExecutorRounds(unittest.TestCase):
@@ -474,7 +475,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
         def fake_generate_with_tools(**kwargs):
             system_prompt = kwargs.get("system_prompt", "")
             # Synthesizer returns blank identity fields — orchestrator must stamp them.
-            if "Synthesizer Agent" in system_prompt:
+            if "Synthesizer" in system_prompt:
                 return AgentCallResult(
                     raw_text="",
                     parsed_output={
@@ -501,12 +502,9 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
             return AgentCallResult(
                 raw_text="",
                 parsed_output={
-                    "angle": "thesis",
-                    "summary": "a thesis",
-                    "key_claims": [],
-                    "cross_document_refs": [],
-                    "risks": [],
-                    "confidence": 0.8,
+                    "turn_summary": "No-op debate round.",
+                    "arguments": [],
+                    "relations": [],
                 },
                 tool_calls=[],
                 token_usage=TokenUsage(),
@@ -537,7 +535,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                 timeout_seconds=60,
                 retry_count=1,
                 temperature=0.4,
-                output_schema="DocumentAngle",
+                output_schema=registry.get_agent(name).output_schema,
             )
             for round_cfg in rounds
             for name in round_cfg.agents
@@ -564,6 +562,386 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
         self.assertEqual(analysis.quality, {})
         self.assertEqual(analysis.trades, [])
         self.assertEqual(analysis.assertions, [])
+
+    def test_round_executor_persists_debate_artifacts(self):
+        class FakeClient:
+            @staticmethod
+            def generate_with_tools(**kwargs):
+                prompt = kwargs["system_prompt"]
+                if prompt == "proposer_thesis":
+                    return AgentCallResult(
+                        raw_text="",
+                        parsed_output={
+                            "turn_summary": "Opened the thesis case.",
+                            "arguments": [
+                                {
+                                    "argument_text": "Rates stay higher for longer.",
+                                    "cited_assertion_keys": ["chunk-1:assertion-1"],
+                                }
+                            ],
+                            "relations": [],
+                        },
+                        tool_calls=[],
+                        token_usage=TokenUsage(),
+                        model_used="test-model",
+                        stop_reason="end_turn",
+                        attempt_count=1,
+                    )
+                if prompt == "challenger":
+                    return AgentCallResult(
+                        raw_text="",
+                        parsed_output={
+                            "turn_summary": "Challenged the primary thesis.",
+                            "target_argument_ids": [
+                                "debate:7:hash-7:v3:13:proposal:proposer_thesis:arg:1"
+                            ],
+                            "arguments": [
+                                {
+                                    "argument_text": "Growth is rolling over faster than the thesis assumes.",
+                                    "cited_assertion_keys": ["chunk-2:assertion-1"],
+                                    "metadata": {"challenge_mode": "weaken"},
+                                }
+                            ],
+                            "relations": [
+                                {
+                                    "relation_type": "challenges",
+                                    "strength": 0.7,
+                                    "explanation": "Contradictory growth evidence.",
+                                }
+                            ],
+                        },
+                        tool_calls=[],
+                        token_usage=TokenUsage(),
+                        model_used="test-model",
+                        stop_reason="end_turn",
+                        attempt_count=1,
+                    )
+                if prompt == "rebuttal":
+                    return AgentCallResult(
+                        raw_text="",
+                        parsed_output={
+                            "turn_summary": "Narrowed the thesis to the near term.",
+                            "target_argument_ids": [
+                                "debate:7:hash-7:v3:13:proposal:proposer_thesis:arg:1"
+                            ],
+                            "arguments": [
+                                {
+                                    "argument_text": "Rates stay higher over the next weeks unless payrolls crack.",
+                                    "cited_assertion_keys": ["chunk-1:assertion-2"],
+                                    "time_horizon": "weeks",
+                                    "invalidation_condition": "Payrolls decelerate sharply.",
+                                    "metadata": {"rebuttal_stance": "narrow"},
+                                }
+                            ],
+                            "relations": [
+                                {
+                                    "relation_type": "rebuts",
+                                    "strength": 0.6,
+                                    "explanation": "Narrows the claim to a better-supported horizon.",
+                                }
+                            ],
+                        },
+                        tool_calls=[],
+                        token_usage=TokenUsage(),
+                        model_used="test-model",
+                        stop_reason="end_turn",
+                        attempt_count=1,
+                    )
+                if prompt == "adjudicator":
+                    return AgentCallResult(
+                        raw_text="",
+                        parsed_output={"turn_summary": "Ranked the competing arguments."},
+                        tool_calls=[],
+                        token_usage=TokenUsage(),
+                        model_used="test-model",
+                        stop_reason="end_turn",
+                        attempt_count=1,
+                    )
+                return AgentCallResult(
+                    raw_text="",
+                    parsed_output={
+                        "document_key": "",
+                        "research_id": 0,
+                        "document_hash": "",
+                        "analysis_version": "",
+                        "thesis": "Accepted the narrowed higher-for-longer view.",
+                        "contrarian_view": "Growth rollover remains the main pushback.",
+                        "recommended_positioning": "Favor cautious duration shorts over weeks.",
+                        "trading_opportunities": [],
+                        "short_time_horizon_insights": [],
+                        "talking_points": [],
+                        "cross_document_references": [],
+                        "confidence": 0.66,
+                    },
+                    tool_calls=[],
+                    token_usage=TokenUsage(),
+                    model_used="test-model",
+                    stop_reason="end_turn",
+                    attempt_count=1,
+                )
+
+        class StubInputBuilder:
+            def build(self, **kwargs):
+                return {"document": "payload"}
+
+            def to_messages(self, input_data):
+                return [{"role": "user", "content": "payload"}]
+
+        store = AnalysisStore(Path(tempfile.mkdtemp()) / "analysis.db")
+        registry = MagicMock()
+        registry.load_prompt.side_effect = lambda name: name
+        executor = RoundExecutor(
+            registry=registry,
+            llm_client=FakeClient(),
+            input_builder=StubInputBuilder(),
+            analysis_store=store,
+        )
+
+        document = self._make_document(research_id=7, document_hash="hash-7")
+        rounds = [
+            RoundConfig(
+                name="proposal",
+                type="parallel",
+                agents=["proposer_thesis"],
+                receives=["input"],
+                output_schema="DebateRoundOutput",
+                writes_forum_state=True,
+            ),
+            RoundConfig(
+                name="challenge",
+                type="parallel",
+                agents=["challenger"],
+                receives=["input"],
+                output_schema="DebateRoundOutput",
+                writes_forum_state=True,
+                receives_forum_state=True,
+                target_selector="challenge_targets",
+            ),
+            RoundConfig(
+                name="rebuttal",
+                type="parallel",
+                agents=["rebuttal"],
+                receives=["input"],
+                output_schema="DebateRoundOutput",
+                writes_forum_state=True,
+                receives_forum_state=True,
+                target_selector="rebuttal_targets",
+            ),
+            RoundConfig(
+                name="adjudication",
+                type="sequential",
+                agents=["adjudicator"],
+                receives=["input"],
+                output_schema="DebateRoundOutput",
+                writes_forum_state=True,
+                receives_forum_state=True,
+            ),
+            RoundConfig(
+                name="synthesis",
+                type="sequential",
+                agents=["synthesizer"],
+                receives=["input"],
+                output_schema="DocumentAnalysis",
+                receives_forum_state=True,
+                target_selector="accepted_only",
+            ),
+        ]
+        agent_specs = {
+            agent_name: AgentSpec(
+                name=agent_name,
+                config=MagicMock(model="test-model"),
+                tools=[],
+                max_tool_calls=0,
+                timeout_seconds=60,
+                retry_count=1,
+                temperature=0.2,
+                output_schema=round_config.output_schema or "DocumentAnalysis",
+            )
+            for round_config in rounds
+            for agent_name in round_config.agents
+        }
+
+        analysis = executor.run(
+            document=document,
+            chunks=[],
+            evidence_units=[],
+            assertions=[],
+            run_id=13,
+            analysis_version="v3",
+            rounds=rounds,
+            agent_specs=agent_specs,
+        )
+
+        session = store.load_debate_session("debate:7:hash-7:v3:13")
+        self.assertIsNotNone(analysis)
+        self.assertIsNotNone(session)
+        self.assertEqual(session["session"]["status"], "completed")
+        self.assertEqual(len(session["turns"]), 4)
+        self.assertGreaterEqual(len(session["arguments"]), 3)
+        self.assertGreaterEqual(len(session["scores"]), 1)
+        self.assertGreaterEqual(len(session["verdicts"]), 1)
+
+    def test_synthesis_receives_only_accepted_arguments(self):
+        class SpyInputBuilder:
+            def __init__(self):
+                self.calls = []
+
+            def build(self, **kwargs):
+                return {"document": "payload"}
+
+            def to_messages(self, input_data):
+                self.calls.append(input_data)
+                return [{"role": "user", "content": "payload"}]
+
+        class FakeClient:
+            @staticmethod
+            def generate_with_tools(**kwargs):
+                prompt = kwargs["system_prompt"]
+                if prompt == "proposal":
+                    return AgentCallResult(
+                        raw_text="",
+                        parsed_output={
+                            "turn_summary": "Created two competing arguments.",
+                            "arguments": [
+                                {
+                                    "argument_id": "arg-accepted",
+                                    "argument_text": "Accepted thesis.",
+                                    "cited_assertion_keys": ["chunk-1:assertion-1"],
+                                },
+                                {
+                                    "argument_id": "arg-rejected",
+                                    "argument_text": "Rejected thesis.",
+                                    "cited_assertion_keys": ["chunk-2:assertion-1"],
+                                },
+                            ],
+                        },
+                        tool_calls=[],
+                        token_usage=TokenUsage(),
+                        model_used="test-model",
+                        stop_reason="end_turn",
+                        attempt_count=1,
+                    )
+                if prompt == "adjudication":
+                    return AgentCallResult(
+                        raw_text="",
+                        parsed_output={
+                            "turn_summary": "Accepted only one argument.",
+                            "scores": [
+                                {"argument_id": "arg-accepted", "final_score": 0.8},
+                                {"argument_id": "arg-rejected", "final_score": 0.2},
+                            ],
+                            "verdicts": [
+                                {
+                                    "argument_id": "arg-accepted",
+                                    "verdict_label": "accepted",
+                                    "reason": "Best supported.",
+                                },
+                                {
+                                    "argument_id": "arg-rejected",
+                                    "verdict_label": "rejected",
+                                    "reason": "Inferior support.",
+                                },
+                            ],
+                        },
+                        tool_calls=[],
+                        token_usage=TokenUsage(),
+                        model_used="test-model",
+                        stop_reason="end_turn",
+                        attempt_count=1,
+                    )
+                return AgentCallResult(
+                    raw_text="",
+                    parsed_output={
+                        "document_key": "",
+                        "research_id": 0,
+                        "document_hash": "",
+                        "analysis_version": "",
+                        "thesis": "Only accepted arguments should reach me.",
+                        "contrarian_view": "",
+                        "recommended_positioning": "",
+                        "trading_opportunities": [],
+                        "short_time_horizon_insights": [],
+                        "talking_points": [],
+                        "cross_document_references": [],
+                        "confidence": 0.5,
+                    },
+                    tool_calls=[],
+                    token_usage=TokenUsage(),
+                    model_used="test-model",
+                    stop_reason="end_turn",
+                    attempt_count=1,
+                )
+
+        input_builder = SpyInputBuilder()
+        registry = MagicMock()
+        registry.load_prompt.side_effect = lambda name: name
+        executor = RoundExecutor(
+            registry=registry,
+            llm_client=FakeClient(),
+            input_builder=input_builder,
+        )
+        document = self._make_document(research_id=5, document_hash="hash-5")
+        rounds = [
+            RoundConfig(
+                name="proposal",
+                type="parallel",
+                agents=["proposal"],
+                receives=["input"],
+                output_schema="DebateRoundOutput",
+                writes_forum_state=True,
+            ),
+            RoundConfig(
+                name="adjudication",
+                type="sequential",
+                agents=["adjudication"],
+                receives=["input"],
+                output_schema="DebateRoundOutput",
+                writes_forum_state=True,
+                receives_forum_state=True,
+            ),
+            RoundConfig(
+                name="synthesis",
+                type="sequential",
+                agents=["synthesizer"],
+                receives=["input"],
+                output_schema="DocumentAnalysis",
+                receives_forum_state=True,
+                target_selector="accepted_only",
+            ),
+        ]
+        agent_specs = {
+            agent_name: AgentSpec(
+                name=agent_name,
+                config=MagicMock(model="test-model"),
+                tools=[],
+                max_tool_calls=0,
+                timeout_seconds=60,
+                retry_count=1,
+                temperature=0.2,
+                output_schema=round_config.output_schema or "DocumentAnalysis",
+            )
+            for round_config in rounds
+            for agent_name in round_config.agents
+        }
+
+        analysis = executor.run(
+            document=document,
+            chunks=[],
+            evidence_units=[],
+            assertions=[],
+            run_id=2,
+            analysis_version="v1",
+            rounds=rounds,
+            agent_specs=agent_specs,
+        )
+
+        self.assertIsNotNone(analysis)
+        synthesis_input = input_builder.calls[-1]
+        forum_context = synthesis_input["forum_context"]
+        self.assertEqual(
+            [argument.argument_id for argument in forum_context.arguments],
+            ["arg-accepted"],
+        )
 
 
 if __name__ == "__main__":

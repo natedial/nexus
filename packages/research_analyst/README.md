@@ -140,8 +140,12 @@ Each review command also stores a local snapshot in `analysis_reviews`.
 ## Tests
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
 uv run pytest
+```
+
+For unittest compatibility (legacy):
+```bash
+uv run python -m unittest discover -s tests
 ```
 
 By default, the bootstrap expects the adjacent parser repo layout validated on 2026-03-29:

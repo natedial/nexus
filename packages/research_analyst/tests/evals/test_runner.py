@@ -328,5 +328,192 @@ class TestSummarizeResults(unittest.TestCase):
         self.assertEqual(summary.latency_avg_ms, 100)
 
 
+class MockAgentRegistry:
+    """Mock AgentRegistry for testing."""
+
+    def __init__(self, prompt: str | None = None, config: dict | None = None):
+        self._prompt = prompt
+        self._config = config or {
+            "model": "claude-sonnet-4-20250514",
+            "timeout_seconds": 120,
+        }
+
+    def get_agent(self, name: str):
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeConfig:
+            model: str
+            timeout_seconds: int
+
+        return FakeConfig(**self._config) if self._config else None
+
+    def load_prompt(self, name: str):
+        return self._prompt
+
+
+class TestRunAgentWiring(unittest.TestCase):
+    """Tests for _run_agent wiring to real agents."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.golden_path = Path(self.temp_dir) / "golden"
+        self.output_dir = Path(self.temp_dir) / "output"
+        self.golden_path.mkdir(parents=True)
+        self.output_dir.mkdir(parents=True)
+
+        doc_content = """# Test Document
+
+## Full Text Excerpt
+
+This is test content about Fed policy.
+
+## Themes
+
+```json
+[
+  {"label": "Fed holds", "classification": "Forecast", "strength": "Primary", "context": "test"}
+]
+```
+
+## Assertions
+
+```json
+[
+  {"text": "Rates unchanged", "polarity": "neutral", "time_horizon": "months", "authority_band": "high"}
+]
+```
+"""
+        doc_path = self.golden_path / "documents" / "doc_001.md"
+        doc_path.parent.mkdir(parents=True, exist_ok=True)
+        doc_path.write_text(doc_content)
+
+        annotations = [
+            {
+                "document_id": "doc_001",
+                "document_path": "documents/doc_001.md",
+                "expected": {"thesis": "test thesis", "confidence": 0.8},
+                "source_type": "rates",
+            }
+        ]
+        annotations_path = self.golden_path / "annotations.jsonl"
+        with open(annotations_path, "w") as f:
+            for ann in annotations:
+                f.write(json.dumps(ann) + "\n")
+
+    def test_run_agent_uses_real_prompt(self):
+        mock_client = MockLLMClient(
+            response={"thesis": "Fed holds rates", "confidence": 0.8}
+        )
+        mock_registry = MockAgentRegistry(prompt="You are a synthesizer agent.")
+
+        runner = AgentEvalRunner(
+            llm_client=mock_client,
+            golden_path=self.golden_path,
+            output_dir=self.output_dir,
+            agent_registry=mock_registry,
+        )
+
+        result = runner._run_agent(
+            "synthesizer", load_golden_document(self.golden_path, "doc_001")
+        )
+
+        self.assertEqual(len(mock_client.calls), 1)
+        call = mock_client.calls[0]
+        self.assertEqual(call["system_prompt"], "You are a synthesizer agent.")
+        self.assertIn("document", call["user_payload"])
+
+    def test_run_agent_payload_has_agent_type(self):
+        mock_client = MockLLMClient(
+            response={"thesis": "Fed holds rates", "confidence": 0.8}
+        )
+        mock_registry = MockAgentRegistry(prompt="Test prompt")
+
+        runner = AgentEvalRunner(
+            llm_client=mock_client,
+            golden_path=self.golden_path,
+            output_dir=self.output_dir,
+            agent_registry=mock_registry,
+        )
+
+        result = runner._run_agent(
+            "synthesizer", load_golden_document(self.golden_path, "doc_001")
+        )
+
+        call = mock_client.calls[0]
+        payload = call["user_payload"]
+        self.assertEqual(payload.get("agent_type"), "synthesizer")
+
+    def test_run_agent_payload_has_document_fields(self):
+        mock_client = MockLLMClient(
+            response={"thesis": "Fed holds rates", "confidence": 0.8}
+        )
+        mock_registry = MockAgentRegistry(prompt="Test prompt")
+
+        runner = AgentEvalRunner(
+            llm_client=mock_client,
+            golden_path=self.golden_path,
+            output_dir=self.output_dir,
+            agent_registry=mock_registry,
+        )
+
+        result = runner._run_agent(
+            "synthesizer", load_golden_document(self.golden_path, "doc_001")
+        )
+
+        call = mock_client.calls[0]
+        payload = call["user_payload"]
+        doc = payload.get("document", {})
+        self.assertIn("full_text_excerpt", doc)
+        self.assertEqual(doc.get("document_name"), "doc_001")
+        self.assertEqual(doc.get("source"), "rates")
+
+    def test_run_agent_payload_has_assertions(self):
+        mock_client = MockLLMClient(
+            response={"thesis": "Fed holds rates", "confidence": 0.8}
+        )
+        mock_registry = MockAgentRegistry(prompt="Test prompt")
+
+        runner = AgentEvalRunner(
+            llm_client=mock_client,
+            golden_path=self.golden_path,
+            output_dir=self.output_dir,
+            agent_registry=mock_registry,
+        )
+
+        result = runner._run_agent(
+            "synthesizer", load_golden_document(self.golden_path, "doc_001")
+        )
+
+        call = mock_client.calls[0]
+        payload = call["user_payload"]
+        det_analysis = payload.get("deterministic_analysis", {})
+        self.assertIn("assertions", det_analysis)
+        self.assertTrue(len(det_analysis["assertions"]) > 0)
+
+    def test_run_agent_uses_config_model(self):
+        mock_client = MockLLMClient(
+            response={"thesis": "Fed holds rates", "confidence": 0.8}
+        )
+        mock_registry = MockAgentRegistry(
+            prompt="Test prompt",
+            config={"model": "claude-haiku-4-20250514", "timeout_seconds": 60},
+        )
+
+        runner = AgentEvalRunner(
+            llm_client=mock_client,
+            golden_path=self.golden_path,
+            output_dir=self.output_dir,
+            agent_registry=mock_registry,
+        )
+
+        result = runner._run_agent(
+            "synthesizer", load_golden_document(self.golden_path, "doc_001")
+        )
+
+        call = mock_client.calls[0]
+        self.assertEqual(call["model"], "claude-haiku-4-20250514")
+
+
 if __name__ == "__main__":
     unittest.main()
