@@ -201,11 +201,15 @@ class AnalyzeDocumentPipeline:
 
             if self._eval_trigger is not None:
                 try:
-                    self._eval_trigger.fire_async(
-                        document_id=str(document.document_hash),
-                        agent_output=round_summary.model_dump(),
-                        confidence=round_summary.confidence,
+                    capture_request = self._build_capture_request(
+                        document=document,
+                        chunks=chunks,
+                        evidence_units=evidence_units,
+                        assertions=assertions,
+                        doc_analysis=doc_analysis,
                     )
+                    if capture_request is not None:
+                        self._eval_trigger.fire(capture_request)
                 except Exception:
                     pass
 
@@ -221,6 +225,68 @@ class AnalyzeDocumentPipeline:
             agent_success_count=0,
             agent_no_output_count=0,
             agent_error_count=0,
+        )
+
+    def _build_capture_request(
+        self,
+        *,
+        document,
+        chunks,
+        evidence_units,
+        assertions,
+        doc_analysis,
+    ):
+        from research_analysis_layer.evals.trigger import CaptureRequest
+        from research_analysis_layer.services.agent_input_builder import (
+            AgentInputBuilder,
+        )
+        from research_analysis_layer.services.capture_gate import should_capture
+
+        session_id = (
+            f"debate:{document.research_id}:{document.document_hash or ''}:"
+            f"{self.analysis_version}:{doc_analysis.metadata.run_id}"
+        )
+        debate_session = self.store.load_debate_session(session_id)
+
+        decision = should_capture(
+            {"thesis": doc_analysis.thesis, "confidence": doc_analysis.confidence},
+            debate_session,
+        )
+        if not decision.capture:
+            return None
+
+        synthesizer_input = AgentInputBuilder().build(
+            agent_type="synthesizer",
+            document=document,
+            chunks=chunks,
+            evidence_units=evidence_units,
+            assertions=assertions,
+        )
+
+        verdicts = (debate_session or {}).get("verdicts") or []
+        accepted_count = sum(
+            1
+            for v in verdicts
+            if str(v.get("verdict_label", "")).lower() == "accepted"
+        )
+
+        return CaptureRequest(
+            document_id=str(document.document_hash),
+            analysis_version=self.analysis_version,
+            agent_type="synthesizer",
+            input_payload=synthesizer_input,
+            output_payload=doc_analysis.model_dump(),
+            metadata={
+                "model_used": doc_analysis.metadata.model_used,
+                "run_id": doc_analysis.metadata.run_id,
+                "debate_session_id": session_id,
+                "schema_valid": True,
+            },
+            confidence=float(doc_analysis.confidence),
+            quality_signals={
+                "forum_accepted_count": accepted_count,
+                "gate_reason": decision.reason,
+            },
         )
 
     def shutdown(self) -> None:
