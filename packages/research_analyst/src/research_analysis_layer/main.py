@@ -160,6 +160,15 @@ def build_app(settings: Settings) -> RunBatchPipeline:
     return pipeline
 
 
+def _print_eval_trigger_stats(trigger) -> None:
+    if trigger is None:
+        return
+    print(
+        f"eval_trigger: queue_depth={trigger.queue_depth} "
+        f"dropped={trigger.dropped_count}"
+    )
+
+
 def command_doctor(settings: Settings) -> int:
     """Run basic environment and connectivity checks."""
     errors = settings.validate()
@@ -202,6 +211,7 @@ def command_doctor(settings: Settings) -> int:
         },
     }
     print(json.dumps(report, indent=2, sort_keys=True))
+    _print_eval_trigger_stats(pipeline.eval_trigger)
     prompt_ok = (
         all(prompt_status.values())
         if settings.agent_execution_enabled and prompt_status
