@@ -184,5 +184,54 @@ class TestTrainingCapture(unittest.TestCase):
         self.assertEqual(capture.quality["judge_score"], 0.85)
 
 
+def test_capture_request_writes_input_output_and_metadata(tmp_path: Path):
+    from research_analysis_layer.evals.trigger import CaptureRequest
+
+    manager = TrainingCaptureManager(captures_dir=tmp_path, min_confidence=0.5)
+    request = CaptureRequest(
+        document_id="doc-xyz",
+        analysis_version="bootstrap-v1",
+        agent_type="synthesizer",
+        input_payload={"document": {"research_id": 7}},
+        output_payload={"thesis": "Strong long EUR", "confidence": 0.82},
+        metadata={
+            "model_used": "gpt-5-mini",
+            "run_id": 42,
+            "debate_session_id": "debate:7:hash:bootstrap-v1:42",
+            "schema_valid": True,
+        },
+        confidence=0.82,
+        quality_signals={"forum_accepted_thesis": True},
+    )
+
+    capture = manager.capture_request(request)
+
+    assert capture is not None
+    payload = json.loads(Path(manager._capture_path(capture.capture_id)).read_text())
+    assert payload["input"]["document"]["research_id"] == 7
+    assert payload["output"]["thesis"] == "Strong long EUR"
+    assert payload["metadata"]["debate_session_id"].startswith("debate:")
+    assert payload["quality"]["forum_accepted_thesis"] is True
+
+
+def test_capture_request_dedupes_on_document_and_version(tmp_path: Path):
+    from research_analysis_layer.evals.trigger import CaptureRequest
+
+    manager = TrainingCaptureManager(captures_dir=tmp_path, min_confidence=0.5)
+    base = CaptureRequest(
+        document_id="doc-1",
+        analysis_version="v1",
+        agent_type="synthesizer",
+        input_payload={},
+        output_payload={"thesis": "x", "confidence": 0.9},
+        metadata={"schema_valid": True},
+        confidence=0.9,
+    )
+    first = manager.capture_request(base)
+    second = manager.capture_request(base)
+    assert first is not None
+    assert second is None
+
+
 if __name__ == "__main__":
     unittest.main()

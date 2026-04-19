@@ -114,6 +114,58 @@ class TrainingCaptureManager:
 
         return capture
 
+    def capture_request(self, request) -> "TrainingCapture | None":
+        """Capture a structured CaptureRequest. Returns None if filtered or duplicate."""
+        from research_analysis_layer.evals.trigger import CaptureRequest
+
+        if not isinstance(request, CaptureRequest):
+            raise TypeError("capture_request requires a CaptureRequest")
+
+        if not self.should_capture(
+            confidence=request.confidence,
+            schema_valid=bool(request.metadata.get("schema_valid", False)),
+        ):
+            return None
+
+        if self._is_duplicate(request.dedupe_key):
+            return None
+
+        merged_metadata = {
+            **request.metadata,
+            "agent_type": request.agent_type,
+            "analysis_version": request.analysis_version,
+            "confidence": request.confidence,
+        }
+        capture = self.capture(
+            document_id=request.document_id,
+            input_data=request.input_payload,
+            output_data=request.output_payload,
+            metadata=merged_metadata,
+            quality=request.quality_signals,
+        )
+        if capture is not None:
+            self._record_dedupe_key(request.dedupe_key)
+        return capture
+
+    def _dedupe_index_path(self) -> Path:
+        return self.captures_dir / "dedupe.txt"
+
+    def _is_duplicate(self, dedupe_key: str) -> bool:
+        path = self._dedupe_index_path()
+        if not path.exists():
+            return False
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip() == dedupe_key:
+                    return True
+        return False
+
+    def _record_dedupe_key(self, dedupe_key: str) -> None:
+        path = self._dedupe_index_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(dedupe_key + "\n")
+
     def _capture_path(self, capture_id: str) -> Path:
         """Get path for capture file."""
         date_str = datetime.now(timezone.utc).strftime("%Y-%m")
