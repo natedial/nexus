@@ -290,6 +290,5 @@ class AnalyzeDocumentPipeline:
         )
 
     def shutdown(self) -> None:
-        """Clean up resources, including eval trigger executor."""
-        if self._eval_trigger is not None:
-            self._eval_trigger.shutdown(wait=True)
+        """No-op: EvalTrigger lifecycle is owned by main.py."""
+        return None

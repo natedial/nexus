@@ -116,14 +116,13 @@ def build_app(settings: Settings) -> RunBatchPipeline:
 
     eval_trigger = None
     if settings.eval_capture_enabled:
-        import atexit
         from research_analysis_layer.evals.training_capture import (
             TrainingCaptureManager,
         )
         from research_analysis_layer.evals.trigger import EvalTrigger
 
         eval_trigger = EvalTrigger(TrainingCaptureManager(settings.eval_captures_dir))
-        atexit.register(eval_trigger.shutdown)
+        # Owned by main.py for the process lifetime; pipeline must NOT shut it down.
 
     analyze_document = AnalyzeDocumentPipeline(
         store=store,
@@ -145,7 +144,7 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         ),
         emitted_by="research_analyst",
     )
-    return RunBatchPipeline(
+    pipeline = RunBatchPipeline(
         settings=settings,
         state_reader=state_reader,
         parsed_db_client=parsed_db_client,
@@ -157,6 +156,8 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         quality_reviewer=QualityReviewer(settings),
         ops=ops,
     )
+    pipeline.eval_trigger = eval_trigger
+    return pipeline
 
 
 def command_doctor(settings: Settings) -> int:
@@ -217,13 +218,16 @@ def command_run(
     agents: list[str] | None,
 ) -> int:
     pipeline = build_app(settings)
-    result = pipeline.run(
-        limit=limit,
-        skip_agents=skip_agents,
-        agents=agents,
-    )
+    try:
+        result = pipeline.run(
+            limit=limit,
+            skip_agents=skip_agents,
+            agents=agents,
+        )
+    finally:
+        if pipeline.eval_trigger is not None:
+            pipeline.eval_trigger.shutdown(wait=True)
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
-    pipeline.analyze_document.shutdown()
     return 0 if result.error_count == 0 else 1
 
 
