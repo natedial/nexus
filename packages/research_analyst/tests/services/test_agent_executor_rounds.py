@@ -466,7 +466,9 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
             TokenUsage,
         )
         from research_analysis_layer.services.agent_registry import AgentRegistry
-        from research_analysis_layer.services.agent_input_builder import AgentInputBuilder
+        from research_analysis_layer.services.agent_input_builder import (
+            AgentInputBuilder,
+        )
         from research_analysis_layer.services.round_executor import (
             AgentSpec,
             RoundExecutor,
@@ -650,7 +652,9 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                 if prompt == "adjudicator":
                     return AgentCallResult(
                         raw_text="",
-                        parsed_output={"turn_summary": "Ranked the competing arguments."},
+                        parsed_output={
+                            "turn_summary": "Ranked the competing arguments."
+                        },
                         tool_calls=[],
                         token_usage=TokenUsage(),
                         model_used="test-model",
@@ -695,6 +699,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
             llm_client=FakeClient(),
             input_builder=StubInputBuilder(),
             analysis_store=store,
+            debate_mode="on",
         )
 
         document = self._make_document(research_id=7, document_hash="hash-7")
@@ -879,6 +884,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
             registry=registry,
             llm_client=FakeClient(),
             input_builder=input_builder,
+            debate_mode="on",
         )
         document = self._make_document(research_id=5, document_hash="hash-5")
         rounds = [

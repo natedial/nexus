@@ -79,6 +79,21 @@ class RoundResult:
     token_usage: TokenUsage = field(default_factory=TokenUsage)
 
 
+@dataclass
+class RolloutStats:
+    """Per-process counters for debate rollout observability."""
+
+    shadow_runs_total: int = 0
+    shadow_failures_total: int = 0
+    shadow_debate_truncated_total: int = 0
+    baseline_input_tokens: int = 0
+    baseline_output_tokens: int = 0
+    debate_input_tokens: int = 0
+    debate_output_tokens: int = 0
+    baseline_duration_ms: int = 0
+    debate_duration_ms: int = 0
+
+
 class RoundExecutor:
     """Execute agents in rounds with parallel/sequential execution.
 
@@ -95,6 +110,9 @@ class RoundExecutor:
         analysis_store: Any | None = None,
         session_builder: DebateSessionBuilder | None = None,
         debate_ranker: DebateRanker | None = None,
+        debate_mode: str = "off",
+        debate_judge_model: str | None = None,
+        max_debate_arguments: int = 8,
     ):
         self.registry = registry
         self.llm_client = llm_client
@@ -103,6 +121,10 @@ class RoundExecutor:
         self.analysis_store = analysis_store
         self.session_builder = session_builder or DebateSessionBuilder()
         self.debate_ranker = debate_ranker or DebateRanker()
+        self.debate_mode = debate_mode
+        self.debate_judge_model = debate_judge_model
+        self.max_debate_arguments = max_debate_arguments
+        self.rollout_stats = RolloutStats()
 
     def run(
         self,
@@ -146,12 +168,18 @@ class RoundExecutor:
             analysis_version=analysis_version,
             rounds=rounds,
         )
+        agent_specs = self._apply_judge_model_override(agent_specs)
 
         if self.tool_registry is not None:
             self.tool_registry.set_invocation_budget(max_total_tool_calls)
 
         try:
             for turn_order, round_config in enumerate(rounds, start=1):
+                if self.debate_mode == "off" and round_config.writes_forum_state:
+                    logger.info(
+                        "Skipping round %s (debate_mode=off)", round_config.name
+                    )
+                    continue
                 logger.info(
                     "Executing round: %s (%s)", round_config.name, round_config.type
                 )
@@ -256,6 +284,68 @@ class RoundExecutor:
             run_id=run_id,
             analysis_version=analysis_version,
             round_traces=all_round_traces,
+        )
+
+    def run_baseline_synthesis(
+        self,
+        *,
+        document: Any,
+        chunks: list[Any],
+        evidence_units: list[Any],
+        assertions: list[Any],
+        quality_report: Any | None = None,
+        node_resolutions: list[Any] | None = None,
+        edge_resolutions: list[Any] | None = None,
+        forecast_candidates: list[Any] | None = None,
+        run_id: int,
+        analysis_version: str,
+        synth_round: RoundConfig,
+        synth_spec: AgentSpec,
+    ) -> DocumentAnalysis | None:
+        """Run the synthesizer with NO forum state injected. For shadow mode."""
+        start = time.time()
+        merged_input = self._build_merged_input(
+            document=document,
+            chunks=chunks,
+            evidence_units=evidence_units,
+            assertions=assertions,
+            receives=synth_round.receives,
+            prior_outputs={},
+            forum_context=None,
+        )
+        result = self._execute_sequential_round(
+            round_config=RoundConfig(
+                name=synth_round.name,
+                type="sequential",
+                agents=[synth_spec.name],
+                receives=synth_round.receives,
+                output_schema=synth_round.output_schema,
+            ),
+            agent_specs={synth_spec.name: synth_spec},
+            merged_input=merged_input,
+            run_id=run_id,
+            analysis_version=analysis_version,
+            max_total_tool_calls=None,
+            total_tool_calls=0,
+        )
+        duration_ms = int((time.time() - start) * 1000)
+        self.rollout_stats.baseline_input_tokens += result.token_usage.input_tokens
+        self.rollout_stats.baseline_output_tokens += result.token_usage.output_tokens
+        self.rollout_stats.baseline_duration_ms += duration_ms
+
+        return self._build_document_analysis(
+            final_results=result.agent_results,
+            document=document,
+            chunks=chunks,
+            evidence_units=evidence_units,
+            assertions=assertions,
+            quality_report=quality_report,
+            node_resolutions=node_resolutions or [],
+            edge_resolutions=edge_resolutions or [],
+            forecast_candidates=forecast_candidates or [],
+            run_id=run_id,
+            analysis_version=analysis_version,
+            round_traces=[self._build_round_trace(result)],
         )
 
     def _build_merged_input(
@@ -585,6 +675,8 @@ class RoundExecutor:
         analysis_version: str,
         rounds: list[RoundConfig],
     ) -> DebateSession | None:
+        if self.debate_mode == "off":
+            return None
         if not any(
             round_config.writes_forum_state or round_config.receives_forum_state
             for round_config in rounds
@@ -638,17 +730,54 @@ class RoundExecutor:
             return None
         return {
             "world_nodes": [
-                item.model_dump(mode="json")
-                if hasattr(item, "model_dump")
-                else item
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
                 for item in node_resolutions
             ],
             "world_edges": [
-                item.model_dump(mode="json")
-                if hasattr(item, "model_dump")
-                else item
+                item.model_dump(mode="json") if hasattr(item, "model_dump") else item
                 for item in edge_resolutions
             ],
+        }
+
+    def _apply_argument_cap(
+        self, forum_context: dict[str, Any] | None
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Trim forum arguments to max_debate_arguments. Returns (context, truncated)."""
+        if forum_context is None:
+            return None, False
+        args = forum_context.get("arguments") or []
+        if len(args) <= self.max_debate_arguments:
+            return forum_context, False
+        trimmed = dict(forum_context)
+        kept_ids = {a.get("argument_id") for a in args[: self.max_debate_arguments]}
+        trimmed["arguments"] = args[: self.max_debate_arguments]
+        trimmed["relations"] = [
+            r
+            for r in (forum_context.get("relations") or [])
+            if r.get("source_argument_id") in kept_ids
+            and r.get("target_argument_id") in kept_ids
+        ]
+        return trimmed, True
+
+    def _note_truncation(self, *, session_truncated_flag: dict[str, bool]) -> None:
+        """Bump shadow_debate_truncated_total once per session."""
+        if session_truncated_flag["v"]:
+            return
+        session_truncated_flag["v"] = True
+        self.rollout_stats.shadow_debate_truncated_total += 1
+
+    def _apply_judge_model_override(
+        self, agent_specs: dict[str, AgentSpec]
+    ) -> dict[str, AgentSpec]:
+        if not self.debate_judge_model or "adjudicator" not in agent_specs:
+            return agent_specs
+        original = agent_specs["adjudicator"]
+        from dataclasses import replace
+
+        new_config = replace(original.config, model=self.debate_judge_model)
+        return {
+            **agent_specs,
+            "adjudicator": replace(original, config=new_config),
         }
 
     def _validate_parsed_output(
@@ -729,7 +858,9 @@ class RoundExecutor:
             target_argument_ids=target_argument_ids,
         )
         if not target_argument_ids:
-            target_argument_ids = self._collect_target_argument_ids(relations, arguments)
+            target_argument_ids = self._collect_target_argument_ids(
+                relations, arguments
+            )
         scores = self._normalize_debate_scores(
             session=session,
             raw_scores=payload.get("scores") or [],
@@ -778,7 +909,9 @@ class RoundExecutor:
             payload.setdefault("agent_name", agent_name)
             payload.setdefault(
                 "target_claim_id",
-                target_argument_ids[0] if target_argument_ids else payload.get("target_claim_id"),
+                target_argument_ids[0]
+                if target_argument_ids
+                else payload.get("target_claim_id"),
             )
             payload.setdefault(
                 "thesis_type", self._infer_thesis_type(agent_name, round_name)
@@ -800,7 +933,8 @@ class RoundExecutor:
         for index, raw_relation in enumerate(raw_relations, start=1):
             payload = dict(raw_relation)
             payload.setdefault(
-                "relation_id", f"{session.session_id}:relation:{len(session.relations) + index}"
+                "relation_id",
+                f"{session.session_id}:relation:{len(session.relations) + index}",
             )
             payload.setdefault("session_id", session.session_id)
             payload.setdefault("source_argument_id", default_source_id)
@@ -819,12 +953,15 @@ class RoundExecutor:
         for index, raw_score in enumerate(raw_scores, start=1):
             payload = dict(raw_score)
             payload.setdefault(
-                "score_id", f"{session.session_id}:score:{payload.get('argument_id', index)}"
+                "score_id",
+                f"{session.session_id}:score:{payload.get('argument_id', index)}",
             )
             payload.setdefault("session_id", session.session_id)
             payload.setdefault(
                 "argument_id",
-                target_argument_ids[0] if target_argument_ids else payload.get("argument_id"),
+                target_argument_ids[0]
+                if target_argument_ids
+                else payload.get("argument_id"),
             )
             scores.append(DebateScore.model_validate(payload))
         return scores
@@ -860,7 +997,11 @@ class RoundExecutor:
         target_ids = [relation.target_argument_id for relation in relations]
         if target_ids:
             return target_ids
-        return [argument.target_claim_id for argument in arguments if argument.target_claim_id]
+        return [
+            argument.target_claim_id
+            for argument in arguments
+            if argument.target_claim_id
+        ]
 
     @staticmethod
     def _infer_thesis_type(agent_name: str, round_name: str) -> ThesisType:
@@ -933,16 +1074,25 @@ class RoundExecutor:
                     round_output.turn.turn_summary,
                 )
                 self.analysis_store.write_debate_arguments(
-                    [argument.model_dump(mode="json") for argument in round_output.arguments]
+                    [
+                        argument.model_dump(mode="json")
+                        for argument in round_output.arguments
+                    ]
                 )
                 self.analysis_store.write_debate_relations(
-                    [relation.model_dump(mode="json") for relation in round_output.relations]
+                    [
+                        relation.model_dump(mode="json")
+                        for relation in round_output.relations
+                    ]
                 )
                 self.analysis_store.write_debate_scores(
                     [score.model_dump(mode="json") for score in round_output.scores]
                 )
                 self.analysis_store.write_debate_verdicts(
-                    [verdict.model_dump(mode="json") for verdict in round_output.verdicts]
+                    [
+                        verdict.model_dump(mode="json")
+                        for verdict in round_output.verdicts
+                    ]
                 )
         return session
 
@@ -978,7 +1128,9 @@ class RoundExecutor:
     ) -> DocumentAnalysis | None:
         """Build DocumentAnalysis from final round results."""
         if not final_results:
-            logger.warning("No final synthesizer results available for document analysis")
+            logger.warning(
+                "No final synthesizer results available for document analysis"
+            )
             return None
 
         result = final_results[0]
@@ -1068,9 +1220,7 @@ class RoundExecutor:
             parsed["short_time_horizon_insights"] = parsed["payload_json"].get(
                 "short_time_horizon_insights", []
             )
-            parsed["talking_points"] = parsed["payload_json"].get(
-                "talking_points", []
-            )
+            parsed["talking_points"] = parsed["payload_json"].get("talking_points", [])
             parsed["cross_document_references"] = parsed["payload_json"].get(
                 "cross_document_references", []
             )
