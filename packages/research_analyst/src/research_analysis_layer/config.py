@@ -110,6 +110,9 @@ class Settings:
     tholos_timeout_seconds: int = 30
     eval_capture_enabled: bool = False
     eval_captures_dir: Path = Path("evals/captures")
+    analyst_debate_mode: str = "off"
+    analyst_debate_judge_model: str | None = None
+    analyst_max_debate_arguments: int = 8
 
     @property
     def anthropic_api_key(self) -> str | None:
@@ -184,6 +187,9 @@ class Settings:
             tholos_timeout_seconds=_env_int("THOLOS_TIMEOUT_SECONDS", 30),
             eval_capture_enabled=_env_bool("EVAL_CAPTURE_ENABLED", False),
             eval_captures_dir=Path(os.getenv("EVAL_CAPTURES_DIR", "evals/captures")),
+            analyst_debate_mode=os.getenv("ANALYST_DEBATE_MODE", "off"),
+            analyst_debate_judge_model=os.getenv("ANALYST_DEBATE_JUDGE_MODEL"),
+            analyst_max_debate_arguments=_env_int("ANALYST_MAX_DEBATE_ARGUMENTS", 8),
         )
 
     @property
@@ -232,4 +238,14 @@ class Settings:
                 )
             if not self.agent_llm_api_key:
                 errors.append("missing agent llm api key: set AGENT_LLM_API_KEY")
+        if self.analyst_debate_mode not in {"off", "shadow", "on"}:
+            errors.append(
+                "invalid analyst_debate_mode: expected off, shadow, or on, "
+                f"received {self.analyst_debate_mode!r}"
+            )
+        if self.analyst_max_debate_arguments <= 0:
+            errors.append(
+                "invalid analyst_max_debate_arguments: must be positive, "
+                f"received {self.analyst_max_debate_arguments}"
+            )
         return errors
