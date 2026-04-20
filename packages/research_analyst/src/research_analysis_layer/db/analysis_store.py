@@ -452,6 +452,25 @@ class AnalysisStore:
                     ON debate_verdicts(session_id);
                 CREATE INDEX IF NOT EXISTS idx_debate_verdicts_argument
                     ON debate_verdicts(argument_id);
+
+                CREATE TABLE IF NOT EXISTS shadow_document_analysis (
+                    research_id          INTEGER NOT NULL,
+                    document_hash        TEXT    NOT NULL,
+                    analysis_version     TEXT    NOT NULL,
+                    run_id               TEXT    NOT NULL,
+                    variant              TEXT    NOT NULL,
+                    payload_json         TEXT    NOT NULL,
+                    thesis               TEXT,
+                    confidence           REAL,
+                    total_input_tokens   INTEGER,
+                    total_output_tokens  INTEGER,
+                    total_duration_ms    INTEGER,
+                    debate_session_id    TEXT,
+                    created_at           TEXT    NOT NULL,
+                    PRIMARY KEY (research_id, document_hash, analysis_version, run_id, variant)
+                );
+                CREATE INDEX IF NOT EXISTS ix_shadow_doc_analysis_session
+                    ON shadow_document_analysis(debate_session_id);
                 """
             )
             self._ensure_column(
@@ -1912,6 +1931,80 @@ class AnalysisStore:
                     now,
                 ),
             )
+
+    def write_shadow_document_analysis(
+        self,
+        *,
+        research_id: int,
+        document_hash: str,
+        analysis_version: str,
+        run_id: str,
+        variant: str,
+        payload_json: str,
+        thesis: str | None,
+        confidence: float | None,
+        total_input_tokens: int,
+        total_output_tokens: int,
+        total_duration_ms: int,
+        debate_session_id: str | None,
+    ) -> None:
+        """Insert a shadow analysis row. Idempotent on the full PK."""
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO shadow_document_analysis (
+                    research_id, document_hash, analysis_version, run_id, variant,
+                    payload_json, thesis, confidence,
+                    total_input_tokens, total_output_tokens, total_duration_ms,
+                    debate_session_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(research_id, document_hash, analysis_version, run_id, variant)
+                DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    thesis = excluded.thesis,
+                    confidence = excluded.confidence,
+                    total_input_tokens = excluded.total_input_tokens,
+                    total_output_tokens = excluded.total_output_tokens,
+                    total_duration_ms = excluded.total_duration_ms,
+                    debate_session_id = excluded.debate_session_id
+                """,
+                (
+                    research_id,
+                    document_hash,
+                    analysis_version,
+                    run_id,
+                    variant,
+                    payload_json,
+                    thesis,
+                    confidence,
+                    total_input_tokens,
+                    total_output_tokens,
+                    total_duration_ms,
+                    debate_session_id,
+                    now,
+                ),
+            )
+
+    def load_shadow_document_analysis(
+        self,
+        *,
+        research_id: int,
+        document_hash: str,
+        analysis_version: str,
+        run_id: str,
+        variant: str,
+    ) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM shadow_document_analysis
+                WHERE research_id = ? AND document_hash = ?
+                  AND analysis_version = ? AND run_id = ? AND variant = ?
+                """,
+                (research_id, document_hash, analysis_version, run_id, variant),
+            ).fetchone()
+        return dict(row) if row else None
 
     def create_debate_session(
         self,
