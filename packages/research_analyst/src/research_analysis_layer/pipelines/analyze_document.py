@@ -156,7 +156,62 @@ class AnalyzeDocumentPipeline:
                 rounds=rounds,
                 agent_specs=agent_specs,
             )
-            if doc_analysis is None:
+
+            debate_mode = getattr(self.round_executor, "debate_mode", "off")
+            authoritative = doc_analysis
+            shadow_analysis = None
+
+            if debate_mode == "shadow":
+                shadow_analysis = doc_analysis
+                if shadow_analysis is None:
+                    self.round_executor.rollout_stats.shadow_failures_total += 1
+                try:
+                    synth_round = next(
+                        r for r in rounds if r.output_schema == "DocumentAnalysis"
+                    )
+                    synth_spec = agent_specs[synth_round.agents[-1]]
+                    authoritative = self.round_executor.run_baseline_synthesis(
+                        document=document,
+                        chunks=chunks,
+                        evidence_units=evidence_units,
+                        assertions=assertions,
+                        quality_report=quality_report,
+                        node_resolutions=nodes,
+                        edge_resolutions=edges,
+                        forecast_candidates=[],
+                        run_id=run_id,
+                        analysis_version=self.analysis_version,
+                        synth_round=synth_round,
+                        synth_spec=synth_spec,
+                    )
+                except Exception:
+                    import logging
+
+                    logger = logging.getLogger(__name__)
+                    logger.exception("Baseline synth failed in shadow mode")
+                    raise
+
+                if shadow_analysis is not None and authoritative is not None:
+                    self.round_executor.rollout_stats.shadow_runs_total += 1
+                    self._write_shadow_analysis(
+                        doc_analysis=shadow_analysis,
+                        debate_session_id=(
+                            self.round_executor._build_debate_session_id(
+                                research_id=document.research_id,
+                                document_hash=document.document_hash or "",
+                                analysis_version=self.analysis_version,
+                                run_id=run_id,
+                            )
+                        ),
+                    )
+                    self._emit_shadow_log(
+                        shadow=shadow_analysis,
+                        baseline=authoritative,
+                        research_id=document.research_id,
+                        document_hash=document.document_hash or "",
+                    )
+
+            if authoritative is None:
                 return RunItemResult(
                     status="error",
                     chunk_count=len(chunks),
@@ -176,7 +231,7 @@ class AnalyzeDocumentPipeline:
                     error_text="synthesizer did not produce a valid DocumentAnalysis",
                     agent_no_output_count=1,
                 )
-
+            doc_analysis = authoritative
             total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)
             total_output = sum(rt.output_tokens for rt in doc_analysis.round_traces)
             total_tool_calls = sum(
@@ -265,9 +320,7 @@ class AnalyzeDocumentPipeline:
 
         verdicts = (debate_session or {}).get("verdicts") or []
         accepted_count = sum(
-            1
-            for v in verdicts
-            if str(v.get("verdict_label", "")).lower() == "accepted"
+            1 for v in verdicts if str(v.get("verdict_label", "")).lower() == "accepted"
         )
 
         return CaptureRequest(
@@ -288,6 +341,47 @@ class AnalyzeDocumentPipeline:
                 "gate_reason": decision.reason,
             },
         )
+
+    def _write_shadow_analysis(self, *, doc_analysis, debate_session_id: str) -> None:
+        total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)
+        total_output = sum(rt.output_tokens for rt in doc_analysis.round_traces)
+        total_duration = sum(rt.duration_ms for rt in doc_analysis.round_traces)
+        self.store.write_shadow_document_analysis(
+            research_id=doc_analysis.research_id,
+            document_hash=doc_analysis.document_hash,
+            analysis_version=doc_analysis.analysis_version,
+            run_id=str(doc_analysis.metadata.run_id),
+            variant="debate",
+            payload_json=doc_analysis.model_dump_json(),
+            thesis=doc_analysis.thesis,
+            confidence=doc_analysis.confidence,
+            total_input_tokens=total_input,
+            total_output_tokens=total_output,
+            total_duration_ms=total_duration,
+            debate_session_id=debate_session_id,
+        )
+
+    def _emit_shadow_log(self, *, shadow, baseline, research_id, document_hash) -> None:
+        import json, sys
+
+        stats = self.round_executor.rollout_stats
+        payload = {
+            "event": "shadow_run_complete",
+            "research_id": research_id,
+            "document_hash": document_hash,
+            "debate_ms": sum(rt.duration_ms for rt in shadow.round_traces),
+            "baseline_ms": sum(rt.duration_ms for rt in baseline.round_traces),
+            "debate_tokens": {
+                "in": sum(rt.input_tokens for rt in shadow.round_traces),
+                "out": sum(rt.output_tokens for rt in shadow.round_traces),
+            },
+            "baseline_tokens": {
+                "in": sum(rt.input_tokens for rt in baseline.round_traces),
+                "out": sum(rt.output_tokens for rt in baseline.round_traces),
+            },
+            "truncated_rounds": stats.shadow_debate_truncated_total,
+        }
+        sys.stderr.write(json.dumps(payload) + "\n")
 
     def shutdown(self) -> None:
         """No-op: EvalTrigger lifecycle is owned by main.py."""
