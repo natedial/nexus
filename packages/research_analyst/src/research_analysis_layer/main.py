@@ -112,6 +112,9 @@ def build_app(settings: Settings) -> RunBatchPipeline:
             input_builder=AgentInputBuilder(),
             tool_registry=tool_registry,
             analysis_store=store,
+            debate_mode=settings.analyst_debate_mode,
+            debate_judge_model=settings.analyst_debate_judge_model,
+            max_debate_arguments=settings.analyst_max_debate_arguments,
         )
 
     eval_trigger = None
@@ -169,6 +172,24 @@ def _print_eval_trigger_stats(trigger) -> None:
     )
 
 
+def _print_rollout_stats(round_executor) -> None:
+    if round_executor is None:
+        return
+    mode = getattr(round_executor, "debate_mode", "off")
+    print(f"debate_mode={mode}")
+    if mode == "off":
+        return
+    stats = round_executor.rollout_stats
+    print(
+        f"rollout_stats: shadow_runs={stats.shadow_runs_total}, "
+        f"shadow_failures={stats.shadow_failures_total}, "
+        f"debate_tokens_total={stats.debate_input_tokens + stats.debate_output_tokens}, "
+        f"baseline_tokens_total={stats.baseline_input_tokens + stats.baseline_output_tokens}, "
+        f"debate_avg_ms={stats.debate_duration_ms // max(1, stats.shadow_runs_total) if stats.shadow_runs_total > 0 else 0}, "
+        f"baseline_avg_ms={stats.baseline_duration_ms // max(1, stats.shadow_runs_total) if stats.shadow_runs_total > 0 else 0}"
+    )
+
+
 def command_doctor(settings: Settings) -> int:
     """Run basic environment and connectivity checks."""
     errors = settings.validate()
@@ -212,6 +233,7 @@ def command_doctor(settings: Settings) -> int:
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
+    _print_rollout_stats(pipeline.analyze_document.round_executor)
     prompt_ok = (
         all(prompt_status.values())
         if settings.agent_execution_enabled and prompt_status
