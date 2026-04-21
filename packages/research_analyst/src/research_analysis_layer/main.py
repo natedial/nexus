@@ -172,8 +172,11 @@ def _print_eval_trigger_stats(trigger) -> None:
     )
 
 
-def _print_rollout_stats(round_executor) -> None:
+def _print_rollout_stats(round_executor, *, settings: Settings | None = None) -> None:
     if round_executor is None:
+        if settings is None:
+            return
+        print(f"debate_mode={settings.analyst_debate_mode}")
         return
     mode = getattr(round_executor, "debate_mode", "off")
     print(f"debate_mode={mode}")
@@ -233,7 +236,7 @@ def command_doctor(settings: Settings) -> int:
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
-    _print_rollout_stats(pipeline.analyze_document.round_executor)
+    _print_rollout_stats(pipeline.analyze_document.round_executor, settings=settings)
     prompt_ok = (
         all(prompt_status.values())
         if settings.agent_execution_enabled and prompt_status

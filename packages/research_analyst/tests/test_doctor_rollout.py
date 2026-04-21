@@ -39,3 +39,13 @@ def test_print_rollout_stats_none_executor_prints_nothing(capsys):
 
     m._print_rollout_stats(None)
     assert capsys.readouterr().out == ""
+
+
+def test_print_rollout_stats_none_executor_with_settings_prints_mode(capsys):
+    from research_analysis_layer import main as m
+
+    settings = MagicMock(analyst_debate_mode="shadow")
+    m._print_rollout_stats(None, settings=settings)
+    out = capsys.readouterr().out
+    assert "debate_mode=shadow" in out
+    assert "rollout_stats" not in out
