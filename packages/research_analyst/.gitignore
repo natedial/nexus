@@ -1,0 +1,18 @@
+# Environment / secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Egg info
+*.egg-info/
+
+# Database
+data/analysis.db
+
+# Test cache
+.pytest_cache/
