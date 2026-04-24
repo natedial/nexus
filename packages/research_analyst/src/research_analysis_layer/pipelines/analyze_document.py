@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from research_analysis_layer.services.quality import QualityReviewer
 from research_analysis_layer.db.analysis_store import AnalysisStore
 from research_analysis_layer.models import HydratedParsedDocument, RunItemResult
@@ -13,6 +15,8 @@ from research_analysis_layer.services import (
     LifecycleService,
     Resolver,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AnalyzeDocumentPipeline:
@@ -142,28 +146,51 @@ class AnalyzeDocumentPipeline:
                             temperature=agent_cfg.temperature,
                             output_schema=agent_cfg.output_schema,
                         )
-            doc_analysis = self.round_executor.run(
-                document=document,
-                chunks=chunks,
-                evidence_units=evidence_units,
-                assertions=assertions,
-                quality_report=quality_report,
-                node_resolutions=nodes,
-                edge_resolutions=edges,
-                forecast_candidates=[],
-                run_id=run_id,
-                analysis_version=self.analysis_version,
-                rounds=rounds,
-                agent_specs=agent_specs,
-            )
-
             debate_mode = getattr(self.round_executor, "debate_mode", "off")
+            _debate_run_raised = False
+            if debate_mode == "shadow":
+                try:
+                    doc_analysis = self.round_executor.run(
+                        document=document,
+                        chunks=chunks,
+                        evidence_units=evidence_units,
+                        assertions=assertions,
+                        quality_report=quality_report,
+                        node_resolutions=nodes,
+                        edge_resolutions=edges,
+                        forecast_candidates=[],
+                        run_id=run_id,
+                        analysis_version=self.analysis_version,
+                        rounds=rounds,
+                        agent_specs=agent_specs,
+                    )
+                except Exception:
+                    logger.exception("debate run() raised in shadow mode — absorbing")
+                    doc_analysis = None
+                    _debate_run_raised = True
+                    self.round_executor.rollout_stats.shadow_failures_total += 1
+            else:
+                doc_analysis = self.round_executor.run(
+                    document=document,
+                    chunks=chunks,
+                    evidence_units=evidence_units,
+                    assertions=assertions,
+                    quality_report=quality_report,
+                    node_resolutions=nodes,
+                    edge_resolutions=edges,
+                    forecast_candidates=[],
+                    run_id=run_id,
+                    analysis_version=self.analysis_version,
+                    rounds=rounds,
+                    agent_specs=agent_specs,
+                )
+
             authoritative = doc_analysis
             shadow_analysis = None
 
             if debate_mode == "shadow":
                 shadow_analysis = doc_analysis
-                if shadow_analysis is None:
+                if shadow_analysis is None and not _debate_run_raised:
                     self.round_executor.rollout_stats.shadow_failures_total += 1
                 try:
                     synth_round = next(
@@ -185,9 +212,6 @@ class AnalyzeDocumentPipeline:
                         synth_spec=synth_spec,
                     )
                 except Exception:
-                    import logging
-
-                    logger = logging.getLogger(__name__)
                     logger.exception("Baseline synth failed in shadow mode")
                     raise
 
@@ -310,13 +334,17 @@ class AnalyzeDocumentPipeline:
         if not decision.capture:
             return None
 
-        synthesizer_input = AgentInputBuilder().build(
-            agent_type="synthesizer",
-            document=document,
-            chunks=chunks,
-            evidence_units=evidence_units,
-            assertions=assertions,
+        synthesizer_input = getattr(
+            self.round_executor, "_last_synthesizer_input", None
         )
+        if not isinstance(synthesizer_input, dict):
+            synthesizer_input = AgentInputBuilder().build(
+                agent_type="synthesizer",
+                document=document,
+                chunks=chunks,
+                evidence_units=evidence_units,
+                assertions=assertions,
+            )
 
         verdicts = (debate_session or {}).get("verdicts") or []
         accepted_count = sum(

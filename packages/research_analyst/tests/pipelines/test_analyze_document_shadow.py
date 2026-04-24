@@ -139,6 +139,50 @@ def test_shadow_mode_debate_failure_still_writes_baseline(monkeypatch):
     assert stats.shadow_failures_total == 1
 
 
+def test_shadow_mode_run_exception_falls_back_to_baseline(monkeypatch):
+    fake_registry, synth_round = _stub_registry(monkeypatch)
+    baseline_analysis = _doc_analysis("baseline-fallback", 0.7)
+
+    round_executor = MagicMock()
+    round_executor.debate_mode = "shadow"
+    stats = MagicMock(shadow_runs_total=0, shadow_failures_total=0)
+    round_executor.rollout_stats = stats
+    round_executor.run.side_effect = RuntimeError("debate exploded")
+    round_executor.run_baseline_synthesis.return_value = baseline_analysis
+
+    store = MagicMock()
+    store.load_debate_session.return_value = None
+
+    pipeline = AnalyzeDocumentPipeline(
+        store=store,
+        chunker=MagicMock(chunk_document=MagicMock(return_value=[])),
+        evidence_builder=MagicMock(build_evidence=MagicMock(return_value=[])),
+        assertion_extractor=MagicMock(extract=MagicMock(return_value=[])),
+        resolver=MagicMock(
+            resolve_nodes=MagicMock(return_value=[]),
+            resolve_edges=MagicMock(return_value=[]),
+        ),
+        graph_updater=MagicMock(),
+        lifecycle_service=MagicMock(),
+        quality_reviewer=MagicMock(
+            review=MagicMock(
+                return_value=MagicMock(passed=True, score=0.9, blocking_issues=[])
+            ),
+            to_json=MagicMock(return_value="{}"),
+        ),
+        analysis_version="v1",
+        round_executor=round_executor,
+        eval_trigger=None,
+    )
+    pipeline.run(run_id=42, parser_updated_at=None, document=_document())
+
+    store.write_document_analysis.assert_called_once()
+    auth_kwargs = store.write_document_analysis.call_args.kwargs
+    assert auth_kwargs["thesis"] == "baseline-fallback"
+    assert stats.shadow_failures_total == 1
+    store.write_shadow_document_analysis.assert_not_called()
+
+
 def test_on_mode_unchanged(monkeypatch):
     fake_registry, synth_round = _stub_registry(monkeypatch)
     debate_analysis = _doc_analysis("debate-only", 0.85)

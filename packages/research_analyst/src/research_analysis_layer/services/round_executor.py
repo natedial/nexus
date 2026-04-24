@@ -125,6 +125,7 @@ class RoundExecutor:
         self.debate_judge_model = debate_judge_model
         self.max_debate_arguments = max_debate_arguments
         self.rollout_stats = RolloutStats()
+        self._last_synthesizer_input: dict[str, Any] | None = None
 
     def run(
         self,
@@ -168,11 +169,13 @@ class RoundExecutor:
             analysis_version=analysis_version,
             rounds=rounds,
         )
+        session_truncated_flag: dict[str, bool] = {"v": False}
         agent_specs = self._apply_judge_model_override(agent_specs)
 
         if self.tool_registry is not None:
             self.tool_registry.set_invocation_budget(max_total_tool_calls)
 
+        _debate_start = time.time() if self.debate_mode != "off" else None
         try:
             for turn_order, round_config in enumerate(rounds, start=1):
                 if self.debate_mode == "off" and round_config.writes_forum_state:
@@ -184,9 +187,9 @@ class RoundExecutor:
                     "Executing round: %s (%s)", round_config.name, round_config.type
                 )
 
-                forum_context = None
+                forum_context_dict: dict[str, Any] | None = None
                 if debate_session is not None and round_config.receives_forum_state:
-                    forum_context = self.session_builder.build_round_context(
+                    forum_context_model = self.session_builder.build_round_context(
                         session=debate_session,
                         target_selector=round_config.target_selector,
                         budget=self._build_forum_budget(
@@ -200,6 +203,14 @@ class RoundExecutor:
                             edge_resolutions=edge_resolutions or [],
                         ),
                     )
+                    forum_context_raw = forum_context_model.model_dump()
+                    forum_context_dict, truncated = self._apply_argument_cap(
+                        forum_context_raw
+                    )
+                    if truncated:
+                        self._note_truncation(
+                            session_truncated_flag=session_truncated_flag
+                        )
 
                 merged_input = self._build_merged_input(
                     document=document,
@@ -208,8 +219,11 @@ class RoundExecutor:
                     assertions=assertions,
                     receives=round_config.receives,
                     prior_outputs=prior_outputs,
-                    forum_context=forum_context,
+                    forum_context=forum_context_dict,
                 )
+
+                if round_config.output_schema == "DocumentAnalysis":
+                    self._last_synthesizer_input = merged_input
 
                 if round_config.type == "parallel":
                     result = self._execute_parallel_round(
@@ -235,6 +249,14 @@ class RoundExecutor:
                 prior_outputs[round_config.name] = result.agent_results
                 total_tool_calls += result.tool_call_count
                 all_round_traces.append(self._build_round_trace(result))
+
+                if round_config.writes_forum_state:
+                    self.rollout_stats.debate_input_tokens += (
+                        result.token_usage.input_tokens
+                    )
+                    self.rollout_stats.debate_output_tokens += (
+                        result.token_usage.output_tokens
+                    )
 
                 if debate_session is not None and round_config.writes_forum_state:
                     debate_outputs = self._collect_debate_round_outputs(
@@ -265,6 +287,11 @@ class RoundExecutor:
         finally:
             if self.tool_registry is not None:
                 self.tool_registry.clear_invocation_budget()
+
+        if _debate_start is not None:
+            self.rollout_stats.debate_duration_ms += int(
+                (time.time() - _debate_start) * 1000
+            )
 
         if debate_session is not None and self.analysis_store is not None:
             self.analysis_store.update_debate_session_status(
