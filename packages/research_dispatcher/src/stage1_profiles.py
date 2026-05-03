@@ -13,7 +13,7 @@ class Stage1Profile:
     """A tuned stage-one request profile for one model."""
 
     name: str
-    provider: Literal["openai", "deepinfra"]
+    provider: Literal["openai", "deepinfra", "openrouter"]
     model: str
     max_tokens: int
     request_timeout_seconds: float

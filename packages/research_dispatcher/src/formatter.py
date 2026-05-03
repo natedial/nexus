@@ -24,19 +24,70 @@ class ReportFormatter:
         data: list[dict[str, Any]] | DispatchBatch,
         active_filters: dict[str, Any] | None = None,
         conviction_filter: str = "all",
+        input_mode: str | None = None,
+        source_pipeline: str | None = None,
+        analyst_batch_path: str | None = None,
     ) -> dict[str, Any]:
         """Format raw database rows or an analyst batch into report data."""
         normalized_conviction_filter = parse_trade_conviction_filter(
             conviction_filter,
             default="all",
         )
+        resolved_input_mode = input_mode or (
+            "analyst" if isinstance(data, DispatchBatch) else "parser"
+        )
+        resolved_source_pipeline = source_pipeline or (
+            "research_analyst" if resolved_input_mode == "analyst" else "parsed_research"
+        )
         documents = self._documents_for_reporting(data)
-        return {
+        summary = self._create_summary(data)
+        summary["input_mode"] = resolved_input_mode
+        summary["source_pipeline"] = resolved_source_pipeline
+        if resolved_input_mode == "parser":
+            summary["agent_inclusive"] = False
+        elif resolved_input_mode == "analyst":
+            summary["agent_inclusive"] = True
+            if isinstance(data, DispatchBatch):
+                summary["batch_key"] = data.batch_key
+                if data.analysis_version:
+                    summary["analysis_version"] = data.analysis_version
+
+        metadata: dict[str, Any] = {
+            "input_mode": resolved_input_mode,
+            "source_pipeline": resolved_source_pipeline,
+            "agent_inclusive": resolved_input_mode == "analyst",
+        }
+        if resolved_input_mode == "parser":
+            metadata["date_range_days"] = (active_filters or {}).get("date_range_days")
+            metadata["date_filters"] = {
+                key: value
+                for key, value in (active_filters or {}).items()
+                if key
+                in {
+                    "date_range_days",
+                    "region",
+                    "asset_focus",
+                    "sources",
+                    "trade_conviction",
+                }
+            }
+        elif isinstance(data, DispatchBatch):
+            metadata["batch_key"] = data.batch_key
+            if data.analysis_version:
+                metadata["analysis_version"] = data.analysis_version
+            if analyst_batch_path:
+                metadata["analyst_batch_path"] = analyst_batch_path
+
+        report = {
             "title": "Research Dispatch",
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "input_mode": resolved_input_mode,
+            "source_pipeline": resolved_source_pipeline,
+            "agent_inclusive": resolved_input_mode == "analyst",
+            "report_metadata": metadata,
             "active_filters": active_filters or {},
             "source_date_range": self._source_date_range(data),
-            "summary": self._create_summary(data),
+            "summary": summary,
             "executive_summary": self._build_executive_summary(data),
             "document_digest": self._build_document_digest(data),
             "details": self._format_details(data),
@@ -45,6 +96,15 @@ class ReportFormatter:
             "through_lines": self._aggregate_through_lines(documents),
             "callouts": self._aggregate_callouts(documents),
         }
+        if resolved_input_mode == "parser":
+            report["date_filters"] = metadata["date_filters"]
+        elif resolved_input_mode == "analyst" and isinstance(data, DispatchBatch):
+            report["batch_key"] = data.batch_key
+            if data.analysis_version:
+                report["analysis_version"] = data.analysis_version
+            if analyst_batch_path:
+                report["analyst_batch_path"] = analyst_batch_path
+        return report
 
     def _documents_for_reporting(
         self,

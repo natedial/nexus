@@ -39,6 +39,9 @@ class DispatchStore:
                     run_type TEXT NOT NULL,
                     status TEXT NOT NULL,
                     mode TEXT NOT NULL,
+                    input_mode TEXT NOT NULL DEFAULT 'parser',
+                    source_type TEXT NULL,
+                    analyst_batch_path TEXT NULL,
                     batch_key TEXT NOT NULL,
                     analysis_version TEXT NULL,
                     report_title TEXT NULL,
@@ -84,12 +87,24 @@ class DispatchStore:
                     ON dispatch_snapshots(dispatch_run_id);
                 """
             )
+            self._ensure_columns(
+                conn,
+                "dispatch_runs",
+                {
+                    "input_mode": "TEXT NOT NULL DEFAULT 'parser'",
+                    "source_type": "TEXT NULL",
+                    "analyst_batch_path": "TEXT NULL",
+                },
+            )
 
     def create_run(
         self,
         *,
         run_type: str,
         mode: str,
+        input_mode: str = "parser",
+        source_type: str | None = None,
+        analyst_batch_path: str | None = None,
         batch_key: str,
         analysis_version: str | None,
         report_title: str,
@@ -105,6 +120,9 @@ class DispatchStore:
                     run_type,
                     status,
                     mode,
+                    input_mode,
+                    source_type,
+                    analyst_batch_path,
                     batch_key,
                     analysis_version,
                     report_title,
@@ -113,12 +131,15 @@ class DispatchStore:
                     document_count,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_type,
                     "running",
                     mode,
+                    input_mode,
+                    source_type,
+                    analyst_batch_path,
                     batch_key,
                     analysis_version,
                     report_title,
@@ -130,6 +151,21 @@ class DispatchStore:
                 ),
             )
             return int(cursor.lastrowid)
+
+    def _ensure_columns(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+        columns: dict[str, str],
+    ) -> None:
+        existing = {
+            row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})")
+        }
+        for column_name, column_spec in columns.items():
+            if column_name not in existing:
+                conn.execute(
+                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}"
+                )
 
     def record_documents(
         self,

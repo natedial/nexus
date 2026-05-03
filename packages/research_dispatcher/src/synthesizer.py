@@ -114,12 +114,14 @@ class Synthesizer:
         anthropic_api_key: str | None = None,
         openai_api_key: str | None = None,
         deepinfra_api_key: str | None = None,
+        openrouter_api_key: str | None = None,
         use_skill_pipeline: bool = False,
     ):
         self.client = LLMClient(
             anthropic_api_key=anthropic_api_key,
             openai_api_key=openai_api_key,
             deepinfra_api_key=deepinfra_api_key,
+            openrouter_api_key=openrouter_api_key,
         )
         self.use_skill_pipeline = use_skill_pipeline
         self.input_builder = ThroughlineInputBuilder()

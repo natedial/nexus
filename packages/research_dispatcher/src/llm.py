@@ -1,4 +1,4 @@
-"""Unified LLM client supporting Anthropic, OpenAI, and DeepInfra."""
+"""Unified LLM client supporting Anthropic, OpenAI, and compatible providers."""
 
 from dataclasses import dataclass
 from functools import lru_cache
@@ -27,7 +27,7 @@ class ExtendedThinking:
 class ModelConfig:
     """Configuration for a single model."""
 
-    provider: Literal["anthropic", "openai", "deepinfra"]
+    provider: Literal["anthropic", "openai", "deepinfra", "openrouter"]
     model: str
     max_tokens: int = 16000
     temperature: float = 0
@@ -177,20 +177,23 @@ def load_optional_skill_config(
 
 
 class LLMClient:
-    """Unified client for Anthropic, OpenAI, and DeepInfra."""
+    """Unified client for Anthropic, OpenAI, and compatible providers."""
 
     def __init__(
         self,
         anthropic_api_key: str | None = None,
         openai_api_key: str | None = None,
         deepinfra_api_key: str | None = None,
+        openrouter_api_key: str | None = None,
     ):
         self._anthropic_client = None
         self._openai_client = None
         self._deepinfra_client = None
+        self._openrouter_client = None
         self._anthropic_api_key = anthropic_api_key
         self._openai_api_key = openai_api_key
         self._deepinfra_api_key = deepinfra_api_key
+        self._openrouter_api_key = openrouter_api_key
 
     @property
     def anthropic(self):
@@ -217,11 +220,26 @@ class LLMClient:
         """Lazy-load DeepInfra's OpenAI-compatible client."""
         if self._deepinfra_client is None:
             import openai
+            if not self._deepinfra_api_key:
+                raise ValueError("DEEPINFRA_API_KEY is required when provider='deepinfra'")
             self._deepinfra_client = openai.OpenAI(
                 api_key=self._deepinfra_api_key,
                 base_url="https://api.deepinfra.com/v1/openai",
             )
         return self._deepinfra_client
+
+    @property
+    def openrouter(self):
+        """Lazy-load OpenRouter's OpenAI-compatible client."""
+        if self._openrouter_client is None:
+            import openai
+            if not self._openrouter_api_key:
+                raise ValueError("OPENROUTER_API_KEY is required when provider='openrouter'")
+            self._openrouter_client = openai.OpenAI(
+                api_key=self._openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+            )
+        return self._openrouter_client
 
     def generate(
         self,
@@ -250,6 +268,8 @@ class LLMClient:
                     return self._generate_openai(config, system, user)
                 if config.provider == "deepinfra":
                     return self._generate_deepinfra(config, system, user)
+                if config.provider == "openrouter":
+                    return self._generate_openrouter(config, system, user)
                 raise ValueError(f"Unknown provider: {config.provider}")
             except Exception as exc:
                 if attempt >= attempts:
@@ -364,6 +384,29 @@ class LLMClient:
         if last_error is not None:
             raise last_error
         raise RuntimeError(f"No DeepInfra request variants built for {config.model}")
+
+    def _generate_openrouter(
+        self,
+        config: ModelConfig,
+        system: str,
+        user: str,
+    ) -> str:
+        """Generate completion using OpenRouter's OpenAI-compatible API."""
+        logger.info("Calling %s via OpenRouter", config.model)
+        request = self._build_openai_compatible_request(config, system, user)
+        request["temperature"] = config.temperature
+        request["max_tokens"] = config.max_tokens
+
+        try:
+            response = self.openrouter.chat.completions.create(**request)
+        except Exception:
+            if not config.drop_response_format_on_retry or "response_format" not in request:
+                raise
+            retry_request = dict(request)
+            retry_request.pop("response_format", None)
+            response = self.openrouter.chat.completions.create(**retry_request)
+
+        return self._extract_openai_compatible_text(response.choices[0].message)
 
     def _build_openai_compatible_request(
         self,

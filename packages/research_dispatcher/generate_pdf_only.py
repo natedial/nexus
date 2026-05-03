@@ -8,14 +8,13 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import Config
-from src.analyst_client import AnalystBatchClient
 from src.database import DatabaseClient
 from src.delta_engine import SynthesisDeltaTracker
 from src.dispatch_store import DispatchStore
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
 from src.synthesizer import Synthesizer
-from src.main import _derive_dispatch_batch_key
+from src.main import _derive_dispatch_batch_key, _load_dispatch_documents
 
 try:
     print("Validating configuration...")
@@ -25,14 +24,19 @@ try:
 
     db = DatabaseClient()
     dispatch_batch = None
-    if Config.ANALYST_BATCH_PATH:
+    source_type = "analyst_batch" if Config.DISPATCH_INPUT_MODE == "analyst" else "parsed_research"
+    if Config.DISPATCH_INPUT_MODE == "analyst":
         print(f"Loading analyst dispatch batch: {Config.ANALYST_BATCH_PATH}")
-        dispatch_batch = AnalystBatchClient(Config.ANALYST_BATCH_PATH).load_batch()
-        data = dispatch_batch.to_legacy_records()
+    else:
+        print("Querying parsed_research documents")
+    data, dispatch_batch, source_type = _load_dispatch_documents(
+        input_mode=Config.DISPATCH_INPUT_MODE,
+        analyst_batch_path=Config.ANALYST_BATCH_PATH,
+        db_client=db,
+    )
+    if dispatch_batch is not None:
         print(f"Loaded batch {dispatch_batch.batch_key} with {len(dispatch_batch.documents)} document(s)")
     else:
-        print("Querying database...")
-        data = db.query_analysis()
         print(f"Retrieved {len(data)} research records")
 
     # Query calendar data
@@ -60,7 +64,10 @@ try:
         active_filters['date_range_days'] = Config.DATE_RANGE_DAYS
 
     if Config.ENABLE_SYNTHESIS and (
-        Config.ANTHROPIC_API_KEY or Config.OPENAI_API_KEY or Config.DEEPINFRA_API_KEY
+        Config.ANTHROPIC_API_KEY
+        or Config.OPENAI_API_KEY
+        or Config.DEEPINFRA_API_KEY
+        or Config.OPENROUTER_API_KEY
     ):
         print("Running cross-document synthesis...")
         if Config.USE_SKILL_PIPELINE:
@@ -69,6 +76,7 @@ try:
             anthropic_api_key=Config.ANTHROPIC_API_KEY,
             openai_api_key=Config.OPENAI_API_KEY,
             deepinfra_api_key=Config.DEEPINFRA_API_KEY,
+            openrouter_api_key=Config.OPENROUTER_API_KEY,
             use_skill_pipeline=Config.USE_SKILL_PIPELINE,
         )
         synthesis_input = dispatch_batch if dispatch_batch is not None else data
@@ -80,7 +88,7 @@ try:
     elif not Config.ENABLE_SYNTHESIS:
         print("Synthesis disabled (ENABLE_SYNTHESIS=false)")
     else:
-        print("Synthesis skipped (no ANTHROPIC_API_KEY, OPENAI_API_KEY, or DEEPINFRA_API_KEY)")
+        print("Synthesis skipped (no ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPINFRA_API_KEY, or OPENROUTER_API_KEY)")
 
     print("Formatting report...")
     formatter = ReportFormatter()
@@ -92,6 +100,17 @@ try:
         report_source,
         active_filters=active_filters,
         conviction_filter=Config.FILTER_TRADE_CONVICTION,
+        input_mode=Config.DISPATCH_INPUT_MODE,
+        source_pipeline=(
+            "research_analyst"
+            if Config.DISPATCH_INPUT_MODE == "analyst"
+            else "parsed_research"
+        ),
+        analyst_batch_path=(
+            Config.ANALYST_BATCH_PATH
+            if Config.DISPATCH_INPUT_MODE == "analyst"
+            else None
+        ),
     )
     batch_key = _derive_dispatch_batch_key(
         dispatch_batch=dispatch_batch,
@@ -107,6 +126,13 @@ try:
         report_scope=active_filters,
         source_date_range=report_data.get("source_date_range"),
         document_count=len(data),
+        input_mode=Config.DISPATCH_INPUT_MODE,
+        source_type=source_type,
+        analyst_batch_path=(
+            Config.ANALYST_BATCH_PATH
+            if Config.DISPATCH_INPUT_MODE == "analyst"
+            else None
+        ),
     )
     dispatch_store.record_documents(
         dispatch_run_id,

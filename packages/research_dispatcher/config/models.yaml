@@ -103,6 +103,17 @@ skills:
     max_tokens: 16000
     temperature: 0
 
+# OpenRouter can be selected anywhere above via:
+# provider: openrouter
+# model: openai/gpt-5.2
+# model: anthropic/claude-sonnet-4
+# model: google/gemini-2.5-pro
+# request_timeout_seconds: 120
+# max_retries: 1
+# retry_backoff_seconds: 3
+# response_format:
+#   type: json_object
+#
 # DeepInfra can be selected anywhere above via:
 # provider: deepinfra
 # model: moonshotai/Kimi-K2.5
@@ -157,3 +168,16 @@ available_models:
 
     - id: MiniMaxAI/MiniMax-M2.5
       description: "MiniMax general-purpose model on DeepInfra; likely needs tool_choice=none, reasoning_effort=none"
+
+  openrouter:
+    - id: openai/gpt-5.2
+      description: "OpenAI GPT-5.2 routed through OpenRouter"
+
+    - id: openai/gpt-5-mini
+      description: "OpenAI GPT-5 mini routed through OpenRouter"
+
+    - id: anthropic/claude-sonnet-4
+      description: "Anthropic Claude Sonnet routed through OpenRouter"
+
+    - id: google/gemini-2.5-pro
+      description: "Google Gemini Pro routed through OpenRouter"
