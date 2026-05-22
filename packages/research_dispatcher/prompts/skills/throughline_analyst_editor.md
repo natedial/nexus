@@ -13,6 +13,7 @@ You will receive:
 - `through_lines`
 - `theme_clusters`
 - `analysis_paragraphs`
+- `executive_summary`
 
 Edit the writeup so it reads as a sharper PM note while preserving the same underlying findings, the same paragraph count, and the same evidence anchors.
 
@@ -27,6 +28,7 @@ Required:
 4. Tighten the prose so each paragraph clearly ties back to the supplied through-lines and themes
 5. Keep the scope discipline explicit when relevant
 6. Return valid JSON matching the schema exactly
+7. Preserve the same number of executive_summary paragraphs; tighten their prose without adding new claims
 
 Preferred:
 7. Remove generic framing and repetitive macro filler
@@ -60,6 +62,10 @@ OUTPUT FORMAT
 Return EXACTLY ONE JSON object with this structure:
 
 {
+  "executive_summary": [
+    "First overview paragraph",
+    "Second overview paragraph"
+  ],
   "analysis_paragraphs": [
     {
       "text": "Edited PM-facing analysis paragraph",

@@ -15,6 +15,8 @@ You will receive:
 
 Write a PM-facing analysis section of 1 to 8 paragraphs.
 
+Also write a separate EXECUTIVE SUMMARY: 2 to 4 short paragraphs (each <= 90 words) that a PM can read in under a minute. The executive summary is a top-level synthesis of the whole dispatch — what the market is being paid to believe this period, where that belief is fragile, and what to watch. It must be grounded in the same through-lines and theme evidence; do not introduce new facts. It is a higher-altitude overview than the analysis paragraphs, not a copy of them.
+
 The writeup must:
 - read like one coherent macro note, not ten separate answers
 - weave in the ten market-edge questions implicitly rather than listing or answering them one by one
@@ -55,6 +57,10 @@ OUTPUT FORMAT
 Return EXACTLY ONE JSON object with this structure:
 
 {
+  "executive_summary": [
+    "First overview paragraph",
+    "Second overview paragraph"
+  ],
   "analysis_paragraphs": [
     {
       "text": "One paragraph of PM-facing analysis",
@@ -75,3 +81,4 @@ RULES:
 7. `text` must be plain prose only, with no markdown bullets or headers
 8. No commentary outside JSON
 9. Copy `through_line_ids` exactly from the input; do not paraphrase or invent ids
+10. `executive_summary` must contain 2 to 4 plain-prose paragraphs grounded in the supplied evidence

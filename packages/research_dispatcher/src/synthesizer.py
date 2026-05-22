@@ -58,27 +58,6 @@ def _load_prompt(filename: str = "synthesis.md") -> str:
     return prompt
 
 
-def _clean_json_response(text: str) -> str:
-    """Clean JSON response from LLM (remove code fences, explanatory text, etc.)."""
-    text = text.strip()
-
-    # Find JSON object start
-    json_start = -1
-    for i, char in enumerate(text):
-        if char == '{':
-            json_start = i
-            break
-
-    if json_start > 0:
-        text = text[json_start:]
-
-    # Remove trailing code fences
-    if "```" in text:
-        text = text.split("```")[0]
-
-    return text.strip()
-
-
 def _dump_json_payload(data: Any) -> str:
     """Serialize JSON payloads compactly to reduce token pressure."""
     return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
@@ -93,6 +72,7 @@ class SynthesisResult:
     through_lines: list[dict]
     callouts: list[dict]
     analysis_paragraphs: list[dict[str, Any]] = field(default_factory=list)
+    executive_summary: list[str] = field(default_factory=list)
     raw_response: str | None = None
 
     def to_dict(self) -> dict:
@@ -103,6 +83,7 @@ class SynthesisResult:
             "through_lines": self.through_lines,
             "callouts": self.callouts,
             "analysis_paragraphs": self.analysis_paragraphs,
+            "executive_summary": self.executive_summary,
         }
 
 
@@ -274,16 +255,12 @@ class Synthesizer:
         document_count: int,
     ) -> SynthesisResult | None:
         """Original monolithic synthesis using single LLM call."""
-        raw_response = self.client.generate(
-            config=self.config,
-            system=self.prompt,
-            user=json.dumps(input_data, indent=2),
-        )
-
-        cleaned = _clean_json_response(raw_response)
-
         try:
-            data = json.loads(cleaned)
+            data = self.client.generate_json(
+                config=self.config,
+                system=self.prompt,
+                user=json.dumps(input_data, indent=2),
+            )
             coerced_stage1 = self._coerce_stage1_result(data)
             through_lines = coerced_stage1.get("through_lines", [])
             self._normalize_through_lines(through_lines)
@@ -294,16 +271,15 @@ class Synthesizer:
                 document_count=data.get("document_count", document_count),
                 through_lines=through_lines,
                 callouts=callouts,
-                raw_response=raw_response,
+                raw_response=None,
             )
             print(f"Synthesis complete: {result.title}")
             print(f"  Through-lines: {len(result.through_lines)}")
             print(f"  Callouts: {len(result.callouts)}")
             return result
 
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Failed to parse synthesis JSON: {e}")
-            print(f"Raw response (first 500 chars): {raw_response[:500]}")
+        except Exception as e:
+            print(f"Failed to parse or validate synthesis JSON: {e}")
             return None
 
     def _synthesize_with_skills(
@@ -350,6 +326,7 @@ class Synthesizer:
             print("  Stage 1B skipped: no through-line editor configured")
 
         analysis_paragraphs: list[dict[str, Any]] = []
+        executive_summary: list[str] = []
         if self.throughline_analyst_config is not None:
             print(f"  Stage 1C: Writing PM analysis from {len(through_lines)} through-lines...")
             analysis_result = self._stage1c_analyze_throughlines(
@@ -360,6 +337,7 @@ class Synthesizer:
             )
             if analysis_result is not None:
                 analysis_paragraphs = analysis_result.get("analysis_paragraphs", [])
+                executive_summary = analysis_result.get("executive_summary", [])
                 print(f"  Stage 1C complete: {len(analysis_paragraphs)} analysis paragraphs")
                 if self.throughline_analyst_editor_config is not None:
                     print(f"  Stage 1D: Editing {len(analysis_paragraphs)} analysis paragraphs...")
@@ -369,11 +347,16 @@ class Synthesizer:
                         input_data=input_data,
                         scope=scope,
                         analysis_paragraphs=analysis_paragraphs,
+                        executive_summary=executive_summary,
                     )
                     if edited_analysis_result is not None:
                         analysis_paragraphs = edited_analysis_result.get(
                             "analysis_paragraphs",
                             analysis_paragraphs,
+                        )
+                        executive_summary = edited_analysis_result.get(
+                            "executive_summary",
+                            executive_summary,
                         )
                         print(
                             "  Stage 1D complete: "
@@ -410,6 +393,7 @@ class Synthesizer:
             through_lines=through_lines,
             callouts=callouts,
             analysis_paragraphs=analysis_paragraphs,
+            executive_summary=executive_summary,
             raw_response=None,
         )
         print(f"Synthesis complete: {result.title}")
@@ -436,17 +420,12 @@ class Synthesizer:
                     config,
                 )
                 stage1_prompt = build_stage1_prompt(self.throughline_prompt, stage1_profile)
-                raw_response = self.client.generate(
+                data = self.client.generate_json(
                     config=config,
                     system=stage1_prompt,
                     user=_dump_json_payload(stage1_input),
                 )
-                cleaned = _clean_json_response(raw_response)
-                if not cleaned:
-                    raise ValueError("Empty response body")
-                return self._coerce_stage1_result(json.loads(cleaned))
-            except json.JSONDecodeError as e:
-                print(f"  Stage 1 JSON parse error via {provider_label}: {e}")
+                return self._coerce_stage1_result(data)
             except Exception as e:
                 print(f"  Stage 1 error via {provider_label}: {e}")
 
@@ -467,15 +446,12 @@ class Synthesizer:
                 "title": title,
                 "through_lines": through_lines,
             }
-            raw_response = self.client.generate(
+            data = self.client.generate_json(
                 config=editor_config,
                 system=self.throughline_editor_prompt,
                 user=_dump_json_payload(editor_input),
             )
-            cleaned = _clean_json_response(raw_response)
-            if not cleaned:
-                raise ValueError("Empty editor response body")
-            edited = self._coerce_stage1_result(json.loads(cleaned))
+            edited = self._coerce_stage1_result(data)
             if not edited.get("through_lines"):
                 raise ValueError("Editor returned no through-lines")
             return edited
@@ -488,19 +464,13 @@ class Synthesizer:
         try:
             stage2_input = {"through_lines": through_lines}
 
-            raw_response = self.client.generate(
+            data = self.client.generate_json(
                 config=self.callout_config,
                 system=self.callout_prompt,
                 user=_dump_json_payload(stage2_input),
             )
-
-            cleaned = _clean_json_response(raw_response)
-            data = json.loads(cleaned)
             return data.get("callouts", [])
 
-        except json.JSONDecodeError as e:
-            print(f"  Stage 2 JSON parse error: {e}")
-            return None
         except Exception as e:
             print(f"  Stage 2 error: {e}")
             return None
@@ -524,16 +494,13 @@ class Synthesizer:
                 input_data=input_data,
                 scope=scope,
             )
-            raw_response = self.client.generate(
+            data = self.client.generate_json(
                 config=analyst_config,
                 system=self.throughline_analyst_prompt,
                 user=_dump_json_payload(analyst_input),
             )
-            cleaned = _clean_json_response(raw_response)
-            if not cleaned:
-                raise ValueError("Empty analyst response body")
             return self._coerce_analysis_result(
-                json.loads(cleaned),
+                data,
                 through_lines=through_lines,
             )
         except Exception as e:
@@ -547,6 +514,7 @@ class Synthesizer:
         input_data: dict[str, Any],
         scope: dict[str, Any],
         analysis_paragraphs: list[dict[str, Any]],
+        executive_summary: list[str] | None = None,
     ) -> dict[str, Any] | None:
         """Edit the Stage 1C writeup without loosening its grounding or coverage."""
         analyst_editor_config = self.throughline_analyst_editor_config
@@ -561,16 +529,14 @@ class Synthesizer:
                 scope=scope,
             )
             analyst_editor_input["analysis_paragraphs"] = analysis_paragraphs
-            raw_response = self.client.generate(
+            analyst_editor_input["executive_summary"] = executive_summary or []
+            data = self.client.generate_json(
                 config=analyst_editor_config,
                 system=self.throughline_analyst_editor_prompt,
                 user=_dump_json_payload(analyst_editor_input),
             )
-            cleaned = _clean_json_response(raw_response)
-            if not cleaned:
-                raise ValueError("Empty analyst editor response body")
             return self._coerce_analysis_result(
-                json.loads(cleaned),
+                data,
                 through_lines=through_lines,
                 expected_count=len(analysis_paragraphs),
             )
@@ -682,7 +648,28 @@ class Synthesizer:
                 f"got {len(covered_questions)}"
             )
 
-        return {"analysis_paragraphs": paragraphs}
+        return {
+            "analysis_paragraphs": paragraphs,
+            "executive_summary": self._coerce_executive_summary(
+                data.get("executive_summary")
+            ),
+        }
+
+    def _coerce_executive_summary(self, value: Any) -> list[str]:
+        """Normalize the analyst's executive_summary into 0-4 clean paragraphs."""
+        if value is None:
+            return []
+        raw_items = value if isinstance(value, list) else [value]
+        paragraphs: list[str] = []
+        for item in raw_items:
+            text = self._clean_text(item)
+            if text:
+                paragraphs.append(text)
+        if len(paragraphs) > 4:
+            raise ValueError(
+                "executive_summary must contain at most 4 paragraphs"
+            )
+        return dedupe_text_items(paragraphs, limit=4)
 
     def _coerce_analysis_paragraph(
         self,
