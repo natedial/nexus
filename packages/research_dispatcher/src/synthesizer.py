@@ -1646,6 +1646,10 @@ class Synthesizer:
             "document_count": input_data.get("document_count", 0),
             "sources": input_data.get("sources", []),
             "date_range": input_data.get("date_range", ""),
+            "scope": self._build_scope_context(
+                input_data.get("scope", {}) or {},
+                input_data,
+            ),
         }
 
     def _should_compact_stage1_payload(self, config: ModelConfig) -> bool:

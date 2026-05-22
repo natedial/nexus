@@ -6,6 +6,11 @@ Deliver actionable, cross-source intelligence that helps traders make fast signa
 
 ---
 
+SCOPE AWARENESS:
+The input includes a `scope` object (region, asset_focus, sources_filter). When `asset_focus` is not "All", treat that asset class as the primary lens — do not assume a rates desk. The market-edge questions still apply, but anchor through-lines in the asset class named by `scope.asset_focus`.
+
+---
+
 TASK:
 Extract 3-8 through-lines from the provided themes and trades. A through-line is a meta-narrative that emerges across multiple research documents.
 
