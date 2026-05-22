@@ -74,7 +74,7 @@ def _fetch_batch(
 ) -> list[dict]:
     """Fetch a batch of parsed_research records."""
     query = client.table("parsed_research").select(
-        "id, source_date, source, document_name, parsed_data"
+        "id, source_date, source, document_name, document_id, parsed_data"
     )
 
     if last_id is not None:
@@ -147,6 +147,7 @@ def _extract_metadata_from_parsed_data(parsed_data: dict) -> dict:
 
     return {
         "source": metadata.get("source"),
+        "document_id": metadata.get("document_id"),
         "publisher": metadata.get("publisher"),
         "area": metadata.get("area", "Other"),
         "region": metadata.get("region", "Global"),
@@ -169,6 +170,7 @@ def _update_document_columns(
 
     update = {
         "document_title": document_title,
+        "document_id": metadata.get("document_id"),
         "publisher": metadata.get("publisher"),
         "area": metadata.get("area"),
         "region": metadata.get("region"),
@@ -253,6 +255,8 @@ def _process_batch(
 
             themes = _extract_themes_from_parsed_data(parsed_data)
             metadata = _extract_metadata_from_parsed_data(parsed_data)
+            if not metadata.get("document_id") and record.get("document_id"):
+                metadata["document_id"] = record.get("document_id")
 
             trades_data = parsed_data.get("trades", [])
             trade_count = len(trades_data) if isinstance(trades_data, list) else 0

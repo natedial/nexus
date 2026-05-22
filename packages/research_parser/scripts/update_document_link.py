@@ -46,7 +46,7 @@ def main() -> int:
     response = (
         client.table("parsed_research")
         .select("id, parsed_data")
-        .filter("parsed_data->metadata->>document_id", "eq", args.file_id)
+        .eq("document_id", args.file_id)
         .execute()
     )
 
@@ -67,7 +67,7 @@ def main() -> int:
         parsed_data["metadata"] = metadata
 
         client.table("parsed_research").update(
-            {"parsed_data": parsed_data}
+            {"parsed_data": parsed_data, "document_link": args.new_link}
         ).eq("id", row["id"]).execute()
         updated += 1
 

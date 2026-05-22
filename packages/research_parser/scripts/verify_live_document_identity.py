@@ -6,14 +6,13 @@ project:
 
 1. Insert a temporary parsed_research row through the same upsert helper used by
    the parser write path.
-2. Upsert the same `(document_hash, document_name, source)` tuple again with a
-   changed payload.
+2. Upsert the same `document_id` again with changed payload and changed text hash.
 3. Assert that both writes resolve to the same row id and that the second write
    updated the row.
 4. Delete the temporary row before exiting.
 
 It is intended for post-migration verification after applying
-`migrations/003_parsed_research_document_identity.sql`.
+`migrations/005_parsed_research_document_id_identity.sql`.
 """
 
 from __future__ import annotations
@@ -52,10 +51,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_record(*, source: str, document_name: str, document_hash: str, text: str) -> dict:
+def _build_record(
+    *,
+    document_id: str,
+    source: str,
+    document_name: str,
+    document_hash: str,
+    text: str,
+) -> dict:
     return {
+        "document_id": document_id,
         "parsed_data": {
             "metadata": {
+                "document_id": document_id,
                 "source": source,
                 "source_date": "2026-04-14",
                 "publisher": "codex",
@@ -101,6 +109,7 @@ def main() -> int:
     table = client._client.table("parsed_research")
 
     suffix = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
+    document_id = f"codex-live-document-{suffix}"
     source = f"codex-live-upsert-test-{suffix}"
     document_name = f"codex-live-{suffix}.txt"
     text = f"Codex live upsert smoke test {suffix}"
@@ -111,9 +120,7 @@ def main() -> int:
     try:
         existing = (
             table.select("id")
-            .eq("document_hash", document_hash)
-            .eq("document_name", document_name)
-            .eq("source", source)
+            .eq("document_id", document_id)
             .limit(5)
             .execute()
         )
@@ -122,15 +129,14 @@ def main() -> int:
             return 1
 
         record1 = _build_record(
+            document_id=document_id,
             source=source,
             document_name=document_name,
             document_hash=document_hash,
             text=text,
         )
         row1 = client._get_or_create_research_row(
-            document_hash=document_hash,
-            document_name=document_name,
-            source=source,
+            document_id=document_id,
             record=record1,
         )
         if not row1 or not row1.get("id"):
@@ -138,11 +144,14 @@ def main() -> int:
             return 1
         cleanup_id = int(row1["id"])
 
+        updated_text = f"{text} updated"
+        updated_document_hash = _compute_document_hash(updated_text)
         record2 = _build_record(
+            document_id=document_id,
             source=source,
             document_name=document_name,
-            document_hash=document_hash,
-            text=text,
+            document_hash=updated_document_hash,
+            text=updated_text,
         )
         record2["trade_count"] = 1
         record2["parsed_data"]["trades"] = [
@@ -151,9 +160,7 @@ def main() -> int:
         record2["parsed_data"]["extraction_stats"]["num_trades"] = 1
 
         row2 = client._get_or_create_research_row(
-            document_hash=document_hash,
-            document_name=document_name,
-            source=source,
+            document_id=document_id,
             record=record2,
         )
         if not row2 or not row2.get("id"):
@@ -161,7 +168,7 @@ def main() -> int:
             return 1
 
         fetched = (
-            table.select("id,trade_count,document_hash,document_name,source")
+            table.select("id,trade_count,document_id,document_hash,document_name,source")
             .eq("id", cleanup_id)
             .limit(1)
             .execute()
@@ -179,6 +186,8 @@ def main() -> int:
                     "second_id": row2["id"],
                     "same_row": row1["id"] == row2["id"],
                     "trade_count_after_second_upsert": fetched_row.get("trade_count"),
+                    "document_hash_after_second_upsert": fetched_row.get("document_hash"),
+                    "hash_changed": fetched_row.get("document_hash") == updated_document_hash,
                     "document_name": document_name,
                     "source": source,
                 },

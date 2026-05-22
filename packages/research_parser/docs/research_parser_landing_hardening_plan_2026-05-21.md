@@ -15,7 +15,7 @@ This plan is intentionally scoped to landing safety. It does not roll the memory
   For OpenRouter, retry reasoning rejections by removing `extra_body.reasoning` first while keeping `response_format`; only drop `response_format` if the provider still rejects the request. This intentionally spends one extra network round-trip on the common reasoning-rejection path to avoid degrading extraction quality unnecessarily.
 
 - Make storage terminal-state handling consistent.
-  `insert_research()` is already idempotent for document rows through `upsert(..., on_conflict="document_hash,document_name,source")`, so a crash before the local `storage_ok` update should not create duplicate `parsed_research` rows. Still fix the real state inconsistency: if `storage_ok=1`, either `StateStore.is_processed()` should treat the file as processed or `update_step("storage", True)` should transition to `completed`. This prevents needless retries after storage has already succeeded.
+  `insert_research()` is idempotent for document rows through `upsert(..., on_conflict="document_id")`; `document_hash` is only a content fingerprint for duplicate detection and unchanged-content checks. A crash before the local `storage_ok` update should not create duplicate `parsed_research` rows. Still fix the real state inconsistency: if `storage_ok=1`, either `StateStore.is_processed()` should treat the file as processed or `update_step("storage", True)` should transition to `completed`. This prevents needless retries after storage has already succeeded.
 
 - Harden memory backfill idempotency.
   Before upserting spans/chunks, detect existing rows for the same `research_id + version + order` with different keys. Fail with a clear message unless `--replace` is explicitly set.

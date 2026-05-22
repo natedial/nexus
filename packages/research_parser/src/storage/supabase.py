@@ -5,7 +5,7 @@ from datetime import datetime
 
 import structlog
 from supabase import Client, create_client
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
 from src.extraction.models import ExtractionResult, Theme
 
@@ -27,6 +27,7 @@ class SupabaseClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_not_exception_type(ValueError),
     )
     def insert_research(
         self,
@@ -74,9 +75,13 @@ class SupabaseClient:
 
         # Compute document hash from cleaned text
         document_hash = _compute_document_hash(result.full_text)
+        document_id = (result.metadata.document_id or "").strip()
+        if not document_id:
+            raise ValueError("metadata.document_id is required for parsed_research identity")
 
         # Build document-level record with normalized columns
         record = {
+            "document_id": document_id,
             "parsed_data": parsed_data,
             "source_date": source_date,
             "source": result.metadata.source,
@@ -91,6 +96,11 @@ class SupabaseClient:
             "theme_count": len(result.themes),
             "trade_count": len(result.trades),
             "document_hash": document_hash,
+            "index_status": "pending",
+            "indexed_at": None,
+            "index_error": None,
+            "index_version": None,
+            "indexing_batch_id": None,
         }
 
         logger.info(
@@ -103,9 +113,7 @@ class SupabaseClient:
         )
 
         research_row = self._get_or_create_research_row(
-            document_hash=document_hash,
-            document_name=document_name,
-            source=result.metadata.source,
+            document_id=document_id,
             record=record,
         )
         if not research_row:
@@ -126,9 +134,7 @@ class SupabaseClient:
 
     def _get_or_create_research_row(
         self,
-        document_hash: str,
-        document_name: str,
-        source: str,
+        document_id: str,
         record: dict,
     ) -> dict:
         """Upsert the document row using the dedupe key enforced in SQL."""
@@ -136,7 +142,7 @@ class SupabaseClient:
             self._client.table("parsed_research")
             .upsert(
                 record,
-                on_conflict="document_hash,document_name,source",
+                on_conflict="document_id",
             )
             .execute()
         )
@@ -146,9 +152,7 @@ class SupabaseClient:
         fetched = (
             self._client.table("parsed_research")
             .select("*")
-            .eq("document_hash", document_hash)
-            .eq("document_name", document_name)
-            .eq("source", source)
+            .eq("document_id", document_id)
             .limit(1)
             .execute()
         )

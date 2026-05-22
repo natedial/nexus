@@ -142,6 +142,7 @@ def test_extract_metadata_from_parsed_data_includes_source():
             "region": "US",
             "asset_focus": "rates",
             "document_link": "https://example.com/report",
+            "document_id": "drive-doc-1",
         }
     }
 
@@ -153,6 +154,7 @@ def test_extract_metadata_from_parsed_data_includes_source():
     assert metadata["region"] == "US"
     assert metadata["asset_focus"] == "rates"
     assert metadata["document_link"] == "https://example.com/report"
+    assert metadata["document_id"] == "drive-doc-1"
 
 
 def test_extract_themes_from_parsed_data_normalizes_string_relevance():
@@ -186,6 +188,7 @@ def test_insert_research_reuses_existing_row_and_replaces_normalized_children():
             asset_focus="rates",
             publisher="Morgan Stanley",
             document_link="https://example.com/ms",
+            document_id="drive-ms",
         ),
         themes=[
             Theme(
@@ -206,6 +209,7 @@ def test_insert_research_reuses_existing_row_and_replaces_normalized_children():
     fake_backend.tables["parsed_research"].append(
         {
             "id": 7,
+            "document_id": "drive-ms",
             "parsed_data": {"old": True},
             "source_date": "2026-03-20",
             "source": "Morgan Stanley",
@@ -218,7 +222,12 @@ def test_insert_research_reuses_existing_row_and_replaces_normalized_children():
             "document_link": None,
             "theme_count": 99,
             "trade_count": 99,
-            "document_hash": document_hash,
+            "document_hash": "old-markdown-hash",
+            "index_status": "indexed",
+            "indexed_at": "2026-03-20T12:00:00Z",
+            "index_error": "old error",
+            "index_version": "old-version",
+            "indexing_batch_id": 123,
         }
     )
     fake_backend.next_ids["parsed_research"] = 8
@@ -246,6 +255,12 @@ def test_insert_research_reuses_existing_row_and_replaces_normalized_children():
     assert stored["id"] == 7
     assert len(fake_backend.tables["parsed_research"]) == 1
     assert fake_backend.tables["parsed_research"][0]["theme_count"] == 1
+    assert fake_backend.tables["parsed_research"][0]["document_hash"] == document_hash
+    assert fake_backend.tables["parsed_research"][0]["index_status"] == "pending"
+    assert fake_backend.tables["parsed_research"][0]["indexed_at"] is None
+    assert fake_backend.tables["parsed_research"][0]["index_error"] is None
+    assert fake_backend.tables["parsed_research"][0]["index_version"] is None
+    assert fake_backend.tables["parsed_research"][0]["indexing_batch_id"] is None
     assert (
         fake_backend.tables["parsed_research"][0]["document_title"]
         == "Analysis of Morgan Stanley"
@@ -259,6 +274,26 @@ def test_insert_research_reuses_existing_row_and_replaces_normalized_children():
     excerpts = fake_backend.tables["research_theme_excerpts"]
     assert len(excerpts) == 1
     assert excerpts[0]["excerpt_text"] == "Front-end pressure shifts to the belly."
+
+
+def test_insert_research_requires_document_id():
+    fake_backend = _FakeSupabase()
+    client = SupabaseClient.__new__(SupabaseClient)
+    client._client = fake_backend
+
+    result = ExtractionResult(
+        metadata=Metadata(source="Morgan Stanley", source_date="2026-03-21"),
+        themes=[],
+        trades=[],
+        full_text="Cleaned document text",
+    )
+
+    try:
+        client.insert_research(result, "ms-note.pdf")
+    except ValueError as exc:
+        assert "metadata.document_id is required" in str(exc)
+    else:
+        raise AssertionError("insert_research should require metadata.document_id")
 
 
 def test_backfill_replaces_partial_existing_normalized_rows():
@@ -394,12 +429,14 @@ def test_backfill_clears_existing_normalized_rows_when_source_has_no_themes():
 
 def test_document_identity_migration_uses_plain_unique_index():
     """The parser upsert conflict target must match a real unique index."""
-    migration = Path("migrations/003_parsed_research_document_identity.sql").read_text()
+    migration = Path("migrations/005_parsed_research_document_id_identity.sql").read_text()
 
     assert "DROP INDEX IF EXISTS idx_parsed_research_document_identity;" in migration
     assert "CREATE UNIQUE INDEX idx_parsed_research_document_identity" in migration
-    assert "ON parsed_research(document_hash, document_name, source);" in migration
+    assert "ON parsed_research(document_id);" in migration
+    assert "ADD COLUMN IF NOT EXISTS document_id TEXT NULL" in migration
+    assert "parsed_data->'metadata'->>'document_id'" in migration
     create_index_sql = migration.split(
         "CREATE UNIQUE INDEX idx_parsed_research_document_identity", 1
     )[1]
-    assert "WHERE document_hash IS NOT NULL" not in create_index_sql
+    assert "WHERE document_id IS NOT NULL" not in create_index_sql

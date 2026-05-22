@@ -61,7 +61,7 @@ python3 scripts/test_drive.py --days 7
 # Test extraction on first PDF
 python3 scripts/test_extraction.py
 
-# Verify live parsed_research upsert identity after applying migration 003
+# Verify live parsed_research upsert identity after applying migration 005
 python3 scripts/verify_live_document_identity.py
 
 # Process up to 3 new PDFs
