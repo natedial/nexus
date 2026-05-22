@@ -486,28 +486,20 @@ class ReportFormatter:
         if lower in {"medium", "large", "small", "high", "low", "n/a"}:
             return ""
 
-        rewrite_prefixes = (
-            ("be prepared for a potential oil price of", "Prepare for higher oil prices"),
-            ("buy brent crude oil in anticipation of prices reaching", "Buy Brent crude"),
-            ("buy consumer finance, where ytd movement implies", "Buy consumer finance"),
-        )
-        for prefix, replacement in rewrite_prefixes:
-            if lower.startswith(prefix):
-                return replacement
-
+        # Keep level-bearing clauses intact. Only trim a trailing clause after a
+        # comma when that trailing clause carries no number, level, or %/bp.
         if "," in text:
-            lead = text.split(",", 1)[0].strip()
-            if lead:
+            lead, tail = text.split(",", 1)
+            lead = lead.strip()
+            if lead and not re.search(r"\d", tail):
                 text = lead
                 lower = text.lower()
 
-        text = self._clean_clause(text, max_words=14)
+        text = self._clean_clause(text, max_words=22)
         if not text:
             return ""
 
-        trailing_bad = {
-            "chance", "moderate", "potential", "possible", "view", "prices", "movement",
-        }
+        trailing_bad = {"chance", "moderate", "potential", "possible", "view", "movement"}
         final_word = text.split()[-1].lower().strip(",")
         if final_word in trailing_bad:
             return ""
