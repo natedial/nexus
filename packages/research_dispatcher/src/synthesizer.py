@@ -320,8 +320,7 @@ class Synthesizer:
                     f"{raw_throughline_count} raw -> {len(through_lines)} edited through-lines"
                 )
             else:
-                print("  Stage 1B failed, aborting synthesis")
-                return None
+                print("  Stage 1B failed, keeping raw Stage 1A through-lines")
         else:
             print("  Stage 1B skipped: no through-line editor configured")
 
