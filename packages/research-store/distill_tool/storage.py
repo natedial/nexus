@@ -147,6 +147,24 @@ def store_chunks(db_path: str | Path, chunks: Iterable[ChunkRecord]) -> None:
     chunk_ids = [chunk.chunk_id for chunk in chunk_list]
 
     with sqlite3.connect(db_path) as conn:
+        stale_chunk_ids: list[str] = []
+        incoming_by_source: dict[str, set[str]] = {}
+        for chunk in chunk_list:
+            if chunk.source_path:
+                incoming_by_source.setdefault(chunk.source_path, set()).add(chunk.chunk_id)
+
+        for source_path, incoming_ids in incoming_by_source.items():
+            placeholders = ",".join("?" for _ in incoming_ids)
+            rows = conn.execute(
+                f"""
+                SELECT chunk_id FROM chunks
+                WHERE source_path = ?
+                  AND chunk_id NOT IN ({placeholders})
+                """,
+                [source_path, *incoming_ids],
+            ).fetchall()
+            stale_chunk_ids.extend(str(row[0]) for row in rows)
+
         conn.executemany(
             """
             INSERT OR REPLACE INTO chunks (
@@ -172,19 +190,26 @@ def store_chunks(db_path: str | Path, chunks: Iterable[ChunkRecord]) -> None:
         if not chunk_ids:
             return
 
-        placeholders = ",".join("?" for _ in chunk_ids)
+        cleanup_ids = [*chunk_ids, *stale_chunk_ids]
+        placeholders = ",".join("?" for _ in cleanup_ids)
         conn.execute(
             f"DELETE FROM chunk_keywords WHERE chunk_id IN ({placeholders})",
-            chunk_ids,
+            cleanup_ids,
         )
         conn.execute(
             f"DELETE FROM chunks_fts WHERE chunk_id IN ({placeholders})",
-            chunk_ids,
+            cleanup_ids,
         )
         conn.execute(
             f"DELETE FROM keyword_fts WHERE chunk_id IN ({placeholders})",
-            chunk_ids,
+            cleanup_ids,
         )
+        if stale_chunk_ids:
+            stale_placeholders = ",".join("?" for _ in stale_chunk_ids)
+            conn.execute(
+                f"DELETE FROM chunks WHERE chunk_id IN ({stale_placeholders})",
+                stale_chunk_ids,
+            )
 
         keyword_rows: list[tuple[str, str, str, float]] = []
         keyword_fts_rows: list[tuple[str, str]] = []

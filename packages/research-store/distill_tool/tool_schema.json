@@ -22,8 +22,8 @@
         },
         "limit": {
           "type": "integer",
-          "description": "Max results to return. Default 10. Use 5 for narrow queries, 15-20 for broad sweeps.",
-          "default": 10,
+          "description": "Max results to return. Default 8. Use 5 for narrow queries and 8 for broader sweeps.",
+          "default": 8,
           "minimum": 1,
           "maximum": 8
         }

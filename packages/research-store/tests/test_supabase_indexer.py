@@ -12,6 +12,7 @@ from distill_tool.supabase_indexer import (
     extract_full_text,
     index_pending_documents,
 )
+from distill_tool.storage import ChunkRecord, RunInfo, init_db, store_chunks, store_run
 
 
 def test_extract_full_text_returns_trimmed_text() -> None:
@@ -51,6 +52,140 @@ def test_embedding_corpus_upsert_raises_on_dimension_mismatch() -> None:
             np.array(["b"]),
             np.array([[0.1, 0.2, 0.3]], dtype="float32"),
         )
+
+
+def test_embedding_corpus_remove_drops_stale_vectors() -> None:
+    corpus = EmbeddingCorpus(
+        chunk_ids=np.array(["old", "keep"]),
+        embeddings=np.array([[1.0, 0.0], [0.0, 1.0]], dtype="float32"),
+    )
+
+    corpus.remove({"old", "missing"})
+
+    assert corpus.chunk_ids.tolist() == ["keep"]
+    assert np.allclose(corpus.embeddings, np.array([[0.0, 1.0]], dtype="float32"))
+
+
+def test_index_pending_documents_removes_stale_vectors_for_reindexed_document(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class FakeClient:
+        def fetch_stale_processing_documents(
+            self, *, limit: int, stale_before_batch_id: int
+        ) -> list[SupabaseDocument]:
+            return []
+
+        def fetch_pending_documents(self, *, limit: int) -> list[SupabaseDocument]:
+            return [
+                SupabaseDocument(
+                    id=101,
+                    source_date="2026-03-07",
+                    parsed_data={"full_text": "updated body"},
+                )
+            ]
+
+        def claim_document(self, *, doc_id: int, batch_id: int) -> bool:
+            return True
+
+        def mark_indexed(self, *, doc_id: int, batch_id: int, index_version: str) -> None:
+            return None
+
+        def mark_failed(self, *, doc_id: int, batch_id: int, error: str) -> None:
+            raise AssertionError(error)
+
+    db_path = tmp_path / "chunks.sqlite"
+    npz_path = tmp_path / "embeddings.npz"
+    init_db(db_path)
+    store_run(
+        db_path,
+        RunInfo(
+            run_id="old-run",
+            model_name="model",
+            embedding_dim=2,
+            source="supabase:101",
+            source_date="2026-03-07",
+            dictionary_path=None,
+            params={},
+        ),
+    )
+    store_chunks(
+        db_path,
+        [
+            ChunkRecord(
+                chunk_id="old-chunk",
+                run_id="old-run",
+                source_path="supabase:101",
+                source_date="2026-03-07",
+                page_number=1,
+                chunk_index=0,
+                text="old body",
+                keywords_json="[]",
+                text_hash="old-hash",
+            )
+        ],
+    )
+    np.savez_compressed(
+        npz_path,
+        chunk_ids=np.array(["old-chunk", "other-chunk"]),
+        embeddings=np.array([[1.0, 0.0], [0.0, 1.0]], dtype="float32"),
+    )
+
+    def _fake_distill_markdown(**kwargs):
+        store_run(
+            db_path,
+            RunInfo(
+                run_id="new-run",
+                model_name="model",
+                embedding_dim=2,
+                source="supabase:101",
+                source_date="2026-03-07",
+                dictionary_path=None,
+                params={},
+            ),
+        )
+        store_chunks(
+            db_path,
+            [
+                ChunkRecord(
+                    chunk_id="new-chunk",
+                    run_id="new-run",
+                    source_path="supabase:101",
+                    source_date="2026-03-07",
+                    page_number=1,
+                    chunk_index=0,
+                    text="updated body",
+                    keywords_json="[]",
+                    text_hash="new-hash",
+                )
+            ],
+        )
+        np.savez_compressed(
+            npz_path,
+            chunk_ids=np.array(["new-chunk"]),
+            embeddings=np.array([[0.5, 0.5]], dtype="float32"),
+        )
+
+    monkeypatch.setattr(
+        "distill_tool.supabase_indexer.SupabaseRestClient",
+        lambda **kwargs: FakeClient(),
+    )
+    monkeypatch.setattr(
+        "distill_tool.supabase_indexer.distill_markdown",
+        _fake_distill_markdown,
+    )
+
+    stats = index_pending_documents(
+        supabase_url="https://example.supabase.co",
+        supabase_key="service-key",
+        db_path=db_path,
+        npz_path=npz_path,
+        poll_limit=1,
+        stale_processing_seconds=0,
+    )
+
+    assert stats.indexed == 1
+    saved = np.load(npz_path)
+    assert saved["chunk_ids"].tolist() == ["other-chunk", "new-chunk"]
 
 
 def test_index_pending_documents_marks_indexed_and_failed(tmp_path: Path, monkeypatch) -> None:

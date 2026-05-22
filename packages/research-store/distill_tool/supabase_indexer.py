@@ -364,6 +364,16 @@ class EmbeddingCorpus:
         self.chunk_ids = np.concatenate([kept_ids, chunk_ids], axis=0)
         self.embeddings = merged_embeddings
 
+    def remove(self, chunk_ids: set[str]) -> None:
+        if not chunk_ids or self.chunk_ids.size == 0:
+            return
+
+        keep_mask = np.array(
+            [cid not in chunk_ids for cid in self.chunk_ids], dtype=bool
+        )
+        self.chunk_ids = self.chunk_ids[keep_mask]
+        self.embeddings = self.embeddings[keep_mask]
+
     def save(self, npz_path: Path) -> None:
         npz_path.parent.mkdir(parents=True, exist_ok=True)
         with NamedTemporaryFile(
@@ -384,6 +394,23 @@ def extract_full_text(row: dict[str, Any]) -> str:
         raise ValueError(f"row {row.get('id')} missing parsed_data.full_text")
 
     return full_text.strip()
+
+
+def _chunk_ids_for_source_path(db_path: Path, source_path: str) -> set[str]:
+    if not db_path.exists():
+        return set()
+
+    import sqlite3
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT chunk_id FROM chunks WHERE source_path = ?",
+                (source_path,),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return set()
+    return {str(row[0]) for row in rows}
 
 
 def index_pending_documents(
@@ -504,6 +531,8 @@ def index_pending_documents(
                 full_text = extract_full_text(
                     {"id": doc.id, "parsed_data": doc.parsed_data}
                 )
+                source_path = f"supabase:{doc.id}"
+                previous_chunk_ids = _chunk_ids_for_source_path(db_path, source_path)
                 with ops.track_stage(
                     repo_name="research_store",
                     stage_name="store.distill_document",
@@ -517,7 +546,7 @@ def index_pending_documents(
                 ):
                     distill_markdown(
                         markdown=full_text,
-                        source_path=f"supabase:{doc.id}",
+                        source_path=source_path,
                         source_date=doc.source_date,
                         db_path=db_path,
                         npz_path=npz_path,
@@ -545,6 +574,8 @@ def index_pending_documents(
                     document_fields=document_fields,
                 ):
                     fresh = EmbeddingCorpus.load(npz_path)
+                    fresh_ids = set(fresh.chunk_ids.tolist())
+                    corpus.remove(previous_chunk_ids - fresh_ids)
                     corpus.upsert(fresh.chunk_ids, fresh.embeddings)
                     corpus.save(npz_path)
 
