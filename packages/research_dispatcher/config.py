@@ -19,6 +19,14 @@ def _int_from_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_from_env(name: str, default: bool) -> bool:
+    """Parse boolean env var, falling back to default on empty values."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("true", "1", "yes")
+
+
 def parse_trade_conviction_filter(raw: str | None, default: str = "high") -> str:
     """Normalize the trade conviction filter and fail fast on invalid values."""
     candidate = (raw or "").strip().lower()
@@ -94,10 +102,7 @@ class Config:
 
     # Mode: debug (doesn't update synthesized) or production (updates synthesized)
     MODE = os.getenv("MODE", "debug").lower()
-    LEGACY_SYNTHESIZED_UPDATES = os.getenv(
-        "LEGACY_SYNTHESIZED_UPDATES",
-        "false",
-    ).lower() in ("true", "1", "yes")
+    LEGACY_SYNTHESIZED_UPDATES = _bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True)
 
     # Feedback links (Supabase Edge Function)
     FEEDBACK_BASE_URL = os.getenv(

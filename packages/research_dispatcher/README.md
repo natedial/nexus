@@ -49,10 +49,9 @@ DEEPINFRA_API_KEY=
 # Mode: debug (no DB updates) or production (marks docs as synthesized)
 MODE=debug
 
-# Optional legacy fallback only.
-# Dispatcher now tracks its own run history in state/dispatch_history.db.
-# Set this true only if another system still depends on parsed_research.synthesized.
-LEGACY_SYNTHESIZED_UPDATES=false
+# Parser-mode production safety.
+# Keeps parsed_research.synthesized in sync so parser-mode sends are not repeated.
+LEGACY_SYNTHESIZED_UPDATES=true
 
 # Filters (all optional - empty = no filter)
 DATE_RANGE_DAYS=7
@@ -147,14 +146,18 @@ Filter options:
 
 ### Production mode
 
-Dispatcher now uses its local dispatch ledger as the primary state mechanism.
+Dispatcher records every send in its local dispatch ledger and, in parser mode,
+also marks sent `parsed_research` rows as synthesized by default. That preserves
+the older mail-branch behavior where a successful production send removes those
+documents from the next parser-mode query.
 
-Set `MODE=production` for live sends. If you still need the old parser-owned
-`parsed_research.synthesized` updates, also set `LEGACY_SYNTHESIZED_UPDATES=true`.
+Set `MODE=production` for live sends. Keep `LEGACY_SYNTHESIZED_UPDATES=true`
+unless the run is intentionally ledger-only, such as analyst-batch dispatches
+that do not use parser-owned synthesized state.
 
 ```bash
 MODE=production
-LEGACY_SYNTHESIZED_UPDATES=true  # optional legacy fallback only
+LEGACY_SYNTHESIZED_UPDATES=true
 ```
 
 ## Scheduling

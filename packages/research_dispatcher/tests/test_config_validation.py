@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
-from config import Config, parse_dispatch_input_mode
+from config import Config, _bool_from_env, parse_dispatch_input_mode
 
 
 class ConfigValidationTests(unittest.TestCase):
@@ -61,6 +61,14 @@ class ConfigValidationTests(unittest.TestCase):
             for patcher in patchers:
                 stack.enter_context(patcher)
             Config.validate()
+
+    def test_legacy_synthesized_updates_default_to_enabled(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertTrue(_bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True))
+
+    def test_legacy_synthesized_updates_can_be_disabled_explicitly(self):
+        with patch.dict("os.environ", {"LEGACY_SYNTHESIZED_UPDATES": "false"}, clear=True):
+            self.assertFalse(_bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True))
 
     def test_validate_requires_analyst_batch_path_in_analyst_mode(self):
         patchers = self._base_patches() + [
