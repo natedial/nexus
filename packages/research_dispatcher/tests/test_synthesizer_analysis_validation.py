@@ -116,6 +116,31 @@ class SynthesizerAnalysisValidationTests(unittest.TestCase):
         result = self.synthesizer._coerce_analysis_result(data, self.through_lines)
         self.assertEqual(len(result["analysis_paragraphs"]), 2)
 
+    def test_stage1c_uses_llm_json_adapter(self):
+        class FakeClient:
+            def generate_json(self, **kwargs):
+                return {
+                    "analysis_paragraphs": [
+                        {
+                            "text": "Oil shock and carry risks define the repricing path.",
+                            "through_line_ids": ["TL1", "TL2"],
+                            "theme_labels": ["oil shock", "carry"],
+                            "question_ids": [1, 2, 3, 4, 5, 6],
+                        }
+                    ]
+                }
+
+        self.synthesizer.client = FakeClient()
+
+        result = self.synthesizer._stage1c_analyze_throughlines(
+            title="Adapter Test",
+            through_lines=self.through_lines,
+            input_data={"themes": [], "trades": []},
+            scope={},
+        )
+
+        self.assertEqual(len(result["analysis_paragraphs"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

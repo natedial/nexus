@@ -4,14 +4,16 @@
 
 synthesis:
   # Cross-document synthesis - needs deep reasoning (monolithic fallback)
-  # Recommended: Best model with extended thinking
+  # Recommended: strongest reliable JSON model for full-payload fallback
   provider: openai
   model: gpt-5-mini
   max_tokens: 16000
   temperature: 0
-  extended_thinking:
-    enabled: true
-    budget_tokens: 10000
+  response_format:
+    type: json_object
+  output_contract: json_object
+  parse_strategy: strict_json_object
+  reasoning_mode: stage_reasoning
 
 # Skill-specific configurations (used when USE_SKILL_PIPELINE=true)
 skills:
@@ -23,6 +25,11 @@ skills:
     temperature: 0
     request_timeout_seconds: 120
     max_retries: 0
+    response_format:
+      type: json_object
+    output_contract: json_object
+    parse_strategy: strict_json_object
+    reasoning_mode: stage_reasoning
     prompt_profile: full
     max_key_insight_words: 300
     max_supporting_themes: 6
@@ -39,6 +46,9 @@ skills:
     retry_backoff_seconds: 2
     response_format:
       type: json_object
+    output_contract: json_object
+    parse_strategy: strict_json_object
+    reasoning_mode: stage_reasoning
     drop_response_format_on_retry: false
     prompt_profile: lean
     throughline_count: 4
@@ -59,6 +69,9 @@ skills:
     retry_backoff_seconds: 2
     response_format:
       type: json_object
+    output_contract: json_object
+    parse_strategy: strict_json_object
+    reasoning_mode: stage_reasoning
     drop_response_format_on_retry: true
     prompt_profile: lean
     throughline_count: 3
@@ -77,6 +90,10 @@ skills:
     temperature: 0
     request_timeout_seconds: 90
     max_retries: 0
+    response_format:
+      type: json_object
+    output_contract: json_object
+    parse_strategy: strict_json_object
 
   throughline_analyst:
     # Stage 1C analyst: PM-facing writeup grounded in edited through-lines and scoped theme evidence
@@ -86,6 +103,11 @@ skills:
     temperature: 0.3
     request_timeout_seconds: 90
     max_retries: 0
+    response_format:
+      type: json_object
+    output_contract: json_object
+    parse_strategy: strict_json_object
+    reasoning_mode: stage_reasoning
 
   throughline_analyst_editor:
     # Stage 1D analyst editor: tighten the PM writeup while preserving grounding and coverage
@@ -95,6 +117,10 @@ skills:
     temperature: 0.3
     request_timeout_seconds: 90
     max_retries: 0
+    response_format:
+      type: json_object
+    output_contract: json_object
+    parse_strategy: strict_json_object
 
   callout_extractor:
     # Stage 2: Extract callouts from through-lines (lighter task)
@@ -102,6 +128,10 @@ skills:
     model: gpt-5-mini
     max_tokens: 16000
     temperature: 0
+    response_format:
+      type: json_object
+    output_contract: json_object
+    parse_strategy: strict_json_object
 
 # OpenRouter can be selected anywhere above via:
 # provider: openrouter

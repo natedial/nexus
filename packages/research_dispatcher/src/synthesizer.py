@@ -84,8 +84,6 @@ class SynthesisResult:
     callouts: list[dict]
     analysis_paragraphs: list[dict[str, Any]] = field(default_factory=list)
     executive_summary: list[str] = field(default_factory=list)
-    raw_response: str | None = None
-
     def to_dict(self) -> dict:
         """Convert to dictionary for report."""
         return {
@@ -279,10 +277,9 @@ class Synthesizer:
             self._normalize_callouts(callouts, through_lines)
             result = SynthesisResult(
                 title=coerced_stage1.get("title", "Cross-Document Synthesis"),
-                document_count=data.get("document_count", document_count),
+                document_count=document_count,
                 through_lines=through_lines,
                 callouts=callouts,
-                raw_response=None,
             )
             print(f"Synthesis complete: {result.title}")
             print(f"  Through-lines: {len(result.through_lines)}")
@@ -404,7 +401,6 @@ class Synthesizer:
             callouts=callouts,
             analysis_paragraphs=analysis_paragraphs,
             executive_summary=executive_summary,
-            raw_response=None,
         )
         print(f"Synthesis complete: {result.title}")
         print(f"  Through-lines: {len(result.through_lines)}")
@@ -743,6 +739,9 @@ class Synthesizer:
             lead = self._truncate_text(key_insight, 120)
         if not lead:
             return None
+        lead_words = lead.split()
+        if len(lead_words) > 25:
+            lead = " ".join(lead_words[:25])
 
         supporting_sources = self._coerce_string_list(
             raw_line.get("supporting_sources") or raw_line.get("sources") or raw_line.get("source"),

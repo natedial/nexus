@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
+import json
 import re
 import time
 
@@ -23,6 +24,10 @@ class ExtendedThinking:
     budget_tokens: int = 10000
 
 
+class LLMOutputParseError(ValueError):
+    """Raised when an LLM response cannot be normalized into the requested output."""
+
+
 @dataclass
 class ModelConfig:
     """Configuration for a single model."""
@@ -38,6 +43,9 @@ class ModelConfig:
     drop_response_format_on_retry: bool = False
     tool_choice: str | None = None
     reasoning_effort: str | None = None
+    output_contract: Literal["text", "json_object"] = "text"
+    parse_strategy: Literal["auto_text", "json_object", "strict_json_object"] = "auto_text"
+    reasoning_mode: str | None = None
     prompt_profile: Literal["full", "lean", "minimal"] = "full"
     throughline_count: int = 0
     max_key_insight_words: int = 0
@@ -68,6 +76,9 @@ class ModelConfig:
             drop_response_format_on_retry=data.get("drop_response_format_on_retry", False),
             tool_choice=data.get("tool_choice"),
             reasoning_effort=data.get("reasoning_effort"),
+            output_contract=data.get("output_contract", "text"),
+            parse_strategy=data.get("parse_strategy", "auto_text"),
+            reasoning_mode=data.get("reasoning_mode"),
             prompt_profile=data.get("prompt_profile", "full"),
             throughline_count=data.get("throughline_count", 0),
             max_key_insight_words=data.get("max_key_insight_words", 0),
@@ -116,9 +127,11 @@ def load_model_config(config_path: Path | None = None) -> ModelConfig:
 def reload_model_config(config_path: Path | None = None) -> ModelConfig:
     """Reload model configuration (clears cache)."""
     load_model_config.cache_clear()
+    _load_config_data.cache_clear()
     return load_model_config(config_path)
 
 
+@lru_cache(maxsize=4)
 def _load_config_data(config_path: Path | None = None) -> dict:
     """Load the raw YAML config once for model lookup helpers."""
     path = config_path or CONFIG_PATH
@@ -283,6 +296,22 @@ class LLMClient:
                     exc,
                 )
                 time.sleep(max(config.retry_backoff_seconds, 0))
+
+    def generate_json(
+        self,
+        config: ModelConfig,
+        system: str,
+        user: str,
+    ) -> dict[str, Any]:
+        """Generate a response and parse it as a single JSON object."""
+        text = self.generate(config=config, system=system, user=user)
+        strategy = config.parse_strategy
+        if strategy == "auto_text":
+            strategy = "json_object"
+        data = self._parse_json_object(text, strict=strategy == "strict_json_object")
+        if not isinstance(data, dict):
+            raise LLMOutputParseError("Expected a top-level JSON object")
+        return data
 
     def _generate_anthropic(
         self,
@@ -479,16 +508,20 @@ class LLMClient:
         return False
 
     def _extract_openai_compatible_text(self, message) -> str:
-        """Extract text from OpenAI-compatible message objects and strip reasoning wrappers."""
+        """Extract assistant-visible text from OpenAI-compatible message objects."""
         content = getattr(message, "content", "") or ""
 
         if isinstance(content, list):
             parts = []
             for item in content:
                 if isinstance(item, dict):
-                    if item.get("type") == "text" and item.get("text"):
+                    if item.get("type") in {"text", "output_text"} and item.get("text"):
                         parts.append(item["text"])
-                elif getattr(item, "type", None) == "text" and getattr(item, "text", None):
+                    elif not item.get("type") and item.get("text"):
+                        parts.append(item["text"])
+                elif getattr(item, "type", None) in {"text", "output_text"} and getattr(item, "text", None):
+                    parts.append(item.text)
+                elif not getattr(item, "type", None) and getattr(item, "text", None):
                     parts.append(item.text)
             content = "".join(parts)
 
@@ -496,12 +529,46 @@ class LLMClient:
         if not text:
             return ""
 
-        if "</think>" in text:
-            text = text.rsplit("</think>", 1)[-1].strip()
-        else:
-            text = re.sub(r"(?s)^<think>.*?</think>\s*", "", text).strip()
-            if text.startswith("<think>"):
-                logger.warning("Model response contained only an unterminated <think> block.")
-                return ""
+        return self._strip_visible_reasoning(text)
 
+    def _strip_visible_reasoning(self, text: str) -> str:
+        """Remove provider-visible reasoning wrappers from assistant output."""
+        text = text.strip()
+        if "</think>" in text:
+            return text.rsplit("</think>", 1)[-1].strip()
+
+        text = re.sub(r"(?s)^<think>.*?</think>\s*", "", text).strip()
+        if text.startswith("<think>"):
+            raise LLMOutputParseError("Model response contained an unterminated <think> block")
         return text
+
+    def _parse_json_object(self, text: str, *, strict: bool) -> dict[str, Any]:
+        """Parse the first complete JSON object from a normalized model response."""
+        text = self._strip_visible_reasoning(str(text or "").strip())
+        if not text:
+            raise LLMOutputParseError("Model response was empty")
+
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
+            text = re.sub(r"\s*```$", "", text).strip()
+
+        decoder = json.JSONDecoder()
+        starts = [index for index, char in enumerate(text) if char == "{"]
+        if strict and not starts:
+            raise LLMOutputParseError("No JSON object found in model response")
+
+        errors: list[str] = []
+        for start in starts:
+            try:
+                value, _ = decoder.raw_decode(text[start:])
+            except json.JSONDecodeError as exc:
+                errors.append(str(exc))
+                continue
+            if isinstance(value, dict):
+                return value
+            raise LLMOutputParseError("Expected a top-level JSON object")
+
+        if not starts:
+            raise LLMOutputParseError("No JSON object found in model response")
+        detail = errors[0] if errors else "unknown parse error"
+        raise LLMOutputParseError(f"Failed to parse JSON object: {detail}")

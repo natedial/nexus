@@ -116,6 +116,44 @@ class SynthesizerStage1EnrichmentTests(unittest.TestCase):
 
         self.assertEqual(compacted["cross_document_clusters"], [{"label": "term premium"}])
 
+    def test_stage1_uses_llm_json_adapter(self):
+        class FakeClient:
+            def generate_json(self, **kwargs):
+                return {
+                    "title": "Adapter Test",
+                    "through_lines": [
+                        {
+                            "lead": "Term premium repricing drives long-end risk",
+                            "supporting_sources": ["Goldman Sachs", "JPMorgan"],
+                            "consensus_level": "moderate_consensus",
+                            "consensus_anchor": "Markets are pricing higher long-end risk premia",
+                            "supporting_themes": ["term premium"],
+                            "supporting_trades": ["Pay 10y swaps"],
+                            "key_insight": "Goldman Sachs and JPMorgan point to higher term premium.",
+                        }
+                    ],
+                }
+
+        self.synthesizer.client = FakeClient()
+
+        result = self.synthesizer._stage1_throughlines(
+            {
+                "themes": [
+                    {
+                        "label": "term premium",
+                        "source": "Goldman Sachs",
+                        "context": "Long-end risk premia are rising.",
+                        "strength": "Primary",
+                        "confidence": "High",
+                    }
+                ],
+                "trades": [],
+            }
+        )
+
+        self.assertEqual(result["title"], "Adapter Test")
+        self.assertEqual(len(result["through_lines"]), 1)
+
     def test_enrichment_builds_assertion_and_forecast_clusters_from_analyst_signals(self):
         input_data = {
             "themes": [
