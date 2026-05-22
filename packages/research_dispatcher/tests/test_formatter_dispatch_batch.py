@@ -94,10 +94,9 @@ class FormatterDispatchBatchTests(unittest.TestCase):
         self.assertEqual(len(report["trades"]), 2)
         self.assertEqual(report["source_date_range"]["start"], "2026-03-30")
         self.assertEqual(report["source_date_range"]["end"], "2026-03-31")
-        self.assertTrue(report["executive_summary"])
-        self.assertGreaterEqual(len(report["executive_summary"]), 3)
-        self.assertLessEqual(len(report["executive_summary"]), 10)
-        self.assertTrue(any("The batch" in paragraph for paragraph in report["executive_summary"]))
+        # executive_summary is no longer produced by the formatter; it comes from
+        # the synthesizer and is injected by main.py / generate_pdf_only.py.
+        self.assertNotIn("executive_summary", report)
         march_31 = datetime.fromisoformat("2026-03-31").date()
         delta_days = (datetime.now().date() - march_31).days
         if delta_days == 0:
