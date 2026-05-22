@@ -1,19 +1,33 @@
 """Local SQLite state store for tracking processed files."""
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
+from datetime import datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
-from typing import Iterator
 
 import structlog
 
 logger = structlog.get_logger()
 
+_TRANSIENT_ERROR_MARKERS = (
+    "scheduler is not running",
+    "ratelimiterror",
+    "rate limit",
+    "too many requests",
+    "429",
+    "timeout",
+    "timed out",
+    "temporarily unavailable",
+    "service unavailable",
+    "connection error",
+    "connection reset",
+)
 
-class ProcessingStatus(str, Enum):
+
+class ProcessingStatus(StrEnum):
     """Status of a file in the processing pipeline."""
 
     PENDING = "pending"
@@ -89,15 +103,77 @@ class StateStore:
             conn.close()
 
     def is_processed(self, file_id: str) -> bool:
-        """Check if a file has already been successfully processed."""
+        """Check if a file is terminal and should be skipped by polling.
+
+        COMPLETED is always terminal. PARTIAL/FAILED can be retried when
+        their error message indicates a transient failure.
+        """
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT status FROM processed_files WHERE file_id = ?",
+                "SELECT status, error_message, storage_ok FROM processed_files WHERE file_id = ?",
                 (file_id,),
             ).fetchone()
             if row is None:
                 return False
-            return row["status"] in (ProcessingStatus.COMPLETED.value, ProcessingStatus.PARTIAL.value)
+            status = row["status"]
+            if status == ProcessingStatus.COMPLETED.value or row["storage_ok"] == 1:
+                return True
+            if status in (ProcessingStatus.PARTIAL.value, ProcessingStatus.FAILED.value):
+                return not self._is_transient_error(row["error_message"])
+            return False
+
+    @staticmethod
+    def _is_transient_error(error_message: str | None) -> bool:
+        if not error_message:
+            return False
+        message = error_message.lower()
+        return any(marker in message for marker in _TRANSIENT_ERROR_MARKERS)
+
+    @staticmethod
+    def _clear_step_error_fragment(
+        error_message: str | None,
+        step: str,
+    ) -> str | None:
+        """Remove stale error text for a step that has since succeeded.
+
+        The current schema has a single error_message column, so retry summaries
+        are commonly formatted as semicolon-separated step fragments.
+        """
+        if not error_message:
+            return None
+
+        step_marker = f"{step.lower()}:"
+        failed_marker = f"{step.replace('_', ' ').title()} failed:"
+        kept_parts = []
+        for part in error_message.split(";"):
+            cleaned = part.strip()
+            lowered = cleaned.lower()
+            if lowered.startswith(step_marker) or lowered.startswith(failed_marker.lower()):
+                continue
+            kept_parts.append(cleaned)
+
+        if len(kept_parts) == len(error_message.split(";")):
+            return error_message
+        return "; ".join(part for part in kept_parts if part) or None
+
+    @staticmethod
+    def _row_to_file_state(row: sqlite3.Row) -> FileState:
+        return FileState(
+            file_id=row["file_id"],
+            file_name=row["file_name"],
+            status=ProcessingStatus(row["status"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            parse_ok=bool(row["parse_ok"]) if row["parse_ok"] is not None else None,
+            boilerplate_ok=(
+                bool(row["boilerplate_ok"]) if row["boilerplate_ok"] is not None else None
+            ),
+            metadata_ok=bool(row["metadata_ok"]) if row["metadata_ok"] is not None else None,
+            themes_ok=bool(row["themes_ok"]) if row["themes_ok"] is not None else None,
+            trades_ok=bool(row["trades_ok"]) if row["trades_ok"] is not None else None,
+            storage_ok=bool(row["storage_ok"]) if row["storage_ok"] is not None else None,
+            error_message=row["error_message"],
+        )
 
     def get_state(self, file_id: str) -> FileState | None:
         """Get the current state of a file."""
@@ -108,20 +184,64 @@ class StateStore:
             ).fetchone()
             if row is None:
                 return None
-            return FileState(
-                file_id=row["file_id"],
-                file_name=row["file_name"],
-                status=ProcessingStatus(row["status"]),
-                created_at=datetime.fromisoformat(row["created_at"]),
-                updated_at=datetime.fromisoformat(row["updated_at"]),
-                parse_ok=bool(row["parse_ok"]) if row["parse_ok"] is not None else None,
-                boilerplate_ok=bool(row["boilerplate_ok"]) if row["boilerplate_ok"] is not None else None,
-                metadata_ok=bool(row["metadata_ok"]) if row["metadata_ok"] is not None else None,
-                themes_ok=bool(row["themes_ok"]) if row["themes_ok"] is not None else None,
-                trades_ok=bool(row["trades_ok"]) if row["trades_ok"] is not None else None,
-                storage_ok=bool(row["storage_ok"]) if row["storage_ok"] is not None else None,
-                error_message=row["error_message"],
+            return self._row_to_file_state(row)
+
+    def get_stale_in_progress(self, max_age_minutes: int) -> list[FileState]:
+        """Return files stuck in non-terminal states beyond the age threshold."""
+        cutoff = datetime.utcnow() - timedelta(minutes=max_age_minutes)
+        cutoff_iso = cutoff.isoformat()
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM processed_files
+                WHERE status IN (?, ?, ?)
+                  AND COALESCE(storage_ok, 0) != 1
+                  AND updated_at < ?
+                ORDER BY updated_at ASC
+                """,
+                (
+                    ProcessingStatus.PENDING.value,
+                    ProcessingStatus.PARSING.value,
+                    ProcessingStatus.EXTRACTING.value,
+                    cutoff_iso,
+                ),
+            ).fetchall()
+
+        stale = [self._row_to_file_state(row) for row in rows]
+        if stale:
+            logger.warning(
+                "Found stale in-progress files",
+                count=len(stale),
+                max_age_minutes=max_age_minutes,
             )
+        return stale
+
+    def get_retryable_partials(self, max_age_minutes: int) -> list[FileState]:
+        """Return partial rows old enough to retry on the next poll cycle."""
+        cutoff = datetime.utcnow() - timedelta(minutes=max_age_minutes)
+        cutoff_iso = cutoff.isoformat()
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM processed_files
+                WHERE status = ?
+                  AND COALESCE(storage_ok, 0) != 1
+                  AND updated_at < ?
+                ORDER BY updated_at ASC
+                """,
+                (ProcessingStatus.PARTIAL.value, cutoff_iso),
+            ).fetchall()
+
+        retryable = [self._row_to_file_state(row) for row in rows]
+        if retryable:
+            logger.info(
+                "Found retryable partial files",
+                count=len(retryable),
+                max_age_minutes=max_age_minutes,
+            )
+        return retryable
 
     def start_processing(self, file_id: str, file_name: str) -> None:
         """Mark a file as starting processing."""
@@ -164,6 +284,18 @@ class StateStore:
             if error_message is not None:
                 updates.append("error_message = ?")
                 params.append(error_message)
+            elif success:
+                row = conn.execute(
+                    "SELECT error_message FROM processed_files WHERE file_id = ?",
+                    (file_id,),
+                ).fetchone()
+                cleaned_error = self._clear_step_error_fragment(
+                    row["error_message"] if row else None,
+                    step,
+                )
+                if row is not None and cleaned_error != row["error_message"]:
+                    updates.append("error_message = ?")
+                    params.append(cleaned_error)
 
             params.append(file_id)
 
@@ -186,7 +318,19 @@ class StateStore:
         now = datetime.utcnow().isoformat()
         with self._connect() as conn:
             conn.execute(
-                "UPDATE processed_files SET status = ?, updated_at = ? WHERE file_id = ?",
+                """
+                UPDATE processed_files
+                SET status = ?,
+                    updated_at = ?,
+                    parse_ok = 1,
+                    boilerplate_ok = 1,
+                    metadata_ok = 1,
+                    themes_ok = 1,
+                    trades_ok = 1,
+                    storage_ok = 1,
+                    error_message = NULL
+                WHERE file_id = ?
+                """,
                 (ProcessingStatus.COMPLETED.value, now, file_id),
             )
             conn.commit()
@@ -197,8 +341,20 @@ class StateStore:
         now = datetime.utcnow().isoformat()
         with self._connect() as conn:
             conn.execute(
-                "UPDATE processed_files SET status = ?, updated_at = ?, error_message = ? WHERE file_id = ?",
-                (ProcessingStatus.PARTIAL.value, now, error_message, file_id),
+                """
+                UPDATE processed_files
+                SET status = ?, updated_at = ?, error_message = ?
+                WHERE file_id = ?
+                  AND status != ?
+                  AND COALESCE(storage_ok, 0) != 1
+                """,
+                (
+                    ProcessingStatus.PARTIAL.value,
+                    now,
+                    error_message,
+                    file_id,
+                    ProcessingStatus.COMPLETED.value,
+                ),
             )
             conn.commit()
         logger.info("Partial completion", file_id=file_id, error=error_message)
@@ -208,8 +364,20 @@ class StateStore:
         now = datetime.utcnow().isoformat()
         with self._connect() as conn:
             conn.execute(
-                "UPDATE processed_files SET status = ?, updated_at = ?, error_message = ? WHERE file_id = ?",
-                (ProcessingStatus.FAILED.value, now, error_message, file_id),
+                """
+                UPDATE processed_files
+                SET status = ?, updated_at = ?, error_message = ?
+                WHERE file_id = ?
+                  AND status != ?
+                  AND COALESCE(storage_ok, 0) != 1
+                """,
+                (
+                    ProcessingStatus.FAILED.value,
+                    now,
+                    error_message,
+                    file_id,
+                    ProcessingStatus.COMPLETED.value,
+                ),
             )
             conn.commit()
         logger.error("Processing failed", file_id=file_id, error=error_message)
@@ -221,17 +389,7 @@ class StateStore:
                 "SELECT * FROM processed_files WHERE status = ?",
                 (ProcessingStatus.FAILED.value,),
             ).fetchall()
-            return [
-                FileState(
-                    file_id=row["file_id"],
-                    file_name=row["file_name"],
-                    status=ProcessingStatus(row["status"]),
-                    created_at=datetime.fromisoformat(row["created_at"]),
-                    updated_at=datetime.fromisoformat(row["updated_at"]),
-                    error_message=row["error_message"],
-                )
-                for row in rows
-            ]
+            return [self._row_to_file_state(row) for row in rows]
 
     def delete_state(self, file_id: str) -> None:
         """Remove a file from the state store."""

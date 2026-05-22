@@ -19,6 +19,9 @@ Understand how warnings are automatically captured to files for debugging extrac
 - Warning files: `data/warnings/`
 - Test system: `python3 scripts/test_warning_capture.py`
 
+### [Release Checklist](./release-checklist.md)
+Quality gates and pre-deploy validation steps.
+
 ## Architecture Overview
 
 For architecture and build instructions, see the main [CLAUDE.md](../CLAUDE.md) file in the project root.
@@ -46,6 +49,8 @@ Located in `scripts/`:
 | `test_full_pipeline.py` | Run full pipeline on up to 3 PDFs |
 | `inspect_state.py` | Inspect state database |
 | `test_warning_capture.py` | Test warning capture system |
+| `compare_baseline.py` | Record/compare extraction baselines |
+| `verify_live_document_identity.py` | Live Supabase smoke test for parser upsert identity |
 
 ### Script Usage Examples
 
@@ -55,6 +60,9 @@ python3 scripts/test_drive.py --days 7
 
 # Test extraction on first PDF
 python3 scripts/test_extraction.py
+
+# Verify live parsed_research upsert identity after applying migration 003
+python3 scripts/verify_live_document_identity.py
 
 # Process up to 3 new PDFs
 python3 scripts/test_full_pipeline.py
@@ -67,8 +75,10 @@ python3 scripts/inspect_state.py --limit 10
 
 All configuration is in `config/models.yaml`:
 
-- **Model selection**: Choose Claude vs OpenAI models per step
-- **Extended thinking**: Enable/disable reasoning for complex steps
+- **Model selection**: Choose provider/model per step (Anthropic, OpenAI, Groq, etc.)
+- **Fallback routing**: Optional `fallback` list for backup providers/models
+- **Extended thinking**: Enable Anthropic thinking for complex steps
+- **Reasoning effort**: Explicitly set OpenAI/OpenRouter reasoning effort for complex steps
 - **Token limits**: Adjust max_tokens per extraction step
 - **Temperature**: Control randomness (0 = deterministic)
 
@@ -76,17 +86,37 @@ Example:
 ```yaml
 extraction:
   themes:
-    provider: anthropic
-    model: claude-sonnet-4-5-20250929
-    max_tokens: 16000
-    extended_thinking:
-      enabled: true
-      budget_tokens: 8000
+    provider: groq
+    model: openai/gpt-oss-120b
+    max_tokens: 8192
+    temperature: 0
+    fallback:
+      - provider: deepinfra
+        model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+        max_tokens: 8192
+        temperature: 0
+```
+
+Use reasoning only where the task needs multi-pass analysis. In this repo, that means
+`themes` when quality is more important than cost/latency:
+
+```yaml
+extraction:
+  themes:
+    provider: openrouter
+    model: openai/gpt-5.2
+    max_tokens: 8192
+    reasoning_effort: high
+    fallback:
+      - provider: deepinfra
+        model: moonshotai/Kimi-K2-Instruct-0905
+        max_tokens: 8192
+        temperature: 0
 ```
 
 ## Environment Variables
 
-Required variables (set in `.env`):
+Environment variables (set in `.env`):
 
 ```bash
 # Google Drive
@@ -94,7 +124,13 @@ GOOGLE_CREDENTIALS_PATH=./credentials/service-account.json
 GOOGLE_DRIVE_FOLDER_ID=your_folder_id
 
 # LLM APIs
-ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_KEY=sk-ant-...  # Optional, only for Anthropic models
+OPENAI_API_KEY=sk-...  # Optional, only for OpenAI models
+GROQ_API_KEY=gsk_...  # Optional, only for Groq models
+DEEPINFRA_API_KEY=...  # Optional, only for DeepInfra models
+OPENROUTER_API_KEY=sk-or-...  # Optional, only for OpenRouter models
+FIREWORKS_API_KEY=...  # Optional, only for Fireworks models
+TOGETHER_API_KEY=...  # Optional, only for Together models
 LLAMAINDEX_API_KEY=llx-...
 
 # Storage

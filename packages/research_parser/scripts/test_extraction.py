@@ -50,13 +50,27 @@ def main():
     client = LLMClient(
         anthropic_api_key=settings.anthropic_api_key,
         openai_api_key=settings.openai_api_key,
+        groq_api_key=getattr(settings, "groq_api_key", None),
+        deepinfra_api_key=getattr(settings, "deepinfra_api_key", None),
+        openrouter_api_key=getattr(settings, "openrouter_api_key", None),
+        fireworks_api_key=getattr(settings, "fireworks_api_key", None),
+        together_api_key=getattr(settings, "together_api_key", None),
     )
 
     # Show current configuration
     print(f"\nModel Configuration (from config/models.yaml):")
     print(f"  Boilerplate: {model_config.boilerplate.provider}/{model_config.boilerplate.model}")
     print(f"  Metadata:    {model_config.metadata.provider}/{model_config.metadata.model}")
-    print(f"  Themes:      {model_config.themes.provider}/{model_config.themes.model} (thinking={model_config.themes.extended_thinking.enabled if model_config.themes.extended_thinking else False})")
+    extended_thinking = (
+        model_config.themes.extended_thinking.enabled
+        if model_config.themes.extended_thinking
+        else False
+    )
+    reasoning = model_config.themes.reasoning_effort or "off"
+    print(
+        f"  Themes:      {model_config.themes.provider}/{model_config.themes.model} "
+        f"(extended_thinking={extended_thinking}, reasoning_effort={reasoning})"
+    )
     print(f"  Trades:      {model_config.trades.provider}/{model_config.trades.model}")
 
     # Strip boilerplate
@@ -66,6 +80,8 @@ def main():
         markdown,
         config=model_config.boilerplate,
         deterministic_only=settings.boilerplate_deterministic_only,
+        document_name=test_pdf.name,
+        artifact_dir=settings.artifact_base_dir / "debug_test_extraction",
     )
     print(f"  Before: {len(markdown)} chars -> After: {len(clean_text)} chars")
 
@@ -78,8 +94,21 @@ def main():
     print(f"  Asset focus: {metadata.asset_focus}")
 
     # Extract themes
-    thinking_info = f" + thinking={model_config.themes.extended_thinking.budget_tokens}" if model_config.themes.extended_thinking and model_config.themes.extended_thinking.enabled else ""
-    print(f"\n[3c] Extracting themes ({model_config.themes.provider}/{model_config.themes.model}{thinking_info})...")
+    thinking_info = (
+        f" + thinking={model_config.themes.extended_thinking.budget_tokens}"
+        if model_config.themes.extended_thinking and model_config.themes.extended_thinking.enabled
+        else ""
+    )
+    reasoning_info = (
+        f" + reasoning={model_config.themes.reasoning_effort}"
+        if model_config.themes.reasoning_effort
+        else ""
+    )
+    print(
+        f"\n[3c] Extracting themes "
+        f"({model_config.themes.provider}/{model_config.themes.model}"
+        f"{thinking_info}{reasoning_info})..."
+    )
     themes = extract_themes(client, clean_text, config=model_config.themes)
     print(f"  Found {len(themes)} themes:")
     for t in themes:

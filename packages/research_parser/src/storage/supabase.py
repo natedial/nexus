@@ -1,14 +1,20 @@
 """Supabase PostgreSQL client for storing parsed research."""
 
+import hashlib
 from datetime import datetime
 
 import structlog
 from supabase import Client, create_client
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from src.extraction.models import ExtractionResult
+from src.extraction.models import ExtractionResult, Theme
 
 logger = structlog.get_logger()
+
+
+def _compute_document_hash(text: str) -> str:
+    """Compute SHA256 hash of cleaned text for idempotent backfill."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class SupabaseClient:
@@ -29,6 +35,10 @@ class SupabaseClient:
     ) -> dict:
         """
         Insert parsed research into the database.
+
+        Dual-write pattern:
+        - parsed_data: JSONB with all extraction results (archival)
+        - Normalized tables: research_themes, research_theme_excerpts, research_theme_links (queryable)
 
         Matches the schema from the n8n workflow:
         - parsed_data: JSONB with all extraction results
@@ -62,12 +72,25 @@ class SupabaseClient:
         # Note: title synthesis now happens downstream
         document_title = f"Analysis of {result.metadata.source}"
 
-        # Insert into database
+        # Compute document hash from cleaned text
+        document_hash = _compute_document_hash(result.full_text)
+
+        # Build document-level record with normalized columns
         record = {
             "parsed_data": parsed_data,
             "source_date": source_date,
             "source": result.metadata.source,
             "document_name": document_name,
+            # New normalized columns
+            "document_title": document_title,
+            "publisher": result.metadata.publisher,
+            "area": result.metadata.area,
+            "region": result.metadata.region,
+            "asset_focus": result.metadata.asset_focus,
+            "document_link": result.metadata.document_link,
+            "theme_count": len(result.themes),
+            "trade_count": len(result.trades),
+            "document_hash": document_hash,
         }
 
         logger.info(
@@ -75,13 +98,108 @@ class SupabaseClient:
             document_name=document_name,
             source=result.metadata.source,
             source_date=source_date,
+            theme_count=len(result.themes),
+            trade_count=len(result.trades),
         )
 
-        response = (
+        research_row = self._get_or_create_research_row(
+            document_hash=document_hash,
+            document_name=document_name,
+            source=result.metadata.source,
+            record=record,
+        )
+        if not research_row:
+            logger.error("Failed to persist research", document_name=document_name)
+            return {}
+
+        research_id = research_row.get("id")
+        logger.info(
+            "Research persisted",
+            document_name=document_name,
+            research_id=research_id,
+        )
+
+        if research_id:
+            self._replace_normalized_themes(research_id, result.themes)
+
+        return research_row
+
+    def _get_or_create_research_row(
+        self,
+        document_hash: str,
+        document_name: str,
+        source: str,
+        record: dict,
+    ) -> dict:
+        """Upsert the document row using the dedupe key enforced in SQL."""
+        upserted = (
             self._client.table("parsed_research")
-            .insert(record)
+            .upsert(
+                record,
+                on_conflict="document_hash,document_name,source",
+            )
             .execute()
         )
+        if upserted.data:
+            return upserted.data[0]
 
-        logger.info("Research inserted", document_name=document_name)
-        return response.data[0] if response.data else {}
+        fetched = (
+            self._client.table("parsed_research")
+            .select("*")
+            .eq("document_hash", document_hash)
+            .eq("document_name", document_name)
+            .eq("source", source)
+            .limit(1)
+            .execute()
+        )
+        if not fetched.data:
+            return {}
+        return fetched.data[0]
+
+    def _replace_normalized_themes(self, research_id: int, themes: list[Theme]) -> None:
+        """Replace normalized theme rows for a document."""
+        self._client.table("research_themes").delete().eq("research_id", research_id).execute()
+        if not themes:
+            logger.info("Normalized themes cleared", research_id=research_id)
+            return
+
+        for idx, theme in enumerate(themes, start=1):
+            # Insert theme
+            theme_record = {
+                "research_id": research_id,
+                "theme_order": idx,
+                "label": theme.label,
+                "scope": None,
+                "primary_category": theme.relevance[0] if theme.relevance else None,
+                "relevance": theme.relevance,
+                "classification": theme.classification,
+                "strength": theme.strength,
+                "confidence": theme.confidence,
+                "evidence_count": len(theme.excerpts),
+                "mention_count": theme.mention_count,
+                "context": theme.context,
+                "directionality": theme.directionality,
+                "argument_structure": (
+                    theme.argument_structure.model_dump() if theme.argument_structure else None
+                ),
+            }
+
+            theme_response = self._client.table("research_themes").insert(theme_record).execute()
+
+            if theme_response.data:
+                theme_id = theme_response.data[0].get("id")
+                # Insert excerpts
+                for excerpt_idx, excerpt in enumerate(theme.excerpts, start=1):
+                    self._client.table("research_theme_excerpts").insert(
+                        {
+                            "theme_id": theme_id,
+                            "excerpt_order": excerpt_idx,
+                            "excerpt_text": excerpt.text,
+                        }
+                    ).execute()
+
+        logger.info(
+            "Normalized themes inserted",
+            research_id=research_id,
+            theme_count=len(themes),
+        )

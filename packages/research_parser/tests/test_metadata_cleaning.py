@@ -1,6 +1,6 @@
 import json
 
-from src.extraction.metadata import _clean_json_response
+from src.extraction.json_utils import clean_json_response
 
 
 def test_clean_json_response_strips_trailing_commentary():
@@ -18,7 +18,7 @@ def test_clean_json_response_strips_trailing_commentary():
         "- Source is clearly Goldman Sachs from the document's header and style\n"
     )
 
-    cleaned = _clean_json_response(raw)
+    cleaned = clean_json_response(raw)
     data = json.loads(cleaned)
 
     assert data["source"] == "Goldman Sachs"
@@ -36,8 +36,22 @@ def test_clean_json_response_handles_code_fences_and_extra_text():
         "Extra text that should be ignored."
     )
 
-    cleaned = _clean_json_response(raw)
+    cleaned = clean_json_response(raw)
     data = json.loads(cleaned)
 
     assert data["source"] == "Bank of America"
     assert data["source_date"] is None
+
+
+def test_clean_json_response_strips_reasoning_and_tool_markup():
+    raw = (
+        "<think>internal reasoning</think>\n"
+        "<minimax:tool_call><invoke name=\"provider_smoke_test\"></invoke></minimax:tool_call>\n"
+        '{"status":"ok","provider":"deepinfra"}'
+    )
+
+    cleaned = clean_json_response(raw)
+    data = json.loads(cleaned)
+
+    assert data["status"] == "ok"
+    assert data["provider"] == "deepinfra"

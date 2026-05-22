@@ -24,6 +24,11 @@ For each position found (maximum 10), extract:
 
 If NO explicit positions are found, return an empty array.
 
+Do NOT extract:
+- Forecast changes with no position to enter, hold, close, buy, sell, pay, receive, overweight, underweight, hedge, or fade.
+- Market views phrased only as expected central-bank timing, inflation paths, or yield targets.
+- Duplicate restatements of the same trade; keep the clearest version with the most specific instrument and trigger levels.
+
 Return a JSON array:
 
 [

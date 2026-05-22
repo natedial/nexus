@@ -26,13 +26,33 @@ class Settings(BaseSettings):
     )
 
     # LLM API Keys
-    anthropic_api_key: str = Field(
-        ...,
-        description="Anthropic API key for Claude models",
+    anthropic_api_key: str | None = Field(
+        default=None,
+        description="Anthropic API key (optional, only for Anthropic models)",
     )
     openai_api_key: str | None = Field(
         default=None,
         description="OpenAI API key (optional, for OpenAI models)",
+    )
+    groq_api_key: str | None = Field(
+        default=None,
+        description="Groq API key (optional, for Groq models)",
+    )
+    deepinfra_api_key: str | None = Field(
+        default=None,
+        description="DeepInfra API key (optional, for DeepInfra models)",
+    )
+    openrouter_api_key: str | None = Field(
+        default=None,
+        description="OpenRouter API key (optional, for OpenRouter models)",
+    )
+    fireworks_api_key: str | None = Field(
+        default=None,
+        description="Fireworks API key (optional, for Fireworks models)",
+    )
+    together_api_key: str | None = Field(
+        default=None,
+        description="Together API key (optional, for Together models)",
     )
 
     # LlamaIndex Cloud
@@ -63,11 +83,19 @@ class Settings(BaseSettings):
         ge=0,
         description="Process files from the last N days on startup before scheduling",
     )
+    drive_since_date: str | None = Field(
+        default=None,
+        description="Only consider files created on/after this date (YYYY-MM-DD, UTC)",
+    )
 
     # Local state
     state_db_path: Path = Field(
-        default=Path("/app/data/state.db"),
+        default=Path("data/state.db"),
         description="Path to SQLite state database",
+    )
+    artifact_base_dir: Path = Field(
+        default=Path("data/artifacts"),
+        description="Base directory for per-document artifact output",
     )
 
     # Boilerplate settings
@@ -76,9 +104,35 @@ class Settings(BaseSettings):
         description="Use only deterministic boilerplate stripping (no LLM fallback)",
     )
 
+    # Optional external parser fallbacks
+    mineru_enabled: bool = Field(
+        default=False,
+        description="Enable MinerU CLI fallback between Docling and LlamaIndex",
+    )
+    mineru_bin_path: Path | None = Field(
+        default=None,
+        description="Path to the MinerU CLI executable when MinerU fallback is enabled",
+    )
+    mineru_backend: str = Field(
+        default="pipeline",
+        description="MinerU backend to invoke via CLI",
+    )
+    mineru_timeout_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Timeout for a single MinerU CLI parse",
+    )
+
     # Retry settings
     max_retries: int = Field(default=3, description="Max retries for API calls")
     retry_delay_seconds: int = Field(default=5, description="Initial retry delay")
+    stale_processing_timeout_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=1440,
+        description="Mark in-progress files stale after this many minutes and retry",
+    )
 
     # Model config path (optional override)
     model_config_path: Path | None = Field(

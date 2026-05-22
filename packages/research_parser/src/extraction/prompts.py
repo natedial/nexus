@@ -20,7 +20,10 @@ def load_prompt(name: str) -> str:
     prompt_file = PROMPTS_DIR / f"{name}.md"
     if not prompt_file.exists():
         raise FileNotFoundError(f"Prompt file not found: {prompt_file}")
-    return prompt_file.read_text().strip()
+    content = prompt_file.read_text().strip()
+    if not content:
+        raise ValueError(f"Prompt file is empty: {prompt_file}")
+    return content
 
 
 # Convenience accessors for each prompt

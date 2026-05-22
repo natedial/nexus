@@ -3,10 +3,42 @@
 from pydantic import BaseModel, Field, field_validator
 
 
+# Allowed values for enum-like fields. LLMs sometimes return variations,
+# so we normalise to the canonical set and fall back to a default.
+
+_CLASSIFICATION_VALUES = {"Opinion", "Forecast", "Description"}
+_STRENGTH_VALUES = {"Primary", "Secondary", "Peripheral"}
+_CONFIDENCE_VALUES = {"High", "Medium", "Low"}
+_CONVICTION_VALUES = {"High", "Medium", "Low"}
+_EXPOSURE_VALUES = {"Small", "Medium", "Large"}
+_TIMEFRAME_VALUES = {"intraday", "days", "weeks", "months"}
+
+
+def _normalise_enum(value: str | None, allowed: set[str], default: str) -> str:
+    """Match a value to its canonical form (case-insensitive) or return default."""
+    if not value:
+        return default
+    # Try exact match first
+    if value in allowed:
+        return value
+    # Try case-insensitive match
+    lower_map = {v.lower(): v for v in allowed}
+    return lower_map.get(value.strip().lower(), default)
+
+
 class Excerpt(BaseModel):
     """A verbatim quote from the document."""
 
     text: str
+
+
+class ArgumentStructure(BaseModel):
+    """Structured representation of the argument's architecture."""
+
+    conditionals: list[str] = Field(default_factory=list)
+    confidence_basis: str = ""
+    dependencies: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
 
 
 class Theme(BaseModel):
@@ -15,23 +47,54 @@ class Theme(BaseModel):
     label: str
     excerpts: list[Excerpt]
     relevance: list[str]
-    classification: str  # Opinion, Forecast, Description
-    mention_count: int
-    strength: str  # Primary, Secondary, Peripheral
+    classification: str = "Description"
+    mention_count: int = 0
+    strength: str = "Secondary"
     directionality: dict[str, int] | None = None
-    confidence: str  # High, Medium, Low
-    context: str
+    confidence: str = "Medium"
+    context: str = ""
+    argument_structure: ArgumentStructure | None = None
+
+    @field_validator("classification", mode="before")
+    @classmethod
+    def validate_classification(cls, v):
+        return _normalise_enum(v, _CLASSIFICATION_VALUES, "Description")
+
+    @field_validator("strength", mode="before")
+    @classmethod
+    def validate_strength(cls, v):
+        return _normalise_enum(v, _STRENGTH_VALUES, "Secondary")
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def validate_confidence(cls, v):
+        return _normalise_enum(v, _CONFIDENCE_VALUES, "Medium")
 
 
 class Trade(BaseModel):
     """An extracted trade idea from the document."""
 
     text: str
-    exposure: str  # Small, Medium, Large
-    timeframe: str  # intraday, days, weeks, months
-    conviction: str  # High, Medium, Low
-    rationale: str
+    exposure: str = "Medium"
+    timeframe: str = "weeks"
+    conviction: str = "Medium"
+    rationale: str = ""
     trigger_levels: str | None = None
+
+    @field_validator("exposure", mode="before")
+    @classmethod
+    def validate_exposure(cls, v):
+        return _normalise_enum(v, _EXPOSURE_VALUES, "Medium")
+
+    @field_validator("timeframe", mode="before")
+    @classmethod
+    def validate_timeframe(cls, v):
+        return _normalise_enum(v, _TIMEFRAME_VALUES, "weeks")
+
+    @field_validator("conviction", mode="before")
+    @classmethod
+    def validate_conviction(cls, v):
+        return _normalise_enum(v, _CONVICTION_VALUES, "Medium")
 
 
 class Metadata(BaseModel):

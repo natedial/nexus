@@ -1,0 +1,129 @@
+defaults:
+  # Boilerplate should usually start near the end of a research note.
+  min_fraction: 0.70
+  density_window_lines: 40
+  min_density: 0.12
+  min_hits: 3
+
+  headers:
+    - appendix
+    - analyst certification
+    - analyst certifications
+    - analyst disclosure
+    - analyst disclosures
+    - analyst compensation
+    - analyst coverage
+    - important disclosure
+    - important disclosures
+    - important information
+    - important legal information
+    - important legal disclosures
+    - additional information
+    - disclosure
+    - disclosures
+    - other disclosures
+    - company-specific disclosures
+    - disclosures and disclaimers
+    - research disclosures
+    - legal disclaimer
+    - legal disclosure
+    - legal disclosures
+    - legal and regulatory disclosures
+    - regulatory and legal disclosures
+    - notices and disclaimers
+    - disclaimer
+    - disclaimers
+    - regulatory disclosure
+    - regulatory disclosures
+    - conflict of interest
+    - conflicts of interest
+    - company specific disclosures
+    - investor disclosures
+    - risk disclosures
+    - distribution
+    - copyright
+
+  markers:
+    - analyst certification
+    - analyst disclosures
+    - important disclosure
+    - important legal
+    - conflict of interest
+    - regulatory
+    - disclaimers
+    - disclosures and disclaimers
+    - research analyst
+    - investment banking
+    - compensation
+    - rating history
+    - price target
+    - distribution of ratings
+    - non us analyst disclosure
+    - us analyst disclosure
+    - copyright
+
+sources:
+  jpm:
+    aliases:
+      - "_jpm_"
+      - "j.p. morgan"
+      - "jp morgan"
+      - "jpmorgan"
+    min_fraction: 0.35
+    min_density: 0.10
+    headers:
+      - analyst certification
+      - analyst compensation
+      - legal entity disclosures
+      - additional disclosures
+      - other disclosures
+
+  gs:
+    aliases:
+      - "_gs_"
+      - "goldman sachs"
+    min_fraction: 0.50
+    min_density: 0.08
+    headers:
+      - disclosures
+      - additional information
+      - important disclosures
+      - disclosure appendix
+
+  bofa:
+    aliases:
+      - "_bofa_"
+      - "bank of america"
+      - "bofa"
+      - "bofasecurities"
+    min_fraction: 0.62
+    min_density: 0.10
+    headers:
+      - disclosures and disclaimers
+      - distribution of ratings
+      - analyst certification
+
+  ms:
+    aliases:
+      - "_ms_"
+      - "morgan stanley"
+    min_fraction: 0.62
+    min_density: 0.10
+    headers:
+      - analyst certification
+      - analyst disclosure
+      - legal notices
+
+  db:
+    aliases:
+      - "_db_"
+      - "deutsche bank"
+      - "db strategy"
+      - "db on "
+    min_fraction: 0.55
+    min_density: 0.08
+    headers:
+      - appendix 1
+      - important disclosures
+      - analyst certification
+      - analyst certifications

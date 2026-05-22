@@ -7,153 +7,368 @@
 # Each step can use a different provider/model combination.
 
 extraction:
-  # Step 1: Strip boilerplate text (legal disclaimers, disclosures)
-  # Recommended: Fast model, no reasoning needed
-  boilerplate:
-    provider: anthropic
-    model: claude-sonnet-4-20250514
-    max_tokens: 8192
-    temperature: 0
-    extended_thinking:
-      enabled: false
+    # Step 1: Strip boilerplate text (legal disclaimers, disclosures)
+    # Recommended: deterministic stripper handles most documents; this model is
+    # only used as fallback when deterministic rules cannot find the boilerplate.
+    boilerplate:
+        provider: openrouter
+        model: qwen/qwen3-30b-a3b-instruct-2507
+        max_tokens: 4096
+        temperature: 0
+        fallback:
+            - provider: openrouter
+              model: qwen/qwen3-235b-a22b-2507
+              max_tokens: 4096
+              temperature: 0
 
-  # Step 2: Extract document metadata (source, date, region, etc.)
-  # Recommended: Fast model, structured extraction
-  metadata:
-    provider: anthropic
-    model: claude-3-5-haiku-20241022
-    max_tokens: 4096
-    temperature: 0
-    extended_thinking:
-      enabled: false
+    # Step 2: Extract document metadata (source, date, region, etc.)
+    # Recommended: cheap structured model with a non-free fallback. Avoid free
+    # OpenRouter routes here because metadata gates every downstream step.
+    metadata:
+        provider: openrouter
+        model: qwen/qwen3-30b-a3b-instruct-2507
+        max_tokens: 2048
+        temperature: 0
+        fallback:
+            - provider: openrouter
+              model: qwen/qwen3-235b-a22b-2507
+              max_tokens: 2048
+              temperature: 0
 
-  # Step 3: Extract key themes from document
-  # Recommended: Smart model with reasoning for nuanced analysis
-  themes:
-    provider: openai
-    model: gpt-5.2
-    max_tokens: 16000
-    temperature: 0
+    # Step 3: Extract key themes from document
+    # Recommended: best quality model that stays under the current cost cap
+    # (<= $0.20/M input and <= $0.30/M output on OpenRouter).
+    themes:
+        provider: openrouter
+        model: qwen/qwen3-235b-a22b-2507
+        max_tokens: 8192
+        temperature: 0
+        fallback:
+            - provider: openrouter
+              model: qwen/qwen3-30b-a3b-instruct-2507
+              max_tokens: 8192
+              temperature: 0
 
-  # Step 4: Extract trade ideas and positions
-  # Recommended: Smart model for identifying financial positions
-  trades:
-    provider: anthropic
-    model: claude-sonnet-4-20250514
-    max_tokens: 4096
-    temperature: 0
-    extended_thinking:
-      enabled: false
+    # Step 4: Extract trade ideas and positions
+    # Recommended: same high-quality structured model as themes; trade output is
+    # small relative to document input and remains within the cost cap.
+    trades:
+        provider: openrouter
+        model: qwen/qwen3-235b-a22b-2507
+        max_tokens: 4096
+        temperature: 0
+        fallback:
+            - provider: openrouter
+              model: qwen/qwen3-30b-a3b-instruct-2507
+              max_tokens: 4096
+              temperature: 0
 
 # Note: Synthesis (through-lines) is performed downstream by research_dispatcher,
 # which aggregates themes/trades across multiple documents before synthesizing.
-
 
 # Available Models Reference
 # ==========================
 # Use these model IDs in the configuration above.
 
 available_models:
-  anthropic:
-    # Opus - Most capable, best for complex reasoning
-    - id: claude-opus-4-5-20251101
-      description: "Most capable, deep reasoning, highest quality"
-      supports_thinking: true
-      max_output_tokens: 32000
+    anthropic:
+        # Opus - Most capable, best for complex reasoning
+        - id: claude-opus-4-5-20251101
+          description: "Most capable, deep reasoning, highest quality"
+          supports_thinking: true
+          max_output_tokens: 32000
 
-    # Sonnet - Balanced performance and speed
-    - id: claude-sonnet-4-20250514
-      description: "Balanced capability and speed"
-      supports_thinking: true
-      max_output_tokens: 64000
+        # Sonnet - Balanced performance and speed
+        - id: claude-sonnet-4-20250514
+          description: "Balanced capability and speed"
+          supports_thinking: true
+          max_output_tokens: 64000
 
-    # Haiku - Fast and efficient
-    - id: claude-3-5-haiku-20241022
-      description: "Fast, efficient, good for simple tasks"
-      supports_thinking: false
-      max_output_tokens: 8192
+        # Haiku - Fast and efficient
+        - id: claude-3-5-haiku-20241022
+          description: "Fast, efficient, good for simple tasks"
+          supports_thinking: false
+          max_output_tokens: 8192
 
-  openai:
-    # GPT-5.2 - Next-gen model
-    - id: gpt-5.2
-      description: "Next-gen GPT model"
-      supports_reasoning: true
-      max_output_tokens: 32000
+    openai:
+        # GPT-5.2 - Next-gen model
+        - id: gpt-5.2
+          description: "Next-gen GPT model"
+          supports_reasoning: true
+          max_output_tokens: 32000
 
-    # GPT-4o - Most capable general model
-    - id: gpt-4o
-      description: "Most capable GPT model"
-      supports_reasoning: false
-      max_output_tokens: 16384
+        # GPT-4o - Most capable general model
+        - id: gpt-4o
+          description: "Most capable GPT model"
+          supports_reasoning: false
+          max_output_tokens: 16384
 
-    # GPT-4o-mini - Fast and cheap
-    - id: gpt-4o-mini
-      description: "Fast, efficient, lower cost"
-      supports_reasoning: false
-      max_output_tokens: 16384
+        # GPT-4o-mini - Fast and cheap
+        - id: gpt-4o-mini
+          description: "Fast, efficient, lower cost"
+          supports_reasoning: false
+          max_output_tokens: 16384
 
-    # o1 - Reasoning model (chain of thought)
-    - id: o1
-      description: "Reasoning model with chain-of-thought"
-      supports_reasoning: true
-      max_output_tokens: 100000
+        # o1 - Reasoning model (chain of thought)
+        - id: o1
+          description: "Reasoning model with chain-of-thought"
+          supports_reasoning: true
+          max_output_tokens: 100000
 
-    # o1-mini - Faster reasoning model
-    - id: o1-mini
-      description: "Faster reasoning model"
-      supports_reasoning: true
-      max_output_tokens: 65536
+        # o1-mini - Faster reasoning model
+        - id: o1-mini
+          description: "Faster reasoning model"
+          supports_reasoning: true
+          max_output_tokens: 65536
 
+    groq:
+        # OpenAI OSS family served on Groq
+        - id: openai/gpt-oss-20b
+          description: "Low-cost open model on Groq"
+          supports_reasoning: false
+          max_output_tokens: 16384
+        - id: openai/gpt-oss-120b
+          description: "Higher quality open model on Groq"
+          supports_reasoning: false
+          max_output_tokens: 16384
+        - id: qwen/qwen3-32b
+          description: "Qwen 3 32B served on Groq"
+          supports_reasoning: false
+          max_output_tokens: 16384
+
+    deepinfra:
+        - id: meta-llama/Llama-3.3-70B-Instruct-Turbo
+          description: "General-purpose instruct model"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: moonshotai/Kimi-K2-Instruct-0905
+          description: "Kimi K2 Instruct 0905"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: moonshotai/Kimi-K2.5
+          description: "Kimi K2.5 general-purpose model"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: MiniMaxAI/MiniMax-M2.5
+          description: "MiniMax M2.5 general-purpose model"
+          supports_reasoning: false
+          max_output_tokens: 8192
+
+    fireworks:
+        - id: accounts/fireworks/models/llama-v3p3-70b-instruct
+          description: "General-purpose instruct model"
+          supports_reasoning: false
+          max_output_tokens: 8192
+
+    together:
+        - id: meta-llama/Llama-3.3-70B-Instruct-Turbo
+          description: "General-purpose instruct model"
+          supports_reasoning: false
+          max_output_tokens: 8192
+
+    openrouter:
+        - id: openai/gpt-oss-20b:free
+          description: "OpenAI OSS 20B free model routed through OpenRouter"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: minimax/minimax-m2.7
+          description: "MiniMax M2.7 routed through OpenRouter"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: deepseek/deepseek-v4-flash
+          description: "DeepSeek V4 Flash routed through OpenRouter"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: qwen/qwen3-235b-a22b-2507
+          description: "Qwen3 235B A22B Instruct routed through OpenRouter"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: qwen/qwen3-30b-a3b-instruct-2507
+          description: "Qwen3 30B A3B Instruct routed through OpenRouter"
+          supports_reasoning: false
+          max_output_tokens: 8192
+        - id: openai/gpt-5.2
+          description: "OpenAI GPT-5.2 routed through OpenRouter"
+          supports_reasoning: true
+          max_output_tokens: 32000
+        - id: openai/gpt-5-mini
+          description: "OpenAI GPT-5 mini routed through OpenRouter"
+          supports_reasoning: true
+          max_output_tokens: 32000
+        - id: anthropic/claude-sonnet-4
+          description: "Anthropic Claude Sonnet routed through OpenRouter"
+          supports_reasoning: true
+          max_output_tokens: 64000
+        - id: google/gemini-2.5-pro
+          description: "Google Gemini Pro routed through OpenRouter"
+          supports_reasoning: true
+          max_output_tokens: 8192
+        - id: moonshotai/kimi-k2.6
+          description: "Kimi K2.6 routed through OpenRouter"
+          supports_reasoning: true
+          max_output_tokens: 8192
 
 # Example Configurations
 # ======================
 # Copy these to the extraction section above to try different setups.
 
 examples:
-  # All OpenAI setup
-  openai_full:
-    boilerplate:
-      provider: openai
-      model: gpt-4o-mini
-      max_tokens: 8192
-      temperature: 0
-    metadata:
-      provider: openai
-      model: gpt-4o-mini
-      max_tokens: 4096
-      temperature: 0
-    themes:
-      provider: openai
-      model: o1
-      max_tokens: 16000
-      # Note: o1 models use reasoning tokens automatically
-    trades:
-      provider: openai
-      model: gpt-4o
-      max_tokens: 4096
-      temperature: 0
+    # All OpenAI setup
+    openai_full:
+        boilerplate:
+            provider: openai
+            model: gpt-4o-mini
+            max_tokens: 8192
+            temperature: 0
+        metadata:
+            provider: openai
+            model: gpt-4o-mini
+            max_tokens: 4096
+            temperature: 0
+        themes:
+            provider: openai
+            model: o1
+            max_tokens: 16000
+            reasoning_effort: high
+            # Reasoning is explicit here because theme extraction is the only step
+            # that benefits from multi-pass analysis.
+        trades:
+            provider: openai
+            model: gpt-4o
+            max_tokens: 4096
+            temperature: 0
 
-  # Hybrid: OpenAI for fast tasks, Anthropic for reasoning
-  hybrid:
-    boilerplate:
-      provider: openai
-      model: gpt-4o-mini
-      max_tokens: 8192
-      temperature: 0
-    metadata:
-      provider: openai
-      model: gpt-4o-mini
-      max_tokens: 4096
-      temperature: 0
-    themes:
-      provider: anthropic
-      model: claude-sonnet-4-20250514
-      max_tokens: 16000
-      extended_thinking:
-        enabled: true
-        budget_tokens: 8000
-    trades:
-      provider: openai
-      model: gpt-4o
-      max_tokens: 4096
-      temperature: 0
+    # Hybrid: OpenAI for fast tasks, Anthropic for reasoning
+    hybrid:
+        boilerplate:
+            provider: openai
+            model: gpt-4o-mini
+            max_tokens: 8192
+            temperature: 0
+        metadata:
+            provider: openai
+            model: gpt-4o-mini
+            max_tokens: 4096
+            temperature: 0
+        themes:
+            provider: anthropic
+            model: claude-sonnet-4-20250514
+            max_tokens: 16000
+            extended_thinking:
+                enabled: true
+                budget_tokens: 8000
+        trades:
+            provider: openai
+            model: gpt-4o
+            max_tokens: 4096
+            temperature: 0
+
+    # Cost-focused profile using Groq
+    groq_budget:
+        boilerplate:
+            provider: groq
+            model: openai/gpt-oss-20b
+            max_tokens: 4096
+            temperature: 0
+        metadata:
+            provider: groq
+            model: openai/gpt-oss-20b
+            max_tokens: 2048
+            temperature: 0
+        themes:
+            provider: groq
+            model: openai/gpt-oss-120b
+            max_tokens: 8192
+            temperature: 0
+        trades:
+            provider: groq
+            model: openai/gpt-oss-120b
+            max_tokens: 4096
+            temperature: 0
+
+    # Cost-focused profile with DeepInfra fallback for resilience
+    groq_with_deepinfra_fallback:
+        boilerplate:
+            provider: groq
+            model: openai/gpt-oss-20b
+            max_tokens: 4096
+            temperature: 0
+            fallback:
+                - provider: deepinfra
+                  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+                  max_tokens: 4096
+                  temperature: 0
+        metadata:
+            provider: groq
+            model: openai/gpt-oss-20b
+            max_tokens: 2048
+            temperature: 0
+            fallback:
+                - provider: deepinfra
+                  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+                  max_tokens: 2048
+                  temperature: 0
+        themes:
+            provider: groq
+            model: openai/gpt-oss-120b
+            max_tokens: 8192
+            temperature: 0
+            fallback:
+                - provider: deepinfra
+                  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+                  max_tokens: 8192
+                  temperature: 0
+        trades:
+            provider: groq
+            model: openai/gpt-oss-120b
+            max_tokens: 4096
+            temperature: 0
+            fallback:
+                - provider: deepinfra
+                  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+                  max_tokens: 4096
+                  temperature: 0
+
+    # OpenRouter-first profile with provider fallbacks for model swapping
+    openrouter_with_fallback:
+        boilerplate:
+            provider: openrouter
+            model: openai/gpt-5-mini
+            max_tokens: 4096
+            temperature: 0
+            fallback:
+                - provider: deepinfra
+                  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+                  max_tokens: 4096
+                  temperature: 0
+        metadata:
+            provider: openrouter
+            model: openai/gpt-5-mini
+            max_tokens: 2048
+            temperature: 0
+            fallback:
+                - provider: deepinfra
+                  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+                  max_tokens: 2048
+                  temperature: 0
+        themes:
+            provider: openrouter
+            model: openai/gpt-5.2
+            max_tokens: 8192
+            temperature: 0
+            reasoning_effort: high
+            fallback:
+                - provider: deepinfra
+                  model: moonshotai/Kimi-K2-Instruct-0905
+                  max_tokens: 8192
+                  temperature: 0
+        trades:
+            provider: openrouter
+            model: openai/gpt-5-mini
+            max_tokens: 4096
+            temperature: 0
+            fallback:
+                - provider: groq
+                  model: openai/gpt-oss-120b
+                  max_tokens: 4096
+                  temperature: 0

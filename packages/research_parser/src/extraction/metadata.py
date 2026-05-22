@@ -3,81 +3,41 @@
 import json
 
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from src.llm import LLMClient, ModelConfig
 
+from .json_utils import clean_json_response
 from .models import Metadata
 from .prompts import get_metadata_prompt
+from .structured import generate_with_validation_fallback
 
 logger = structlog.get_logger()
 
+# Truncation budget for metadata extraction
+_HEAD_CHARS = 10_000
+_TAIL_CHARS = 5_000
 
-def _extract_json_block(text: str) -> str:
-    """Extract the first complete JSON object/array from text."""
-    json_start = -1
-    for i, char in enumerate(text):
-        if char in "[{":
-            json_start = i
-            break
 
-    if json_start == -1:
+def _truncate_for_metadata(text: str) -> str:
+    """Return head + tail of the document so metadata extraction sees both
+    the front-matter (title, source, date) and back-matter (disclaimers
+    that often contain publisher/date info)."""
+    if len(text) <= _HEAD_CHARS + _TAIL_CHARS:
         return text
-
-    stack: list[str] = []
-    in_string = False
-    escape = False
-    for i in range(json_start, len(text)):
-        char = text[i]
-        if in_string:
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == "\"":
-                in_string = False
-            continue
-
-        if char == "\"":
-            in_string = True
-            continue
-
-        if char in "[{":
-            stack.append(char)
-            continue
-
-        if char in "]}":
-            if not stack:
-                continue
-            opener = stack.pop()
-            if (opener == "[" and char != "]") or (opener == "{" and char != "}"):
-                continue
-            if not stack:
-                return text[json_start : i + 1]
-
-    return text[json_start:]
+    return text[:_HEAD_CHARS] + "\n\n[...]\n\n" + text[-_TAIL_CHARS:]
 
 
-def _clean_json_response(text: str) -> str:
-    """Clean JSON response from LLM (remove code fences, explanatory text, etc.)."""
-    text = text.strip()
-
-    if text.startswith("```"):
-        parts = text.split("```", 2)
-        if len(parts) >= 2:
-            text = parts[1]
-
-    text = _extract_json_block(text)
-
-    if "```" in text:
-        text = text.split("```")[0]
-
-    return text.strip()
+def _parse_metadata_response(raw: str) -> Metadata:
+    cleaned = clean_json_response(raw)
+    data = json.loads(cleaned)
+    return Metadata(**data)
 
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_random_exponential(multiplier=1, min=2, max=45),
+    reraise=True,
 )
 def extract_metadata(
     client: LLMClient,
@@ -98,19 +58,14 @@ def extract_metadata(
         model=config.model,
     )
 
-    raw = client.generate(
+    metadata = generate_with_validation_fallback(
+        client=client,
         config=config,
         system=get_metadata_prompt(),
-        user=text[:15000],  # Truncate for metadata extraction
+        user=_truncate_for_metadata(text),
+        parser=_parse_metadata_response,
+        log=log,
+        step="metadata",
     )
-
-    cleaned = _clean_json_response(raw)
-
-    try:
-        data = json.loads(cleaned)
-        metadata = Metadata(**data)
-        log.info("Metadata extracted", source=metadata.source, area=metadata.area)
-        return metadata
-    except (json.JSONDecodeError, ValueError) as e:
-        log.warning("Failed to parse metadata JSON", error=str(e), raw=raw[:500])
-        raise
+    log.info("Metadata extracted", source=metadata.source, area=metadata.area)
+    return metadata

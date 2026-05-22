@@ -5,7 +5,7 @@ A Python service that watches a Google Drive folder for financial research PDFs,
 ## Features
 
 - **Google Drive Integration**: Polls a folder for new PDFs automatically
-- **PDF Parsing**: Converts PDFs to markdown via LlamaIndex Cloud
+- **PDF Parsing**: Parses locally with Docling, optionally falls back to MinerU CLI, then LlamaIndex Cloud
 - **Multi-Model Extraction**: Uses different LLM models optimized for each task
 - **Extended Thinking**: Enables Claude's reasoning mode for complex analysis
 - **Fault-Tolerant**: Each extraction step can fail independently without breaking the pipeline
@@ -31,7 +31,8 @@ A Python service that watches a Google Drive folder for financial research PDFs,
 └─────────────────────────────────────────────────────────────────┘
          │                  │                    │
          ▼                  ▼                    ▼
-    Google Drive     LlamaIndex Cloud      Supabase PostgreSQL
+    Google Drive   Docling / MinerU /      Supabase PostgreSQL
+                     LlamaIndex Cloud
 ```
 
 ## Extraction Pipeline
@@ -72,8 +73,13 @@ GOOGLE_CREDENTIALS_PATH=./credentials/service-account.json
 GOOGLE_DRIVE_FOLDER_ID=your_folder_id_here
 
 # LLM APIs
-ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_API_KEY=sk-ant-...  # Optional, only if using Anthropic models
 OPENAI_API_KEY=sk-...  # Optional, only if using OpenAI models
+GROQ_API_KEY=gsk_...  # Optional, only if using Groq models
+DEEPINFRA_API_KEY=...  # Optional, only if using DeepInfra models
+OPENROUTER_API_KEY=sk-or-...  # Optional, only if using OpenRouter models
+FIREWORKS_API_KEY=...  # Optional, only if using Fireworks models
+TOGETHER_API_KEY=...  # Optional, only if using Together models
 
 # LlamaIndex Cloud
 LLAMAINDEX_API_KEY=llx-...
@@ -84,6 +90,12 @@ SUPABASE_KEY=your_service_role_key
 
 # Local paths (for development)
 STATE_DB_PATH=./data/state.db
+
+# Optional MinerU CLI fallback
+MINERU_ENABLED=false
+MINERU_BIN_PATH=/opt/mineru-venv/bin/mineru
+MINERU_BACKEND=pipeline
+MINERU_TIMEOUT_SECONDS=300
 
 # Catchup on startup (process files from the last N days, 0 disables)
 CATCHUP_DAYS=0
@@ -128,22 +140,52 @@ Models are configured in `config/models.yaml`. Change models without touching co
 extraction:
   # Fast model for simple tasks
   boilerplate:
-    provider: anthropic
-    model: claude-3-5-haiku-20241022
-    max_tokens: 8192
+    provider: groq
+    model: openai/gpt-oss-20b
+    max_tokens: 4096
     temperature: 0
-    extended_thinking:
-      enabled: false
+    fallback:
+      - provider: deepinfra
+        model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+        max_tokens: 4096
+        temperature: 0
 
   # Smart model with reasoning for complex analysis
   themes:
-    provider: anthropic
-    model: claude-sonnet-4-20250514
-    max_tokens: 16000
+    provider: openrouter
+    model: openai/gpt-5.2
+    max_tokens: 8192
     temperature: 0
-    extended_thinking:
-      enabled: true
-      budget_tokens: 8000
+    reasoning_effort: high
+    fallback:
+      - provider: deepinfra
+        model: moonshotai/Kimi-K2-Instruct-0905
+        max_tokens: 8192
+        temperature: 0
+```
+
+## Optional MinerU Fallback
+
+If you want an additional local parser before paying for LlamaIndex, you can install MinerU in a
+separate virtualenv or via `pipx` and point the service at its CLI binary.
+
+```bash
+uv venv /opt/mineru-venv
+/opt/mineru-venv/bin/uv pip install -U "mineru[all]"
+```
+
+Then configure:
+
+```env
+MINERU_ENABLED=true
+MINERU_BIN_PATH=/opt/mineru-venv/bin/mineru
+MINERU_BACKEND=pipeline
+```
+
+The parser order becomes:
+
+```text
+Docling -> MinerU CLI -> LlamaIndex
 ```
 
 ### Switching to OpenAI
@@ -151,15 +193,32 @@ extraction:
 ```yaml
 themes:
   provider: openai
-  model: o1
+  model: gpt-5.2
   max_tokens: 16000
-  # o1 models use reasoning automatically
+  reasoning_effort: high
 
 boilerplate:
   provider: openai
   model: gpt-4o-mini
   max_tokens: 8192
   temperature: 0
+```
+
+### Fallback Chains
+
+Use `fallback` to route to a backup provider/model when the primary call fails:
+
+```yaml
+themes:
+  provider: groq
+  model: openai/gpt-oss-120b
+  max_tokens: 8192
+  temperature: 0
+  fallback:
+    - provider: deepinfra
+      model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+      max_tokens: 8192
+      temperature: 0
 ```
 
 ### Available Models
@@ -171,8 +230,12 @@ boilerplate:
 | Anthropic | `claude-3-5-haiku-20241022` | Fast, simple tasks | No |
 | OpenAI | `gpt-4o` | General purpose | No |
 | OpenAI | `gpt-4o-mini` | Fast, cheap | No |
-| OpenAI | `o1` | Complex reasoning | Auto |
-| OpenAI | `o1-mini` | Faster reasoning | Auto |
+| OpenAI | `gpt-5.2` | Complex reasoning | `reasoning_effort` |
+| OpenAI | `o1` | Legacy reasoning | `reasoning_effort` |
+| OpenAI | `o1-mini` | Faster legacy reasoning | `reasoning_effort` |
+| Groq | `openai/gpt-oss-20b` | Low-cost extraction | No |
+| Groq | `openai/gpt-oss-120b` | Higher-quality extraction | No |
+| DeepInfra | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | Fallback or budget routing | No |
 
 ## Project Structure
 
@@ -364,7 +427,7 @@ Edit the markdown files in `prompts/`:
 
 - Only works with Anthropic models that support it (Sonnet, Opus)
 - Haiku does not support extended thinking
-- OpenAI o1/o1-mini use reasoning automatically (different mechanism)
+- OpenAI/OpenRouter reasoning uses `reasoning_effort`; keep it on themes, not metadata/trades
 
 ## License
 

@@ -37,34 +37,56 @@ class DriveWatcher:
         self._service = build("drive", "v3", credentials=self._credentials)
         logger.info("Initialized Drive watcher", folder_id=folder_id)
 
-    def list_pdfs(self, days_ago: int | None = None) -> list[DriveFile]:
+    def list_pdfs(
+        self, days_ago: int | None = None, since: datetime | None = None
+    ) -> list[DriveFile]:
         """List all PDF files in the watched folder.
 
         Args:
             days_ago: Optional number of days to look back (filters by createdTime)
+            since: Optional UTC datetime to filter by createdTime
         """
         query = f"'{self.folder_id}' in parents and mimeType = '{self.PDF_MIME_TYPE}' and trashed = false"
 
         # Add date filter if specified
-        if days_ago is not None:
+        cutoff_date = None
+        if since is not None:
+            cutoff_date = since.astimezone(timezone.utc)
+        elif days_ago is not None:
             cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_ago)
+
+        if cutoff_date is not None:
             # Format as RFC 3339 timestamp for Google Drive API
             date_str = cutoff_date.isoformat()
             query += f" and createdTime > '{date_str}'"
-            logger.debug("Filtering PDFs by date", days_ago=days_ago, cutoff=date_str)
-
-        results = (
-            self._service.files()
-            .list(
-                q=query,
-                spaces="drive",
-                fields="files(id, name, mimeType, createdTime)",
-                orderBy="createdTime desc",
+            logger.debug(
+                "Filtering PDFs by date",
+                days_ago=days_ago,
+                cutoff=date_str,
+                since=since.isoformat() if since is not None else None,
             )
-            .execute()
-        )
 
-        files = results.get("files", [])
+        files = []
+        page_token = None
+        while True:
+            results = (
+                self._service.files()
+                .list(
+                    q=query,
+                    spaces="drive",
+                    fields="nextPageToken, files(id, name, mimeType, createdTime)",
+                    orderBy="createdTime desc",
+                    pageSize=100,
+                    pageToken=page_token,
+                )
+                .execute()
+            )
+
+            files.extend(results.get("files", []))
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
         logger.debug("Found PDFs in folder", count=len(files))
 
         return [
