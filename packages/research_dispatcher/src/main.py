@@ -309,6 +309,7 @@ def main():
             )  # Override aggregated
             report_data["callouts"] = synthesis_result.callouts  # Override aggregated
             report_data["analysis_paragraphs"] = synthesis_result.analysis_paragraphs
+            report_data["executive_summary"] = synthesis_result.executive_summary
             report_data["themes_by_through_line"] = (
                 formatter.group_themes_by_through_lines(
                     report_data.get("themes_analysis", []),

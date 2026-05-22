@@ -862,26 +862,34 @@ class PDFGenerator:
         return elements
 
     def _create_executive_summary_section(self, report_data: Dict[str, Any]) -> list:
-        """Render a top-level executive summary using synthesis analysis when available."""
-        analysis_paragraphs = report_data.get("analysis_paragraphs", [])
-        fallback_summary = report_data.get("executive_summary", [])
-        if not analysis_paragraphs and not fallback_summary:
+        """Render the synthesized executive summary; omit entirely when absent."""
+        summary = report_data.get("executive_summary", [])
+        summary = [str(item).strip() for item in summary if str(item or "").strip()]
+        if not summary:
             return []
 
         elements = self._create_section_header("Executive Summary", new_page=False)
+        for paragraph in summary:
+            elements.append(Paragraph(escape(paragraph), self.styles["Normal"]))
+            elements.append(Spacer(1, 0.08 * inch))
+        elements.append(Spacer(1, 0.1 * inch))
+        return elements
 
-        if analysis_paragraphs:
-            for paragraph in analysis_paragraphs:
-                text = paragraph.get("text", "") if isinstance(paragraph, dict) else str(paragraph)
-                if text:
-                    elements.append(Paragraph(escape(text), self.styles["Normal"]))
-                    elements.append(Spacer(1, 0.08 * inch))
-            return elements
+    def _create_market_analysis_section(self, report_data: Dict[str, Any]) -> list:
+        """Render the detailed PM analysis paragraphs from the analyst stage."""
+        analysis_paragraphs = report_data.get("analysis_paragraphs", [])
+        rendered = []
+        for paragraph in analysis_paragraphs:
+            text = paragraph.get("text", "") if isinstance(paragraph, dict) else str(paragraph)
+            if text:
+                rendered.append(text)
+        if not rendered:
+            return []
 
-        for item in fallback_summary:
-            if item:
-                elements.append(Paragraph(escape(str(item)), self.styles["Normal"]))
-                elements.append(Spacer(1, 0.08 * inch))
+        elements = self._create_section_header("Market Analysis", new_page=False)
+        for text in rendered:
+            elements.append(Paragraph(escape(text), self.styles["Normal"]))
+            elements.append(Spacer(1, 0.08 * inch))
         elements.append(Spacer(1, 0.1 * inch))
         return elements
 
@@ -1004,6 +1012,7 @@ class PDFGenerator:
         story.append(Spacer(1, 0.3 * inch))
 
         story.extend(self._create_executive_summary_section(report_data))
+        story.extend(self._create_market_analysis_section(report_data))
         story.extend(self._create_delta_section(report_data))
 
         # Through Lines section — rendered as card blocks
