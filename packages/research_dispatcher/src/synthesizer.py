@@ -1541,13 +1541,6 @@ class Synthesizer:
 
             theme_clusters.append({
                 "id": through_line_id,
-                "lead": through_line.get("lead", ""),
-                "through_line_id": through_line_id,
-                "consensus_level": through_line.get("consensus_level", ""),
-                "consensus_anchor": through_line.get("consensus_anchor", ""),
-                "supporting_sources": through_line.get("supporting_sources", []),
-                "supporting_themes": labels,
-                "key_insight": through_line.get("key_insight", ""),
                 "themes": theme_entries,
             })
 
