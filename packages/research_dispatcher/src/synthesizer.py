@@ -1629,14 +1629,27 @@ class Synthesizer:
         input_data: dict[str, Any],
         config: ModelConfig,
     ) -> dict[str, Any]:
-        """Adapt stage-one payload by provider/model so smaller DeepInfra models do not drown in context."""
-        if not self._should_compact_stage1_payload(config):
-            return input_data
+        """Project the payload to the keys the synthesizer prompt declares.
+
+        The prompt consumes themes, trades, and cross_document_clusters plus a
+        small amount of scope context. All other enriched keys are dropped so the
+        model is not handed undeclared inputs. Small DeepInfra models additionally
+        get field-level compaction.
+        """
+        compact = self._should_compact_stage1_payload(config)
+
+        themes = input_data.get("themes", [])
+        trades = input_data.get("trades", [])
+        if compact:
+            themes = [self._compact_theme_entry(theme) for theme in themes]
+            trades = [self._compact_trade_entry(trade) for trade in trades]
 
         return {
-            "themes": [self._compact_theme_entry(theme) for theme in input_data.get("themes", [])],
-            "trades": [self._compact_trade_entry(trade) for trade in input_data.get("trades", [])],
-            "cross_document_clusters": input_data.get("cross_document_clusters", [])[:MAX_CROSS_DOCUMENT_CLUSTERS],
+            "themes": themes,
+            "trades": trades,
+            "cross_document_clusters": input_data.get("cross_document_clusters", [])[
+                :MAX_CROSS_DOCUMENT_CLUSTERS
+            ],
             "document_count": input_data.get("document_count", 0),
             "sources": input_data.get("sources", []),
             "date_range": input_data.get("date_range", ""),
