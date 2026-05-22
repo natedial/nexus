@@ -40,12 +40,23 @@ MAX_CLUSTER_EXCERPTS = 2
 MAX_CLUSTER_EXCERPT_CHARS = 160
 
 
+def _expand_components(prompt: str) -> str:
+    """Replace {{component:NAME}} markers with the contents of components/NAME.md."""
+    def _replace(match: "re.Match[str]") -> str:
+        name = match.group(1).strip()
+        return (COMPONENTS_PATH / f"{name}.md").read_text().strip()
+
+    return re.sub(r"\{\{component:([a-z0-9_]+)\}\}", _replace, prompt)
+
+
 def _load_prompt(filename: str = "synthesis.md") -> str:
-    """Load prompt from markdown file."""
+    """Load prompt from markdown file, expanding component markers."""
     if filename == "synthesis.md":
         prompt = PROMPT_PATH.read_text().strip()
     else:
         prompt = (SKILL_PROMPTS_PATH / filename).read_text().strip()
+
+    prompt = _expand_components(prompt)
 
     if filename in {"synthesis.md", "throughline_synthesizer.md", "throughline_analyst.md"}:
         lens = MARKET_EDGE_LENS_PATH.read_text().strip()

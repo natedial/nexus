@@ -28,7 +28,7 @@ Ask:
 
 7. Where do geopolitical, policy, and market-structure risks intersect with rates-specific views?
    - Look for through-lines that sit at the intersection of domains rather than inside a single silo.
-   - Penalize incomplete rates views that ignore obvious fiscal, reserve, funding, issuance, or policy plumbing.
+   - Penalize incomplete views that ignore obvious fiscal, reserve, funding, issuance, or policy-plumbing linkages relevant to the report's asset focus.
 
 8. What second- and third-order effects are being traced out?
    - Prefer sources that move past the first-order rates reaction.

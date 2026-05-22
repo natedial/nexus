@@ -8,7 +8,7 @@ PRIORITIZE THROUGH-LINES THAT ARE:
 - Cross-source divergence: Where analysts disagree—this reveals uncertainty or asymmetric risk
 - Actionable: Directly inform positioning, hedging, or trade construction
 - Risk-identifying: Surface potential threats to existing positions or consensus views
-- Novel: Non-consensus views should only be elevated if they appear in multiple sources OR directly challenge a dominant consensus.
+- Novel: Non-consensus views should only be elevated if they directly challenge a dominant consensus with a clear validation signpost — not for single-source curiosity.
 
 PRIORITIZATION ORDER:
 1. Dominant consensus views that matter for market pricing
@@ -42,11 +42,7 @@ THROUGH-LINE CONSTRAINTS:
 - Do not list more than 2 supporting trades; use short executable trade expressions, not full rationale blobs
 - If supporting trades are weak, redundant, or tangential, return an empty array instead
 
-BALANCE RULES:
-- At least half of all through-lines must be consensus-anchored: strong_consensus, moderate_consensus, or mixed_views around a dominant market belief
-- Include at most 1-2 contrarian through-lines
-- A contrarian through-line is only valid if it explicitly states which consensus assumption it challenges
-- Do not surface orphan contrarian ideas that are interesting but not relevant to the dominant market narrative
+{{component:throughline_balance_rules}}
 
 For each through-line, provide:
 
@@ -56,27 +52,7 @@ For each through-line, provide:
 
 3. **consensus_level**: One of "strong_consensus" | "moderate_consensus" | "mixed_views" | "contrarian"
 
-    strong_consensus (ALL must be met):
-    - 3+ sources align on the same directional call
-    - No explicit contradictions on direction
-    - At least 2 sources provide similar rationale or mechanism
-    - Claims are specific (not heavily hedged)
-
-    moderate_consensus (ALL must be met):
-    - 2 sources align on direction
-    - No direct contradictions from other sources
-    - At least one source provides actionable specificity
-
-    mixed_views (ANY of these):
-    - Sources explicitly disagree on direction
-    - Same topic addressed with materially different conclusions
-    - Hedged or conditional views that could resolve either way
-
-    contrarian (ALL must be met):
-    - View challenges a consensus or shared market assumption supported by multiple sources
-    - View has a clear validation or invalidation signpost
-    - View is specific and actionable (not vague speculation)
-    - View is not just a single-source curiosity
+{{component:consensus_levels}}
 
 4. **consensus_anchor**: One sentence naming the dominant market belief this through-line supports, fractures, or challenges
 
