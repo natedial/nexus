@@ -1,0 +1,44 @@
+From: Alice Candidate <alice@candidates.edu>
+To: private.user@gmail.com
+Subject: Materials for private.user@gmail.com
+Date: Thu, 13 Aug 2026 13:00:00 -0400
+Message-ID: <orig-attach@mail.gmail.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="MIXEDBOUNDARY"
+Received: from mail.google.com
+X-Google-Smtp-Source: leak-me
+
+--MIXEDBOUNDARY
+Content-Type: text/plain; charset="utf-8"
+
+Cover letter. Please do not send this to private.user@gmail.com in the copy.
+
+--MIXEDBOUNDARY
+Content-Type: application/pdf; name="cv.pdf"
+Content-Disposition: attachment; filename="cv.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQK
+
+--MIXEDBOUNDARY
+Content-Type: application/pdf; name="cv.pdf"
+Content-Disposition: attachment; filename="cv.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQK
+
+--MIXEDBOUNDARY
+Content-Type: application/octet-stream; name="notes-for-private.user@gmail.com.txt"
+Content-Disposition: attachment; filename="notes-for-private.user@gmail.com.txt"
+Content-Transfer-Encoding: base64
+
+aGVsbG8K
+
+--MIXEDBOUNDARY
+Content-Type: application/vnd.ms-excel.sheet.macroEnabled.12; name="macro.xlsm"
+Content-Disposition: attachment; filename="macro.xlsm"
+Content-Transfer-Encoding: base64
+
+UEs=
+
+--MIXEDBOUNDARY--

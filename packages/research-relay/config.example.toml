@@ -1,0 +1,123 @@
+# Copy this file to ~/.config/research-relay/config.toml and edit the
+# non-secret values. Never put Gmail app passwords, Proton Bridge passwords,
+# OAuth client secrets, refresh tokens, or the HMAC key in this file, a
+# LaunchAgent plist, or shell history.
+
+[gmail]
+username = "YOUR_PRIVATE_GMAIL@gmail.com"
+imap_host = "imap.gmail.com"
+imap_port = 993
+all_mail_folder = "[Gmail]/All Mail"
+search_query = "label:relay/pending -label:relay/sent -in:spam -in:trash"
+label_pending = "Relay/pending"
+label_sent = "Relay/sent"
+label_error = "Relay/error"
+# All Mail SELECT + X-GM-RAW search can exceed 30s on a large mailbox.
+timeout_seconds = 120
+# Used only when auth.method = "app_password".
+keychain_service = "research-relay-gmail"
+
+[auth]
+# oauth2 (recommended) or app_password
+method = "oauth2"
+# Desktop OAuth client JSON downloaded from Google Cloud Console.
+# Do not commit this file.
+credentials_file = "/Users/YOU/.config/research-relay/gmail-oauth-client.json"
+# Created by `research-relay auth`. Contains the refresh token. mode 600.
+token_file = "/Users/YOU/.config/research-relay/gmail-oauth-token.json"
+# Loopback port for the one-time browser consent. 0 = ephemeral port.
+redirect_port = 0
+
+[proton]
+smtp_host = "127.0.0.1"
+smtp_port = 1025
+imap_host = "127.0.0.1"
+imap_port = 1143
+# Bridge lists nested Proton labels with an escaped slash.
+folder_pending = 'Labels/Relay\/pending'
+folder_sent = 'Labels/Relay\/sent'
+folder_error = 'Labels/Relay\/error'
+folder_inbox = "INBOX"
+# tls = implicit TLS (current Bridge SMTP on 1025). starttls = plaintext then upgrade.
+mode = "tls"
+username = "YOUR_PROTON_ADDRESS@proton.me"
+from_address = "YOUR_PROTON_ADDRESS@proton.me"
+reply_to = "YOUR_PROTON_RELAY_ADDRESS@proton.me"
+timeout_seconds = 30
+keychain_service = "research-relay-proton-smtp"
+# Exported Proton Mail Bridge certificate / CA. Required for verified TLS.
+ca_file = "/Users/YOU/Library/Application Support/research-relay/bridge-ca.pem"
+# Localhost troubleshooting only. Prints a warning and disables cert verification.
+allow_insecure_tls = false
+
+[relay]
+# Live SMTP + Gmail label changes also require `research-relay run --live`.
+live_delivery = false
+allow_subdomains = false
+allowed_domains = ["candidates.edu"]
+colleagues = ["colleague1@proton.me", "colleague2@example.org"]
+private_address = "YOUR_PRIVATE_GMAIL@gmail.com"
+message_id_domain = "relay.local"
+hmac_keychain_service = "research-relay-hmac-key"
+max_messages_per_run = 10
+# Defaults to 2 * max_messages_per_run when omitted.
+max_messages_per_day = 20
+# 0 = no age limit. Pending mail older than this is never sent.
+max_age_days = 5
+
+[attachments]
+max_individual_bytes = 10485760
+max_combined_bytes = 26214400
+blocked_extensions = [
+  ".exe", ".bat", ".cmd", ".com", ".cpl", ".scr", ".js", ".jse", ".vbs", ".vbe",
+  ".wsf", ".wsh", ".ps1", ".msi", ".dll", ".jar", ".hta", ".lnk", ".reg",
+  ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img", ".apk",
+  ".docm", ".xlsm", ".pptm", ".dotm", ".xltm", ".xlam", ".ppam",
+  ".sh", ".bash", ".zsh", ".py", ".rb", ".pl",
+]
+# Empty allow list means "all except blocked". A non-empty list is a strict allowlist.
+allowed_extensions = []
+# skip | quarantine
+on_prohibited = "skip"
+quarantine_dir = "/Users/YOU/Library/Application Support/research-relay/quarantine"
+
+[retry]
+max_attempts = 3
+initial_backoff_seconds = 2
+max_backoff_seconds = 60
+permanent_failure_threshold = 5
+
+[paths]
+ledger = "/Users/YOU/Library/Application Support/research-relay/ledger.sqlite"
+lock_file = "/Users/YOU/Library/Application Support/research-relay/relay.lock"
+archive_lock_file = "/Users/YOU/Library/Application Support/research-relay/archive.lock"
+log_file = "/Users/YOU/Library/Logs/research-relay/relay.log"
+
+[logging]
+level = "INFO"
+max_bytes = 1048576
+backup_count = 5
+
+[alerts]
+# Off until you set a dedicated ops recipient. Never use relay.colleagues here.
+enabled = false
+# email | imessage | both
+channel = "email"
+# Proton address that should receive ops alerts (your phone's email-to-SMS gateway,
+# a personal inbox, or a dedicated ops mailbox). Empty = do not send email.
+to = ""
+# Optional Messages.app destination (iPhone number or Apple ID). Requires Messages
+# signed in on this Mac. Used as fallback when Bridge SMTP cannot send the alert.
+imessage_to = ""
+# Same failure kind stays silent until this elapses. New kind and recovery always notify.
+cooldown_seconds = 21600
+# Log the alert payload and skip SMTP/Messages. Use with `research-relay alert-test`.
+dry_run = false
+
+[archive]
+# Off until folder IDs are set and `research-relay auth` has Drive scope.
+enabled = false
+pdf_folder_id = ""
+docs_folder_id = ""
+max_retries_per_run = 20
+find_failure_threshold = 5
