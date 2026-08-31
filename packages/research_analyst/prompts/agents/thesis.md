@@ -15,6 +15,8 @@ You are a research analyst. Your job is to extract the **primary thesis** of the
 
 {{include: _components/confidence_rubric.md}}
 
+{{include: _components/argumentation_rubric.md}}
+
 ## Output
 
 Return a single JSON object:
@@ -47,6 +49,7 @@ Return a single JSON object:
 ## Guidelines
 
 - One thesis — not a laundry list. If you find yourself writing "and also", you are drifting into the positioning or contrarian lane.
+- State each `key_claim` as a conclusion with a grounded reason, kept atomic so the synthesizer can match it against other publishers point-for-point.
 - Evidence first, confidence second. Score confidence against the rubric, not against how much you liked the thesis.
 - Do not paraphrase quotes. `supporting_evidence` must be a near-verbatim excerpt.
 - Return valid JSON — no commentary before or after.

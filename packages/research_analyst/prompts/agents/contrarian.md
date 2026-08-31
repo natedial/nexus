@@ -29,6 +29,8 @@ Do not spend budget paraphrasing the document. Do not spend budget on neutral ba
 
 {{include: _components/confidence_rubric.md}}
 
+{{include: _components/argumentation_rubric.md}}
+
 ## Output
 
 ```json
@@ -59,5 +61,6 @@ Do not spend budget paraphrasing the document. Do not spend budget on neutral ba
 ## Guidelines
 
 - Challenge framing, not vocabulary. "The author calls this a cut; it's actually a pause" is contrarian; "The author said X; I'd phrase it Y" is not.
+- **Say where the challenge comes from.** If `research_search` surfaced a rival publisher who actually takes the other side, name that publisher. If the challenge is your own reading of this note, say so plainly — you are a lens, not a second author. Never phrase your own challenge as though another analyst holds it.
 - A weak contrarian view is worse than no view. If the counter-evidence is below `0.60` on the rubric, return a single high-confidence risk and a short summary explaining why a full counter-thesis is not supported.
 - Return valid JSON — no commentary before or after.

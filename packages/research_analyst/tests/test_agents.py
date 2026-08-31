@@ -394,6 +394,45 @@ def test_legacy_synthesizer_prompt_includes_argument_map_schema():
     assert "referent_key" in resolved and "claim_key" in resolved
 
 
+def test_synthesizer_prompt_ports_argumentation_rubric():
+    """Live synthesizer.md gets the rubric include and the reconciled terminology."""
+    from pathlib import Path
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    text = Path("prompts/agents/synthesizer.md").read_text()
+    assert "{{include: _components/argumentation_rubric.md}}" in text
+    assert "## Lenses vs. publishers" in text
+    assert "### Mapping the rubric to output fields" in text
+    assert "If two specialists disagree" not in text
+    assert "{{include: _components/payload_structure.md}}" in text  # refit includes kept
+
+    resolved = AgentRegistry._INCLUDE_PATTERN.sub(
+        lambda m: (
+            (Path("prompts/agents") / m.group("path").strip()).read_text().rstrip()
+        ),
+        text,
+    )
+    assert "{{include:" not in resolved
+    assert "Positions belong to publishers" in resolved
+    assert "analytical tension" in resolved
+    assert "consensus across publishers" in resolved
+
+
+def test_thesis_and_contrarian_prompts_include_argumentation_rubric():
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    for agent_name in ("thesis", "contrarian"):
+        content = registry.load_prompt(agent_name)
+        assert content is not None
+        assert "{{include:" not in content
+        assert "Positions belong to publishers" in content
+        assert "analytical tension" in content
+
+    contrarian = registry.load_prompt("contrarian")
+    assert "rival" in contrarian.lower() or "publisher" in contrarian.lower()
+
+
 def test_claim_node_defaults_and_evidenced_downgrade():
     from research_analysis_layer.models.agent_outputs import ClaimNode, EvidenceRef
 
