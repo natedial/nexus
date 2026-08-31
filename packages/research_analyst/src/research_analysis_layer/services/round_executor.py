@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from research_analysis_layer.models.agent_outputs import (
+    ARGUMENT_MAP_VERSION,
     AgentExecutionMetadata,
     DocumentAnalysis,
     DocumentAngle,
@@ -1254,9 +1255,36 @@ class RoundExecutor:
             parsed["forecast_candidates"] = parsed["payload_json"].get(
                 "forecast_candidates", []
             )
+            parsed["argument_map"] = self._coerce_argument_map(
+                parsed.get("argument_map")
+            )
+            parsed["argument_map_meta"] = {
+                "extractor_version": ARGUMENT_MAP_VERSION,
+                "run_id": run_id,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+            }
             return DocumentAnalysis.model_validate(parsed)
 
         return None
+
+    @staticmethod
+    def _coerce_argument_map(raw: object) -> list[dict]:
+        """Keep well-formed ClaimNode dicts; log and drop the rest."""
+        from research_analysis_layer.models.agent_outputs import ClaimNode
+        from pydantic import ValidationError
+
+        if not isinstance(raw, list):
+            return []
+        kept: list[dict] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                logger.warning("argument_map: dropping non-object item")
+                continue
+            try:
+                kept.append(ClaimNode.model_validate(item).model_dump())
+            except ValidationError as e:
+                logger.warning("argument_map: dropping invalid claim: %s", e)
+        return kept
 
     def _build_deterministic_payload(
         self,

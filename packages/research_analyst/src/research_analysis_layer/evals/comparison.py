@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -261,3 +262,137 @@ def compare_outputs(
             results[field] = compute_field_similarity(a_val, e_val, method)
 
     return results
+
+
+@dataclass
+class Violation:
+    """A structured linter finding on an argument map or consensus payload."""
+
+    code: str
+    claim_index: int
+    detail: str
+
+
+_CLAIM_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "this",
+        "to",
+        "with",
+    }
+)
+
+
+def _item_field(item: Any, name: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
+def _normalize_claim_key(claim: str, stance: str | None) -> str:
+    text = re.sub(r"[^\w\s]", " ", (claim or "").lower())
+    text = re.sub(r"\s+", " ", text).strip()
+    stance_n = (stance or "").strip().lower()
+    return f"{text}|{stance_n}"
+
+
+def _is_stopword_only(claim: str) -> bool:
+    tokens = re.findall(r"[a-z0-9]+", (claim or "").lower())
+    return not any(token not in _CLAIM_STOPWORDS for token in tokens)
+
+
+def _has_grounded_evidence(item: Any) -> bool:
+    evidence = _item_field(item, "evidence", []) or []
+    for ref in evidence:
+        ref_key = _item_field(ref, "ref_key") if not isinstance(ref, str) else None
+        if ref_key:
+            return True
+    return False
+
+
+def lint_argument_map(argument_map: Any) -> list[Violation]:
+    """Deterministic quality checks over a per-document argument map.
+
+    Accepts a list of ClaimNode instances or claim dicts. One malformed item
+    never raises — it is reported as a violation when possible.
+    """
+    if not isinstance(argument_map, list):
+        return []
+
+    violations: list[Violation] = []
+    seen_keys: dict[str, int] = {}
+
+    for index, item in enumerate(argument_map):
+        if not isinstance(item, dict) and not hasattr(item, "claim"):
+            violations.append(
+                Violation(
+                    code="INVALID_CLAIM",
+                    claim_index=index,
+                    detail="claim item is not an object",
+                )
+            )
+            continue
+
+        claim = str(_item_field(item, "claim", "") or "")
+        rationale = str(_item_field(item, "rationale", "") or "")
+        stance = _item_field(item, "stance")
+        support_strength = _item_field(item, "support_strength")
+
+        if not rationale.strip():
+            violations.append(
+                Violation(
+                    code="MISSING_RATIONALE",
+                    claim_index=index,
+                    detail="rationale is empty",
+                )
+            )
+
+        if support_strength == "evidenced" and not _has_grounded_evidence(item):
+            violations.append(
+                Violation(
+                    code="UNGROUNDED_EVIDENCED",
+                    claim_index=index,
+                    detail="evidenced claim has no grounded ref_key",
+                )
+            )
+
+        if _is_stopword_only(claim):
+            violations.append(
+                Violation(
+                    code="NONSUBSTANTIVE_CLAIM",
+                    claim_index=index,
+                    detail="claim is stopword-only or empty",
+                )
+            )
+
+        key = _normalize_claim_key(claim, stance if isinstance(stance, str) else None)
+        if key in seen_keys:
+            violations.append(
+                Violation(
+                    code="DUPLICATE_CLAIM",
+                    claim_index=index,
+                    detail=f"duplicates claim at index {seen_keys[key]}",
+                )
+            )
+        elif key.strip("|"):
+            seen_keys[key] = index
+
+    return violations

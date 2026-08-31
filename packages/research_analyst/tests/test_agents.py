@@ -360,5 +360,107 @@ def test_debate_prompts_load_with_includes_resolved():
         assert "{{include:" not in content
 
 
+def test_synthesizer_prompt_includes_argument_map_schema():
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+    content = AgentRegistry().load_prompt("synthesizer")
+    assert content is not None
+    assert "{{include:" not in content            # include resolved
+    assert "argument_map" in content
+    assert "rationale" in content and "support_strength" in content
+    assert "evidenced" in content and "asserted" in content
+
+
+def test_legacy_synthesizer_prompt_includes_argument_map_schema():
+    """The unused-by-default synthesizer.md must emit the same map contract."""
+    from pathlib import Path
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    text = Path("prompts/agents/synthesizer.md").read_text()
+    assert "{{include: _components/argument_map.md}}" in text
+    assert "argument_map" in text
+    assert "3 and 7" in text or "3–7" in text or "3-7" in text
+
+    # Resolve includes the same way the registry does, from that file's directory.
+    registry = AgentRegistry()
+    resolved = registry._INCLUDE_PATTERN.sub(
+        lambda m: (
+            (Path("prompts/agents") / m.group("path").strip()).read_text().rstrip()
+        ),
+        text,
+    )
+    assert "{{include:" not in resolved
+    assert "rationale" in resolved and "support_strength" in resolved
+    assert "evidenced" in resolved and "asserted" in resolved
+    assert "referent_key" in resolved and "claim_key" in resolved
+
+
+def test_claim_node_defaults_and_evidenced_downgrade():
+    from research_analysis_layer.models.agent_outputs import ClaimNode, EvidenceRef
+
+    # A bare claim is valid and defaults to 'asserted'.
+    bare = ClaimNode(claim="the Fed is done hiking")
+    assert bare.support_strength == "asserted"
+    assert bare.evidence == [] and bare.conditions == []
+
+    # 'evidenced' without a grounded ref_key is honestly downgraded to 'reasoned'.
+    ungrounded = ClaimNode(
+        claim="first cut in Q2",
+        rationale="dot median implies an earlier move",
+        support_strength="evidenced",
+        evidence=[EvidenceRef(text="the dots look dovish", ref_key=None)],
+    )
+    assert ungrounded.support_strength == "reasoned"
+
+    # 'evidenced' with a real ref_key is preserved.
+    grounded = ClaimNode(
+        claim="services inflation is cooling",
+        support_strength="evidenced",
+        evidence=[EvidenceRef(text="3m saar decelerating", ref_key="assertion:chunk-5:0")],
+    )
+    assert grounded.support_strength == "evidenced"
+    # Both resolved-identity slots exist now and stay null until the Slice 2 resolver runs.
+    assert grounded.evidence[0].referent_key is None
+    assert grounded.claim_key is None
+    assert bare.horizon is None
+
+
+def test_argument_map_meta_defaults():
+    from research_analysis_layer.models.agent_outputs import ArgumentMapMeta, ARGUMENT_MAP_VERSION
+    meta = ArgumentMapMeta(extractor_version=ARGUMENT_MAP_VERSION)
+    assert meta.run_id is None and meta.captured_at is None  # orchestrator stamps these
+
+
+def test_document_analysis_argument_map_is_additive_and_defaults_empty():
+    from research_analysis_layer.models.agent_outputs import (
+        AgentExecutionMetadata,
+        DocumentAnalysis,
+    )
+
+    da = DocumentAnalysis(
+        document_key="doc:1:h",
+        research_id=1,
+        document_hash="h",
+        analysis_version="argmap-v1",
+        thesis="t",
+        contrarian_view="c",
+        recommended_positioning="p",
+        confidence=0.5,
+        metadata=AgentExecutionMetadata(
+            research_id=1,
+            document_hash="h",
+            analysis_version="argmap-v1",
+            agent_type="synthesizer",
+            model_requested="m",
+            model_used="m",
+            prompt_path="p",
+            prompt_version="v",
+            run_id=1,
+            attempt_count=1,
+        ),
+    )
+    assert da.argument_map == []          # existing callers unaffected
+    assert da.argument_map_meta is None   # stamped by the orchestrator when a map is built
+
+
 if __name__ == "__main__":
     unittest.main()

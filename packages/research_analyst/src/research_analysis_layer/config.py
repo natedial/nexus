@@ -152,7 +152,7 @@ class Settings:
             ),
             batch_size=_env_int("BATCH_SIZE", 25),
             cron_mode_enabled=_env_bool("CRON_MODE_ENABLED", True),
-            analysis_version=os.getenv("ANALYSIS_VERSION", "bootstrap-v1"),
+            analysis_version=os.getenv("ANALYSIS_VERSION", "argmap-v1"),
             chunker_version=os.getenv("CHUNKER_VERSION", "deterministic-theme-v1"),
             assertion_extractor_version=os.getenv(
                 "ASSERTION_EXTRACTOR_VERSION",

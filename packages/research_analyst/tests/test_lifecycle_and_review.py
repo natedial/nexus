@@ -151,6 +151,91 @@ class LifecycleAndReviewTest(unittest.TestCase):
         self.assertEqual(len(payload["world_edges"]), 1)
         self.assertGreaterEqual(payload["review_id"], 1)
 
+    def test_review_document_surfaces_argument_map(self) -> None:
+        from research_analysis_layer.models.agent_outputs import (
+            AgentExecutionMetadata,
+            ClaimNode,
+            DocumentAnalysis,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings = make_settings(Path(tmpdir) / "analysis.db")
+            store = AnalysisStore(settings.analysis_db_path)
+            run = store.create_run("debug", "test", settings)
+            document = HydratedParsedDocument(
+                document=ParsedDocument(
+                    id=42,
+                    document_name="macro_note.pdf",
+                    source="Goldman Sachs",
+                    source_date="2026-03-31",
+                    parsed_data={"metadata": {"document_id": "file-42"}},
+                    document_link="https://example.com/doc.pdf",
+                    theme_count=1,
+                    document_hash="hash-42",
+                ),
+                themes=[],
+                file_id="file-42",
+            )
+            store.replace_document_analysis(
+                run_id=run.id,
+                parser_updated_at=datetime.fromisoformat("2026-03-31T00:00:00+00:00"),
+                document=document,
+                chunks=[],
+                evidence_units=[],
+                assertions=[],
+            )
+            analysis = DocumentAnalysis(
+                document_key="doc:42:hash-42",
+                research_id=42,
+                document_hash="hash-42",
+                analysis_version="argmap-v1",
+                thesis="thesis",
+                contrarian_view="counter",
+                recommended_positioning="hold",
+                confidence=0.7,
+                metadata=AgentExecutionMetadata(
+                    research_id=42,
+                    document_hash="hash-42",
+                    analysis_version="argmap-v1",
+                    agent_type="synthesizer",
+                    model_requested="m",
+                    model_used="m",
+                    prompt_path="p",
+                    prompt_version="v",
+                    run_id=run.id,
+                    attempt_count=1,
+                ),
+                argument_map=[
+                    ClaimNode(
+                        claim="tariffs strengthen the dollar",
+                        rationale="higher tariff risk drives USD demand",
+                        support_strength="reasoned",
+                    )
+                ],
+            )
+            store.write_document_analysis(
+                document_key=analysis.document_key,
+                research_id=analysis.research_id,
+                document_hash=analysis.document_hash,
+                analysis_version=analysis.analysis_version,
+                run_id=str(run.id),
+                payload_json=analysis.model_dump_json(),
+                thesis=analysis.thesis,
+                confidence=analysis.confidence,
+                total_input_tokens=1,
+                total_output_tokens=1,
+                total_tool_calls=0,
+                total_duration_ms=10,
+            )
+
+            payload = ReviewHarness(store).review_document(research_id=42)
+
+        assert payload is not None
+        argument_map = payload["document_analysis"]["payload_json"]["argument_map"]
+        self.assertEqual(argument_map[0]["claim"], "tariffs strengthen the dollar")
+        self.assertEqual(argument_map[0]["rationale"], "higher tariff risk drives USD demand")
+        self.assertEqual(argument_map[0]["support_strength"], "reasoned")
+
 
 if __name__ == "__main__":
     unittest.main()

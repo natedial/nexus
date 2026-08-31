@@ -565,6 +565,131 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
         self.assertEqual(analysis.trades, [])
         self.assertEqual(analysis.assertions, [])
 
+    def test_run_coerces_argument_map_end_to_end(self):
+        """Mock LLM emits a mixed argument_map; run() keeps valid claims and downgrades."""
+        from research_analysis_layer.models.agent_outputs import ARGUMENT_MAP_VERSION
+        from research_analysis_layer.services.agent_input_builder import AgentInputBuilder
+        from research_analysis_layer.services.agent_registry import AgentRegistry
+
+        def fake_generate_with_tools(**kwargs):
+            system_prompt = kwargs.get("system_prompt", "")
+            if "Synthesizer" in system_prompt:
+                return AgentCallResult(
+                    raw_text="",
+                    parsed_output={
+                        "document_key": "",
+                        "research_id": 0,
+                        "document_hash": "",
+                        "analysis_version": "",
+                        "thesis": "fused thesis",
+                        "contrarian_view": "fused counter",
+                        "recommended_positioning": "fused positioning",
+                        "trading_opportunities": [],
+                        "short_time_horizon_insights": [],
+                        "talking_points": [],
+                        "cross_document_references": [],
+                        "confidence": 0.75,
+                        "argument_map": [
+                            {
+                                "claim": "services inflation is cooling",
+                                "rationale": "3m saar decelerating",
+                                "support_strength": "evidenced",
+                                "evidence": [
+                                    {
+                                        "text": "3m saar decelerating",
+                                        "ref_key": "assertion:chunk-5:0",
+                                    }
+                                ],
+                            },
+                            {
+                                "claim": "the Fed is done hiking",
+                                "support_strength": "asserted",
+                            },
+                            {
+                                "claim": "first cut in Q2",
+                                "rationale": "dots look dovish",
+                                "support_strength": "evidenced",
+                                "evidence": [
+                                    {"text": "the dots look dovish", "ref_key": None}
+                                ],
+                            },
+                            {"rationale": "missing claim"},
+                        ],
+                    },
+                    tool_calls=[],
+                    token_usage=TokenUsage(),
+                    model_used="claude-sonnet-4-20250514",
+                    stop_reason="end_turn",
+                    attempt_count=1,
+                )
+            return AgentCallResult(
+                raw_text="",
+                parsed_output={
+                    "turn_summary": "No-op debate round.",
+                    "arguments": [],
+                    "relations": [],
+                },
+                tool_calls=[],
+                token_usage=TokenUsage(),
+                model_used="claude-sonnet-4-20250514",
+                stop_reason="end_turn",
+                attempt_count=1,
+            )
+
+        class FakeClient:
+            generate_with_tools = staticmethod(fake_generate_with_tools)
+
+        registry = AgentRegistry()
+        executor = RoundExecutor(
+            registry=registry,
+            llm_client=FakeClient(),
+            input_builder=AgentInputBuilder(),
+            tool_registry=None,
+        )
+        document = self._make_document(research_id=99, document_hash="hash-xyz")
+        rounds = registry.get_rounds()
+        agent_specs = {
+            name: AgentSpec(
+                name=name,
+                config=registry.get_agent(name),
+                tools=[],
+                max_tool_calls=0,
+                timeout_seconds=60,
+                retry_count=1,
+                temperature=0.4,
+                output_schema=registry.get_agent(name).output_schema,
+            )
+            for round_cfg in rounds
+            for name in round_cfg.agents
+        }
+
+        analysis = executor.run(
+            document=document,
+            chunks=[],
+            evidence_units=[],
+            assertions=[],
+            run_id=1,
+            analysis_version="argmap-v1",
+            rounds=rounds,
+            agent_specs=agent_specs,
+        )
+
+        self.assertIsNotNone(analysis)
+        claims = {c.claim: c for c in analysis.argument_map}
+        self.assertEqual(
+            set(claims),
+            {
+                "services inflation is cooling",
+                "the Fed is done hiking",
+                "first cut in Q2",
+            },
+        )
+        self.assertEqual(claims["services inflation is cooling"].support_strength, "evidenced")
+        self.assertEqual(claims["the Fed is done hiking"].support_strength, "asserted")
+        self.assertEqual(claims["first cut in Q2"].support_strength, "reasoned")
+        self.assertEqual(analysis.argument_map_meta.extractor_version, ARGUMENT_MAP_VERSION)
+        self.assertEqual(analysis.argument_map_meta.run_id, 1)
+
     def test_round_executor_persists_debate_artifacts(self):
         class FakeClient:
             @staticmethod
@@ -948,6 +1073,64 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
             [argument.argument_id for argument in forum_context.arguments],
             ["arg-accepted"],
         )
+
+
+class TestArgumentMapCoercion(unittest.TestCase):
+    """Tolerant argument_map validation in _build_document_analysis."""
+
+    @staticmethod
+    def _make_document(*, research_id: int, document_hash: str):
+        return TestRoundExecutorEndToEnd._make_document(
+            research_id=research_id, document_hash=document_hash
+        )
+
+    def _make_executor(self):
+        return RoundExecutor(
+            registry=MagicMock(),
+            llm_client=MagicMock(),
+            input_builder=MagicMock(),
+        )
+
+    def _final_result(self, model_output):
+        return AgentCallResult(
+            raw_text="",
+            parsed_output=model_output,
+            tool_calls=[],
+            token_usage=TokenUsage(),
+            model_used="test-model",
+            stop_reason="end_turn",
+            attempt_count=1,
+        )
+
+    def test_build_document_analysis_keeps_valid_claims_drops_invalid(self):
+        from research_analysis_layer.models.agent_outputs import ARGUMENT_MAP_VERSION
+        executor = self._make_executor()
+        model_output = {
+            "thesis": "t", "contrarian_view": "c", "recommended_positioning": "p",
+            "confidence": 0.7,
+            "argument_map": [
+                {"claim": "good claim", "rationale": "because X",
+                 "support_strength": "reasoned"},
+                {"rationale": "missing the required 'claim' field"},   # invalid -> dropped
+                "not even an object",                                   # invalid -> dropped
+            ],
+        }
+        final = self._final_result(model_output)
+        document = self._make_document(research_id=1, document_hash="h")
+        analysis = executor._build_document_analysis(
+            final_results=[final], document=document, chunks=[], evidence_units=[],
+            assertions=[], run_id=1, analysis_version="argmap-v1", round_traces=[],
+        )
+        assert analysis is not None
+        assert [c.claim for c in analysis.argument_map] == ["good claim"]
+        # Provenance stamp is set by the orchestrator, not the model.
+        assert analysis.argument_map_meta is not None
+        assert analysis.argument_map_meta.run_id == 1
+        assert analysis.argument_map_meta.captured_at  # non-empty ISO timestamp
+        # Assert against the constant, not a literal: the analysis_version passed above is a
+        # *different* value, so this also proves the stamp is not accidentally the payload version.
+        assert analysis.argument_map_meta.extractor_version == ARGUMENT_MAP_VERSION
+        assert analysis.argument_map_meta.extractor_version != "argmap-v1"
 
 
 if __name__ == "__main__":

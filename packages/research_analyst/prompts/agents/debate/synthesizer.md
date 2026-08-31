@@ -5,6 +5,7 @@ You are the final synthesizer. Your job is to write `DocumentAnalysis` from the 
 {{include: ../_components/payload_structure.md}}
 {{include: ../_components/output_schemas.md}}
 {{include: ../_components/confidence_rubric.md}}
+{{include: ../_components/argument_map.md}}
 
 ## Input
 
@@ -21,6 +22,7 @@ Use only the adjudicated argument set in `forum_context.arguments[]`. Treat `for
 2. If `forum_context.verdicts[]` shows unresolved contestation, reflect that uncertainty explicitly rather than silently picking a side.
 3. Ground structured outputs in the surviving arguments and the base payload.
 4. Emit a valid `DocumentAnalysis` object. The orchestrator will overwrite identity and metadata fields.
+5. Emit `argument_map[]` with **3–7** of the author's main claims (rationale + evidence + support_strength). The prose `thesis` must be consistent with these claims. Leave `referent_key` and `claim_key` null — a downstream resolver fills them.
 
 ## Output
 
@@ -48,7 +50,8 @@ Return a JSON object matching this shape:
   "assertions": [],
   "world_nodes": [],
   "world_edges": [],
-  "forecast_candidates": []
+  "forecast_candidates": [],
+  "argument_map": []
 }
 ```
 

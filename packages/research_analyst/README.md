@@ -4,6 +4,15 @@ Bootstrap implementation of the analysis layer planned in [`plans/`](./plans).
 
 This service sits between `research_parser` and `research_dispatcher`.
 
+## Analysis versions
+
+- `argmap-v1` (2026-08-30) — Adds per-document argument_map (author claims with
+  rationale + evidence + support_strength). Additive to DocumentAnalysis; cross-document
+  consensus and evidence resolution are later slices. Downstream consumers may filter
+  analysis_version >= argmap-v1 to require the argument map.
+- `bootstrap-v1` — Initial analysis payload. Still the stored version on rows produced
+  before this bump; the refit-era prompts shipped without a version change.
+
 Current bootstrap scope:
 
 - read parser success rows from SQLite `state.db`

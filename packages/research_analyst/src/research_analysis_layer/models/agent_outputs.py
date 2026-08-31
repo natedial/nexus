@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AgentExecutionMetadata(BaseModel):
@@ -112,6 +112,61 @@ class DocumentAngle(BaseModel):
     confidence: float = Field(..., ge=0, le=1)
 
 
+ARGUMENT_MAP_VERSION = "map-extractor-v1"  # bump when the extractor/prompt contract changes
+
+
+class EvidenceRef(BaseModel):
+    """Concrete support the author cites for a claim."""
+
+    text: str
+    kind: Literal["data", "quote", "citation", "chart", "prior_view"] = "data"
+    ref_key: str | None = None  # provenance (where it came from)
+    referent_key: str | None = None  # resolved canonical fact/event — Slice 2; LLM leaves null
+
+
+class ClaimNode(BaseModel):
+    """A single author claim with rationale, evidence, and support strength."""
+
+    claim: str
+    claim_type: (
+        Literal[
+            "observation",
+            "forecast",
+            "causal",
+            "market_impact",
+            "policy",
+            "risk",
+            "recommendation",
+        ]
+        | None
+    ) = None
+    stance: str | None = None  # polarity, for Slice 2 same/opposing-direction clustering
+    horizon: str | None = None  # e.g. "Q2 2026", "H2", "12m"
+    rationale: str = ""
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
+    support_strength: Literal["evidenced", "reasoned", "asserted"] = "asserted"
+    claim_key: str | None = None  # RESOLVED canonical claim identity — Slice 2; LLM leaves null
+
+    @model_validator(mode="after")
+    def _evidenced_requires_grounded_evidence(self) -> "ClaimNode":
+        # Honest labeling over rejection: an 'evidenced' claim with no grounded
+        # ref_key is downgraded, never dropped.
+        if self.support_strength == "evidenced" and not any(
+            e.ref_key for e in self.evidence
+        ):
+            self.support_strength = "reasoned"
+        return self
+
+
+class ArgumentMapMeta(BaseModel):
+    """Provenance stamp for an argument map. Orchestrator-authoritative."""
+
+    extractor_version: str
+    run_id: int | None = None  # stamped by the orchestrator, not the LLM
+    captured_at: str | None = None  # ISO8601 UTC, stamped by the orchestrator
+
+
 class DocumentAnalysis(BaseModel):
     """Complete document analysis from the synthesizer agent."""
 
@@ -155,3 +210,5 @@ class DocumentAnalysis(BaseModel):
     forecast_candidates: list[dict[str, Any]] = Field(
         default_factory=list, description="Forecast candidates extracted"
     )
+    argument_map: list[ClaimNode] = Field(default_factory=list)
+    argument_map_meta: ArgumentMapMeta | None = None

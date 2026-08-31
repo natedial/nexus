@@ -181,3 +181,112 @@ def test_build_document_review_includes_latest_debate_session(tmp_path):
     assert review["debate_arguments"][0]["argument_id"] == "arg-1"
     assert review["debate_scores"][0]["argument_id"] == "arg-1"
     assert review["debate_verdicts"][0]["verdict_label"] == "accepted"
+
+
+def _argument_map_analysis_payload() -> str:
+    from research_analysis_layer.models.agent_outputs import (
+        AgentExecutionMetadata,
+        ClaimNode,
+        DocumentAnalysis,
+        EvidenceRef,
+    )
+
+    analysis = DocumentAnalysis(
+        document_key="doc:101:hash-101",
+        research_id=101,
+        document_hash="hash-101",
+        analysis_version="argmap-v1",
+        thesis="thesis",
+        contrarian_view="counter",
+        recommended_positioning="hold",
+        confidence=0.8,
+        metadata=AgentExecutionMetadata(
+            research_id=101,
+            document_hash="hash-101",
+            analysis_version="argmap-v1",
+            agent_type="synthesizer",
+            model_requested="m",
+            model_used="m",
+            prompt_path="p",
+            prompt_version="v",
+            run_id=11,
+            attempt_count=1,
+        ),
+        argument_map=[
+            ClaimNode(
+                claim="the Fed is done hiking",
+                rationale="dots dropped the last hike",
+                support_strength="evidenced",
+                evidence=[
+                    EvidenceRef(text="December dots", ref_key="assertion:chunk-2:1")
+                ],
+            ),
+            ClaimNode(
+                claim="first cut in Q2",
+                rationale="median dot implies an earlier move",
+                support_strength="reasoned",
+            ),
+        ],
+    )
+    return analysis.model_dump_json()
+
+
+def test_build_document_review_surfaces_argument_map(tmp_path):
+    store = AnalysisStore(tmp_path / "analysis.db")
+
+    with store._connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO analysis_documents (
+                research_id, file_id, document_hash, source, source_date,
+                document_name, title, publisher, area, region, asset_focus,
+                document_link, ingested_at, last_analyzed_at,
+                latest_analysis_version, latest_successful_run_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                101,
+                "file-101",
+                "hash-101",
+                "test",
+                "2026-04-15",
+                "doc.pdf",
+                "Doc",
+                "Publisher",
+                None,
+                None,
+                None,
+                None,
+                "2026-04-15T00:00:00+00:00",
+                "2026-04-15T00:00:00+00:00",
+                "argmap-v1",
+                11,
+            ),
+        )
+
+    store.write_document_analysis(
+        document_key="doc:101:hash-101",
+        research_id=101,
+        document_hash="hash-101",
+        analysis_version="argmap-v1",
+        run_id="11",
+        payload_json=_argument_map_analysis_payload(),
+        thesis="thesis",
+        confidence=0.8,
+        total_input_tokens=10,
+        total_output_tokens=5,
+        total_tool_calls=0,
+        total_duration_ms=250,
+    )
+
+    review = store.build_document_review(research_id=101, document_hash="hash-101")
+    assert review is not None
+    argument_map = review["document_analysis"]["payload_json"]["argument_map"]
+    assert [c["claim"] for c in argument_map] == [
+        "the Fed is done hiking",
+        "first cut in Q2",
+    ]
+    assert argument_map[0]["rationale"] == "dots dropped the last hike"
+    assert argument_map[0]["support_strength"] == "evidenced"
+    assert argument_map[1]["rationale"] == "median dot implies an earlier move"
+    assert argument_map[1]["support_strength"] == "reasoned"
