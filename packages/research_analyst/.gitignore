@@ -12,7 +12,9 @@ __pycache__/
 *.egg-info/
 
 # Database
-data/analysis.db
+data/
+batches/
+*.db
 
 # Test cache
 .pytest_cache/
