@@ -7,6 +7,7 @@ import re
 
 from research_analysis_layer.config import Settings
 from research_analysis_layer.models import DocumentQualityReport, HydratedParsedDocument
+from research_analysis_layer.parsed_payload import full_text as payload_full_text
 
 
 KNOWN_SOURCE_ALIASES: dict[str, set[str]] = {
@@ -28,9 +29,7 @@ class QualityReviewer:
 
     def review(self, document: HydratedParsedDocument) -> DocumentQualityReport:
         doc = document.document
-        full_text = ""
-        if isinstance(doc.parsed_data, dict):
-            full_text = str(doc.parsed_data.get("full_text") or "")
+        full_text = payload_full_text(doc.parsed_data)
 
         theme_count = len(document.themes)
         usable_theme_count = 0

@@ -25,6 +25,7 @@ class AgentInputDocument(BaseModel):
     document_link: str | None = None
     trade_count: int = 0
     theme_count: int = 0
+    identity: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
     full_text_excerpt: str | None = None
 
@@ -147,6 +148,7 @@ def render_payload_structure_markdown() -> str:
             "document_link": "<url or null>",
             "trade_count": <int>,
             "theme_count": <int>,
+            "identity": {"<key>": "<json-safe value>", "...": "..."},
             "metadata": {"<key>": "<json-safe value>", "...": "..."},
             "full_text_excerpt": "<up to 12k chars, may be truncated with ...>"
           },

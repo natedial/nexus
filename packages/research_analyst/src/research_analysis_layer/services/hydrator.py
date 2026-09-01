@@ -25,6 +25,4 @@ class Hydrator:
         doc = self.parsed_db_client.fetch_document_by_hash(document_hash)
         if doc is None:
             return None
-        metadata = doc.parsed_data.get("metadata", {}) if isinstance(doc.parsed_data, dict) else {}
-        file_id = metadata.get("document_id")
-        return self.parsed_db_client.hydrate_document(doc, file_id=file_id)
+        return self.parsed_db_client.hydrate_document(doc)

@@ -27,6 +27,11 @@ from research_analysis_layer.models.debate_models import (
     DebateVerdict,
     ThesisType,
 )
+from research_analysis_layer.parsed_payload import (
+    identity_fields,
+    legacy_metadata,
+    legacy_trades,
+)
 from research_analysis_layer.services.agent_input_builder import AgentInputBuilder
 from research_analysis_layer.services.agent_llm_client import (
     AgentCallResult,
@@ -1301,12 +1306,6 @@ class RoundExecutor:
         """Build pipeline-owned payload sections from deterministic inputs."""
         parsed_doc = getattr(document, "document", None)
         parsed_data = parsed_doc.parsed_data if parsed_doc is not None else {}
-        metadata = (
-            parsed_data.get("metadata", {})
-            if isinstance(parsed_data, dict)
-            and isinstance(parsed_data.get("metadata"), dict)
-            else {}
-        )
 
         return {
             "document": {
@@ -1324,11 +1323,12 @@ class RoundExecutor:
                 "document_link": getattr(parsed_doc, "document_link", None),
                 "trade_count": getattr(parsed_doc, "trade_count", 0),
                 "theme_count": getattr(parsed_doc, "theme_count", 0),
-                "metadata": metadata,
+                "identity": identity_fields(parsed_data),
+                "metadata": legacy_metadata(parsed_data),
             },
             "quality": self._quality_payload(quality_report),
             "themes": self._theme_payload(document),
-            "trades": self._legacy_trade_payload(parsed_data),
+            "trades": legacy_trades(parsed_data),
             "chunks": [self._json_safe(chunk) for chunk in chunks],
             "evidence_units": [self._json_safe(unit) for unit in evidence_units],
             "assertions": [self._json_safe(assertion) for assertion in assertions],
@@ -1379,15 +1379,6 @@ class RoundExecutor:
                 }
             )
         return payload
-
-    @staticmethod
-    def _legacy_trade_payload(parsed_data: Any) -> list[dict[str, Any]]:
-        if not isinstance(parsed_data, dict):
-            return []
-        trades = parsed_data.get("trades")
-        if not isinstance(trades, list):
-            return []
-        return [trade for trade in trades if isinstance(trade, dict)]
 
     @classmethod
     def _json_safe(cls, value: Any) -> Any:

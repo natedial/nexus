@@ -19,6 +19,11 @@ from research_analysis_layer.models import (
     EvidenceUnitDraft,
     HydratedParsedDocument,
 )
+from research_analysis_layer.parsed_payload import (
+    full_text as payload_full_text,
+    identity_fields,
+    legacy_metadata,
+)
 
 
 def _truncate(value: str | None, limit: int) -> str | None:
@@ -62,12 +67,6 @@ class AgentInputBuilder:
         assertions: list[AssertionDraft],
     ) -> dict[str, object]:
         parsed_data = document.document.parsed_data
-        metadata = (
-            parsed_data.get("metadata", {}) if isinstance(parsed_data, dict) else {}
-        )
-        full_text = (
-            parsed_data.get("full_text") if isinstance(parsed_data, dict) else None
-        )
         payload = AgentInputPayload(
             agent_type=agent_type,
             document=AgentInputDocument(
@@ -85,9 +84,10 @@ class AgentInputBuilder:
                 document_link=document.document.document_link,
                 trade_count=document.document.trade_count,
                 theme_count=document.document.theme_count,
-                metadata=metadata,
+                identity=identity_fields(parsed_data),
+                metadata=legacy_metadata(parsed_data),
                 full_text_excerpt=_truncate(
-                    full_text if isinstance(full_text, str) else None,
+                    payload_full_text(parsed_data) or None,
                     self.max_full_text_chars,
                 ),
             ),

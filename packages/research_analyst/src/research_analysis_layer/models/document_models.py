@@ -85,6 +85,11 @@ class HydratedParsedDocument:
     def ready_for_analysis(self) -> bool:
         if not self.document_hash:
             return False
-        if self.document.theme_count <= 0:
+        if not self.themes:
             return False
-        return len(self.themes) == self.document.theme_count
+        # Legacy rows stamp theme_count from research_themes. Substrate rows
+        # often leave it at 0 until the extraction service runs; hydrated
+        # span/chunk stand-ins are enough to proceed.
+        if self.document.theme_count > 0:
+            return len(self.themes) == self.document.theme_count
+        return True

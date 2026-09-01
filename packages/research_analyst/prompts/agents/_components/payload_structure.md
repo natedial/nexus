@@ -20,6 +20,7 @@ The first user message is a JSON object — not raw document text. Parse it and 
     "document_link": "<url or null>",
     "trade_count": <int>,
     "theme_count": <int>,
+    "identity": {"<key>": "<json-safe value>", "...": "..."},
     "metadata": {"<key>": "<json-safe value>", "...": "..."},
     "full_text_excerpt": "<up to 12k chars, may be truncated with ...>"
   },
