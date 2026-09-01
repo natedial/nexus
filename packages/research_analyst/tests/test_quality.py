@@ -145,6 +145,95 @@ class QualityReviewerTest(unittest.TestCase):
         self.assertIn("source_filename_mismatch", report.warnings)
         self.assertIn("source_filename_conflict", report.blocking_issues)
 
+    def test_citi_and_ms_filename_aliases(self) -> None:
+        reviewer = QualityReviewer(make_settings())
+        citi = reviewer.review(
+            make_document(
+                source="Citi",
+                document_name="2026-08-31_CITI_rates.pdf",
+            )
+        )
+        self.assertNotIn("source_filename_mismatch", citi.warnings)
+        ms = reviewer.review(
+            make_document(
+                source="Morgan Stanley",
+                document_name="2026-08-31_MS_outlook.pdf",
+            )
+        )
+        self.assertNotIn("source_filename_mismatch", ms.warnings)
+
+    def test_substrate_without_themes_passes_on_spans_and_chunks(self) -> None:
+        from research_analysis_layer.models.document_models import (
+            ParsedRetrievalChunk,
+            ParsedSpan,
+        )
+
+        reviewer = QualityReviewer(make_settings())
+        parsed_data = {
+            "full_text": "Macro outlook " * 200,
+            "identity": {
+                "document_id": "file-1",
+                "source": "Goldman Sachs",
+                "source_date": "2026-08-31",
+            },
+            "parse": {"backend": "docling", "parser_version": "parser-source-v1"},
+        }
+        document = ParsedDocument(
+            id=1,
+            document_name="2026-08-31_GS_macro_outlook.pdf",
+            source="Goldman Sachs",
+            source_date="2026-08-31",
+            parsed_data=parsed_data,
+            theme_count=0,
+            document_hash="hash123",
+            document_id="file-1",
+        )
+        hydrated = HydratedParsedDocument(
+            document=document,
+            themes=[],
+            file_id="file-1",
+            spans=[
+                ParsedSpan(
+                    span_key="span:1:1",
+                    text="The Fed stays on hold through year-end.",
+                    span_kind="paragraph",
+                )
+            ],
+            retrieval_chunks=[
+                ParsedRetrievalChunk(
+                    chunk_key="chunk:1:1",
+                    chunk_text="The Fed stays on hold through year-end.",
+                    span_keys=["span:1:1"],
+                )
+            ],
+        )
+        report = reviewer.review(hydrated)
+        self.assertTrue(report.passed)
+        self.assertNotIn("insufficient_usable_theme_coverage", report.blocking_issues)
+        self.assertNotIn("low_theme_count", report.warnings)
+
+    def test_substrate_without_spans_or_chunks_is_blocked(self) -> None:
+        reviewer = QualityReviewer(make_settings())
+        parsed_data = {
+            "full_text": "Macro outlook " * 200,
+            "identity": {"document_id": "file-1"},
+            "parse": {"backend": "docling"},
+        }
+        document = ParsedDocument(
+            id=1,
+            document_name="2026-08-31_GS_macro_outlook.pdf",
+            source="Goldman Sachs",
+            source_date="2026-08-31",
+            parsed_data=parsed_data,
+            theme_count=0,
+            document_hash="hash123",
+            document_id="file-1",
+        )
+        hydrated = HydratedParsedDocument(document=document, themes=[], file_id="file-1")
+        report = reviewer.review(hydrated)
+        self.assertFalse(report.passed)
+        self.assertIn("no_spans_or_chunks", report.blocking_issues)
+
 
 if __name__ == "__main__":
     unittest.main()

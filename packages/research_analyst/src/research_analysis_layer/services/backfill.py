@@ -14,6 +14,7 @@ def synthesize_state_record(document: HydratedParsedDocument) -> ParserStateReco
         document.document.parsed_data,
         document_link=document.document.document_link,
         explicit_file_id=document.file_id,
+        document_id=document.document.document_id,
     ) or f"research:{document.research_id}"
     source_date = document.document.source_date or "1970-01-01"
     timestamp = f"{source_date}T00:00:00+00:00"

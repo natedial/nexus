@@ -15,6 +15,8 @@ class AssertionExtractor:
         "forecast_block": "forecast",
         "market_view": "interpretation",
         "data_interpretation": "observation",
+        "retrieval_chunk": "observation",
+        "span": "observation",
         "risk_scenario": "risk_condition",
         "policy_view": "policy_claim",
         "trade_rationale": "trade_claim",

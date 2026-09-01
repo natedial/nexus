@@ -1,17 +1,21 @@
 """Helpers for parser-owned `parsed_data` shapes.
 
-Legacy rows are `{full_text, metadata, themes, trades}` (plus optional
-`extraction_stats`). The parse-storage substrate writes
-`{full_text, identity, parse}` instead.
+`research_parser` is parse + source storage only. After the table wipe,
+every new row looks like `{full_text, identity, parse}`.
 
-These are different objects, not a column rename:
+Do not read:
 
-- `identity` is parser/document identity (file id, parser version, …).
-- `parse` is parse artifacts (backend, confidence, layout).
-- Themes, trades, and excerpts come from `research_themes` when the
-  extraction service has populated them, otherwise from
-  `research_spans` / `research_retrieval_chunks`. Never from
-  `parsed_data.themes` or `parsed_data.parse`.
+- `parsed_data.metadata`
+- `parsed_data.themes`
+- `parsed_data.trades`
+- `parsed_data.extraction_stats`
+
+Parser also does not write `research_themes` / excerpts. Hydrate evidence
+from `research_document_artifacts`, `research_spans`, and
+`research_retrieval_chunks` (join on `parsed_research.id` = `research_id`).
+Cite `span_key`, not invented theme labels.
+
+Legacy rows may still have `{full_text, metadata, themes, trades}`.
 """
 
 from __future__ import annotations
@@ -57,7 +61,8 @@ def legacy_metadata(parsed_data: Any) -> dict[str, Any]:
     """Return `parsed_data.metadata` for legacy rows only.
 
     Substrate identity is *not* copied here — callers that need file id
-    or publisher slug on a new row should read `identity_fields()`.
+    or house on a new row should prefer the `parsed_research` columns,
+    then `identity_fields()`.
     """
     if not isinstance(parsed_data, dict):
         return {}
@@ -74,7 +79,7 @@ def parse_fields(parsed_data: Any) -> dict[str, Any]:
 
 
 def full_text(parsed_data: Any) -> str:
-    """`full_text` is the one key that survived the payload split."""
+    """Cleaned body. Prefer spans/chunks in prompts; this is the fallback."""
     if not isinstance(parsed_data, dict):
         return ""
     value = parsed_data.get("full_text")
@@ -86,10 +91,17 @@ def file_id_from_payload(
     *,
     document_link: str | None = None,
     explicit_file_id: str | None = None,
+    document_id: str | None = None,
 ) -> str | None:
-    """Resolve the Drive/parser file id without assuming a column rename."""
+    """Resolve the Drive file id.
+
+    Order: caller override → `parsed_research.document_id` column →
+    `identity.document_id` → legacy `metadata.document_id` → `document_link`.
+    """
     if explicit_file_id:
         return str(explicit_file_id)
+    if document_id:
+        return str(document_id)
 
     identity = identity_fields(parsed_data)
     for key in _FILE_ID_KEYS:
@@ -126,7 +138,7 @@ def file_id_from_document_link(document_link: str | None) -> str | None:
 
 
 def legacy_trades(parsed_data: Any) -> list[dict[str, Any]]:
-    """Trades still live on the legacy blob; substrate rows have none yet."""
+    """Trades still live on the legacy blob; substrate rows have none."""
     if not isinstance(parsed_data, dict):
         return []
     trades = parsed_data.get("trades")

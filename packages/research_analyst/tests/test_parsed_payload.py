@@ -9,6 +9,8 @@ from research_analysis_layer.models.document_models import (
     HydratedParsedDocument,
     HydratedTheme,
     ParsedDocument,
+    ParsedRetrievalChunk,
+    ParsedSpan,
     ParsedTheme,
 )
 from research_analysis_layer.parsed_payload import (
@@ -20,18 +22,26 @@ from research_analysis_layer.parsed_payload import (
 from research_analysis_layer.services.agent_input_builder import AgentInputBuilder
 from research_analysis_layer.services.backfill import synthesize_state_record
 from research_analysis_layer.services.chunker import Chunker
+from research_analysis_layer.services.evidence_builder import EvidenceBuilder
 
 
 SUBSTRATE_PAYLOAD = {
     "full_text": "The Fed is done hiking. " * 40,
     "identity": {
         "document_id": "1AbCdefghijKlmnoPQ",
-        "publisher_slug": "gs",
-        "parser_version": "parse-storage-v1",
+        "document_uri": "gdrive://1AbCdefghijKlmnoPQ",
+        "document_link": "https://drive.google.com/file/d/1AbCdefghijKlmnoPQ/view",
+        "source": "Goldman Sachs",
+        "source_date": "2026-08-30",
     },
     "parse": {
         "backend": "docling",
-        "confidence": 0.92,
+        "parser_version": "parser-source-v1",
+        "confidence_score": 0.88,
+        "confidence_status": "PASS",
+        "raw_markdown_path": "/tmp/document.md",
+        "clean_text_path": "/tmp/clean_text.md",
+        "blocks_path": "/tmp/blocks.jsonl",
         "themes": [{"label": "SHOULD_NOT_BE_USED"}],
         "trades": [{"instrument": "SHOULD_NOT_BE_USED"}],
     },
@@ -43,9 +53,11 @@ class RecordingTablesClient(ParsedDbClient):
         super().__init__("https://example.supabase.co", "secret")
         self.tables = tables
         self.requested: list[str] = []
+        self.requested_params: list[tuple[str, object]] = []
 
     def _get(self, table, params):
         self.requested.append(table)
+        self.requested_params.append((table, params))
         if table not in self.tables:
             raise HTTPError(
                 f"https://example.supabase.co/rest/v1/{table}",
@@ -70,9 +82,29 @@ def _substrate_document(**overrides) -> ParsedDocument:
         "theme_count": 0,
         "trade_count": 0,
         "document_hash": "hash-substrate",
+        "document_id": "1AbCdefghijKlmnoPQ",
     }
     kwargs.update(overrides)
     return ParsedDocument(**kwargs)
+
+
+def _span(key: str = "span:42:1", text: str = "The Committee is on hold through year-end.") -> ParsedSpan:
+    return ParsedSpan(
+        span_key=key,
+        text=text,
+        span_kind="paragraph",
+        page_start=3,
+    )
+
+
+def _retrieval_chunk() -> ParsedRetrievalChunk:
+    return ParsedRetrievalChunk(
+        chunk_key="chunk:42:1",
+        chunk_text="GS sees the Committee on hold through year-end.",
+        span_keys=["span:42:1"],
+        chunk_order=1,
+        heading_path=["Rates"],
+    )
 
 
 class ParsedPayloadHelpersTest(unittest.TestCase):
@@ -98,6 +130,13 @@ class ParsedPayloadHelpersTest(unittest.TestCase):
         self.assertEqual(file_id_from_payload(parsed), "file-legacy")
         self.assertEqual(identity_fields(parsed), {})
 
+    def test_column_document_id_beats_identity(self) -> None:
+        parsed = {"full_text": "x", "identity": {"document_id": "identity-id"}}
+        self.assertEqual(
+            file_id_from_payload(parsed, document_id="column-id"),
+            "column-id",
+        )
+
     def test_falls_back_to_document_link(self) -> None:
         parsed = {"full_text": "x", "identity": {}, "parse": {}}
         file_id = file_id_from_payload(
@@ -108,7 +147,7 @@ class ParsedPayloadHelpersTest(unittest.TestCase):
 
 
 class SubstrateHydrationTest(unittest.TestCase):
-    def test_hydrates_from_chunks_and_spans_not_parse_themes(self) -> None:
+    def test_hydrates_spans_and_chunks_without_inventing_themes(self) -> None:
         client = RecordingTablesClient(
             {
                 "research_themes": [],
@@ -118,10 +157,9 @@ class SubstrateHydrationTest(unittest.TestCase):
                         "chunk_key": "chunk:42:1",
                         "research_id": 42,
                         "chunk_order": 1,
-                        "title": "Fed path",
-                        "section_name": "Rates",
-                        "text": "GS sees the Committee on hold through year-end.",
+                        "chunk_text": "GS sees the Committee on hold through year-end.",
                         "span_keys": ["span:42:1"],
+                        "heading_path": ["Rates"],
                     }
                 ],
                 "research_spans": [
@@ -129,8 +167,19 @@ class SubstrateHydrationTest(unittest.TestCase):
                         "span_key": "span:42:1",
                         "research_id": 42,
                         "span_order": 1,
-                        "span_type": "paragraph",
+                        "span_kind": "paragraph",
                         "text": "The Committee is on hold through year-end.",
+                        "page_start": 3,
+                    }
+                ],
+                "research_document_artifacts": [
+                    {
+                        "research_id": 42,
+                        "parse_backend": "docling",
+                        "parser_version": "parser-source-v1",
+                        "confidence_score": 0.88,
+                        "confidence_status": "PASS",
+                        "artifact_manifest": {"blocks_path": "/tmp/blocks.jsonl"},
                     }
                 ],
             }
@@ -139,15 +188,22 @@ class SubstrateHydrationTest(unittest.TestCase):
 
         self.assertEqual(hydrated.file_id, "1AbCdefghijKlmnoPQ")
         self.assertTrue(hydrated.ready_for_analysis)
-        self.assertEqual(len(hydrated.themes), 1)
-        self.assertEqual(hydrated.themes[0].theme.label, "Fed path")
-        self.assertEqual(
-            hydrated.themes[0].excerpts[0].excerpt_text,
-            "The Committee is on hold through year-end.",
-        )
-        self.assertNotEqual(hydrated.themes[0].theme.label, "SHOULD_NOT_BE_USED")
+        self.assertEqual(hydrated.themes, [])
+        self.assertEqual([span.span_key for span in hydrated.spans], ["span:42:1"])
+        self.assertEqual(hydrated.retrieval_chunks[0].span_keys, ["span:42:1"])
+        self.assertEqual(hydrated.artifacts.parser_version, "parser-source-v1")
         self.assertIn("research_retrieval_chunks", client.requested)
-        self.assertNotIn("parsed_data.themes", str(hydrated.themes[0].theme.label))
+        self.assertIn("research_spans", client.requested)
+        self.assertIn("research_document_artifacts", client.requested)
+
+        chunks = Chunker().chunk_document(hydrated)
+        self.assertEqual(chunks[0].span_keys, ["span:42:1"])
+        self.assertEqual(chunks[0].retrieval_chunk_key, "chunk:42:1")
+        self.assertNotEqual(chunks[0].title, "SHOULD_NOT_BE_USED")
+
+        evidence = EvidenceBuilder().build_evidence(chunks, hydrated)
+        self.assertEqual(evidence[0].evidence_type, "span")
+        self.assertEqual(evidence[0].source_ref["span_key"], "span:42:1")
 
     def test_missing_extraction_tables_still_hydrates_from_spans(self) -> None:
         client = RecordingTablesClient(
@@ -157,7 +213,7 @@ class SubstrateHydrationTest(unittest.TestCase):
                         "span_key": "span:42:1",
                         "research_id": 42,
                         "span_order": 1,
-                        "span_type": "paragraph",
+                        "span_kind": "paragraph",
                         "text": "Services inflation is still sticky.",
                     }
                 ]
@@ -165,11 +221,11 @@ class SubstrateHydrationTest(unittest.TestCase):
         )
         hydrated = client.hydrate_document(_substrate_document())
         self.assertTrue(hydrated.ready_for_analysis)
-        self.assertEqual(len(hydrated.themes), 1)
-        self.assertIn("sticky", hydrated.themes[0].theme.context)
-        self.assertEqual(hydrated.themes[0].theme.argument_structure["source"], "span")
+        self.assertEqual(hydrated.themes, [])
+        self.assertEqual(hydrated.spans[0].span_key, "span:42:1")
+        self.assertIn("sticky", hydrated.spans[0].text)
 
-    def test_prefers_research_themes_when_extraction_service_has_run(self) -> None:
+    def test_extraction_themes_are_overlay_spans_still_fetched(self) -> None:
         client = RecordingTablesClient(
             {
                 "research_themes": [
@@ -200,14 +256,25 @@ class SubstrateHydrationTest(unittest.TestCase):
                     }
                 ],
                 "research_retrieval_chunks": [
-                    {"chunk_key": "unused", "text": "should not be used"}
+                    {
+                        "chunk_key": "chunk:42:1",
+                        "chunk_text": "still used for chunking",
+                        "span_keys": ["span:42:1"],
+                    }
                 ],
-                "research_spans": [],
+                "research_spans": [
+                    {
+                        "span_key": "span:42:1",
+                        "text": "The Committee is on hold through year-end.",
+                        "span_kind": "paragraph",
+                    }
+                ],
             }
         )
         hydrated = client.hydrate_document(_substrate_document(theme_count=1))
         self.assertEqual([theme.theme.label for theme in hydrated.themes], ["On hold"])
-        self.assertNotIn("research_retrieval_chunks", client.requested)
+        self.assertIn("research_retrieval_chunks", client.requested)
+        self.assertEqual(hydrated.retrieval_chunks[0].chunk_key, "chunk:42:1")
 
     def test_hydrate_search_does_not_read_parsed_data_metadata(self) -> None:
         client = RecordingTablesClient(
@@ -215,6 +282,7 @@ class SubstrateHydrationTest(unittest.TestCase):
                 "parsed_research": [
                     {
                         "id": 42,
+                        "document_id": "1AbCdefghijKlmnoPQ",
                         "document_name": "note.pdf",
                         "source": "Goldman Sachs",
                         "source_date": "2026-08-30",
@@ -230,55 +298,75 @@ class SubstrateHydrationTest(unittest.TestCase):
                     {
                         "chunk_key": "chunk:42:1",
                         "chunk_order": 1,
-                        "title": "Labor",
-                        "text": "Payrolls stay firm.",
+                        "chunk_text": "Payrolls stay firm.",
+                        "span_keys": ["span:42:1"],
                     }
                 ],
-                "research_spans": [],
+                "research_spans": [
+                    {
+                        "span_key": "span:42:1",
+                        "text": "Payrolls stay firm.",
+                        "span_kind": "paragraph",
+                    }
+                ],
             }
         )
         rows = client.hydrate_search(limit=1)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].file_id, "1AbCdefghijKlmnoPQ")
+        self.assertEqual(rows[0].document.document_id, "1AbCdefghijKlmnoPQ")
         self.assertTrue(rows[0].ready_for_analysis)
+        self.assertEqual(rows[0].themes, [])
 
-    def test_agent_input_keeps_identity_out_of_metadata(self) -> None:
+    def test_fetch_document_by_file_id_uses_document_id_column(self) -> None:
+        client = RecordingTablesClient(
+            {
+                "parsed_research": [
+                    {
+                        "id": 42,
+                        "document_id": "1AbCdefghijKlmnoPQ",
+                        "document_name": "note.pdf",
+                        "source": "Goldman Sachs",
+                        "source_date": "2026-08-30",
+                        "parsed_data": SUBSTRATE_PAYLOAD,
+                        "document_hash": "hash-substrate",
+                    }
+                ]
+            }
+        )
+        document = client.fetch_document_by_file_id("1AbCdefghijKlmnoPQ")
+        self.assertIsNotNone(document)
+        self.assertEqual(document.document_id, "1AbCdefghijKlmnoPQ")
+        table, params = client.requested_params[0]
+        self.assertEqual(table, "parsed_research")
+        self.assertEqual(params["document_id"], "eq.1AbCdefghijKlmnoPQ")
+
+    def test_agent_input_cites_span_keys_and_omits_full_text(self) -> None:
         document = HydratedParsedDocument(
             document=_substrate_document(),
-            themes=[
-                HydratedTheme(
-                    theme=ParsedTheme(
-                        id=1,
-                        research_id=42,
-                        theme_order=1,
-                        label="Fed path",
-                        scope=None,
-                        primary_category="Rates",
-                        relevance=[],
-                        classification="Description",
-                        strength="Secondary",
-                        confidence="Medium",
-                        evidence_count=1,
-                        mention_count=1,
-                        context="On hold.",
-                        directionality=None,
-                        argument_structure={"source": "retrieval_chunk"},
-                    )
-                )
-            ],
+            themes=[],
             file_id="1AbCdefghijKlmnoPQ",
+            spans=[_span()],
+            retrieval_chunks=[_retrieval_chunk()],
         )
+        chunks = Chunker().chunk_document(document)
         payload = AgentInputBuilder().build(
             agent_type="thesis",
             document=document,
-            chunks=Chunker().chunk_document(document),
-            evidence_units=[],
+            chunks=chunks,
+            evidence_units=EvidenceBuilder().build_evidence(chunks, document),
             assertions=[],
         )
         self.assertEqual(payload["document"]["metadata"], {})
-        self.assertEqual(payload["document"]["identity"]["publisher_slug"], "gs")
+        self.assertEqual(payload["document"]["identity"]["source"], "Goldman Sachs")
         self.assertEqual(payload["document"]["identity"]["document_id"], "1AbCdefghijKlmnoPQ")
-        self.assertTrue(payload["document"]["full_text_excerpt"])
+        self.assertIsNone(payload["document"]["full_text_excerpt"])
+        self.assertEqual(payload["themes"], [])
+        self.assertEqual(payload["deterministic_analysis"]["chunks"][0]["span_keys"], ["span:42:1"])
+        self.assertEqual(
+            payload["deterministic_analysis"]["evidence_units"][0]["source_ref"]["span_key"],
+            "span:42:1",
+        )
 
     def test_synthesize_state_record_uses_identity_file_id(self) -> None:
         document = HydratedParsedDocument(
@@ -290,28 +378,19 @@ class SubstrateHydrationTest(unittest.TestCase):
         self.assertEqual(record.file_id, "1AbCdefghijKlmnoPQ")
 
     def test_ready_for_analysis_when_theme_count_is_zero_but_chunks_exist(self) -> None:
-        theme = ParsedTheme(
-            id=1,
-            research_id=42,
-            theme_order=1,
-            label="Fed path",
-            scope=None,
-            primary_category=None,
-            relevance=[],
-            classification="Description",
-            strength="Secondary",
-            confidence="Medium",
-            evidence_count=1,
-            mention_count=1,
-            context="On hold.",
-            directionality=None,
-            argument_structure=None,
-        )
         hydrated = HydratedParsedDocument(
             document=_substrate_document(theme_count=0),
-            themes=[HydratedTheme(theme=theme)],
+            themes=[],
+            retrieval_chunks=[_retrieval_chunk()],
         )
         self.assertTrue(hydrated.ready_for_analysis)
+
+    def test_not_ready_without_spans_chunks_or_themes(self) -> None:
+        hydrated = HydratedParsedDocument(
+            document=_substrate_document(theme_count=0),
+            themes=[],
+        )
+        self.assertFalse(hydrated.ready_for_analysis)
 
     def test_legacy_ready_for_analysis_still_requires_theme_count_match(self) -> None:
         document = ParsedDocument(

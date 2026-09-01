@@ -8,16 +8,20 @@ import re
 from research_analysis_layer.config import Settings
 from research_analysis_layer.models import DocumentQualityReport, HydratedParsedDocument
 from research_analysis_layer.parsed_payload import full_text as payload_full_text
+from research_analysis_layer.parsed_payload import payload_kind
 
 
 KNOWN_SOURCE_ALIASES: dict[str, set[str]] = {
     "bank of america": {"bank", "america", "boa", "bofa", "merrill"},
     "barclays": {"barclays"},
+    "citi": {"citi", "citigroup"},
+    "citigroup": {"citi", "citigroup"},
     "deutsche bank": {"deutsche", "db"},
     "goldman sachs": {"goldman", "sachs", "gs"},
     "j p morgan": {"jpm", "jpmorgan", "morgan"},
     "jpmorgan": {"jpm", "jpmorgan", "morgan"},
     "j.p. morgan": {"jpm", "jpmorgan", "morgan"},
+    "morgan stanley": {"stanley", "ms"},
 }
 
 
@@ -30,6 +34,7 @@ class QualityReviewer:
     def review(self, document: HydratedParsedDocument) -> DocumentQualityReport:
         doc = document.document
         full_text = payload_full_text(doc.parsed_data)
+        kind = payload_kind(doc.parsed_data)
 
         theme_count = len(document.themes)
         usable_theme_count = 0
@@ -59,6 +64,12 @@ class QualityReviewer:
         )
         non_empty_label_ratio = non_empty_label_count / theme_count if theme_count else 0.0
 
+        span_count = len(document.spans)
+        chunk_count = len(document.retrieval_chunks)
+        span_chars = sum(len(span.text.strip()) for span in document.spans)
+        full_text_chars = len(full_text.strip())
+        span_coverage = span_chars / full_text_chars if full_text_chars else 0.0
+
         source = (doc.source or "").strip()
         file_name = doc.document_name or ""
         blocking_issues: list[str] = []
@@ -68,17 +79,23 @@ class QualityReviewer:
             blocking_issues.append("document_not_ready")
         if not source or source.lower() == "unknown":
             blocking_issues.append("missing_or_unknown_source")
-        if len(full_text.strip()) < self.settings.min_full_text_chars:
+        if full_text_chars < self.settings.min_full_text_chars:
             blocking_issues.append("full_text_too_short")
-        if usable_theme_ratio < self.settings.min_usable_theme_ratio:
+
+        if theme_count:
+            if usable_theme_ratio < self.settings.min_usable_theme_ratio:
+                blocking_issues.append("insufficient_usable_theme_coverage")
+            if theme_count < 3:
+                warnings.append("low_theme_count")
+            if excerpt_theme_ratio < 0.75:
+                warnings.append("sparse_excerpt_coverage")
+            if average_excerpt_chars and average_excerpt_chars < 90:
+                warnings.append("short_average_excerpts")
+        elif kind == "substrate" and not (document.spans or document.retrieval_chunks):
+            blocking_issues.append("no_spans_or_chunks")
+        elif kind != "substrate" and not (document.spans or document.retrieval_chunks):
             blocking_issues.append("insufficient_usable_theme_coverage")
 
-        if theme_count < 3:
-            warnings.append("low_theme_count")
-        if excerpt_theme_ratio < 0.75:
-            warnings.append("sparse_excerpt_coverage")
-        if average_excerpt_chars and average_excerpt_chars < 90:
-            warnings.append("short_average_excerpts")
         source_matches_filename, conflicting_institution = self._source_matches_filename(
             source,
             file_name,
@@ -89,15 +106,25 @@ class QualityReviewer:
                 blocking_issues.append("source_filename_conflict")
 
         score = 0.0
-        score += 0.20 if len(full_text.strip()) >= max(self.settings.min_full_text_chars, 1500) else 0.10
+        score += 0.20 if full_text_chars >= max(self.settings.min_full_text_chars, 1500) else 0.10
         score += 0.15 if document.ready_for_analysis else 0.0
-        score += min(0.25, usable_theme_ratio * 0.25)
-        score += min(0.15, excerpt_theme_ratio * 0.15)
-        score += min(0.10, non_empty_label_ratio * 0.10)
-        if average_excerpt_chars >= 120:
-            score += 0.10
-        elif average_excerpt_chars >= 60:
-            score += 0.05
+        if theme_count:
+            score += min(0.25, usable_theme_ratio * 0.25)
+            score += min(0.15, excerpt_theme_ratio * 0.15)
+            score += min(0.10, non_empty_label_ratio * 0.10)
+            if average_excerpt_chars >= 120:
+                score += 0.10
+            elif average_excerpt_chars >= 60:
+                score += 0.05
+        else:
+            if document.retrieval_chunks:
+                score += 0.25
+            elif document.spans:
+                score += 0.15
+            if span_coverage >= 0.3:
+                score += 0.10
+            elif document.spans:
+                score += 0.05
         if source and source.lower() != "unknown":
             score += 0.05
         score = round(score, 3)
@@ -111,7 +138,10 @@ class QualityReviewer:
             "usable_theme_ratio": round(usable_theme_ratio, 3),
             "excerpt_theme_ratio": round(excerpt_theme_ratio, 3),
             "average_excerpt_chars": round(average_excerpt_chars, 1),
-            "full_text_chars": len(full_text.strip()),
+            "full_text_chars": full_text_chars,
+            "span_count": span_count,
+            "retrieval_chunk_count": chunk_count,
+            "span_coverage": round(span_coverage, 3),
             "source": source or "Unknown",
         }
         return DocumentQualityReport(

@@ -23,6 +23,8 @@ class AnalysisChunkDraft:
     page_end: int | None = None
     paragraph_start: int | None = None
     paragraph_end: int | None = None
+    span_keys: list[str] = field(default_factory=list)
+    retrieval_chunk_key: str | None = None
 
 
 @dataclass(slots=True)
