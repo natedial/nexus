@@ -1,9 +1,10 @@
-import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import MethodType, SimpleNamespace
 
-from src.extraction.models import Excerpt, Metadata, Theme, Trade
-from src.pipeline import Pipeline, _is_reusable_metadata
+from src.parser.backend import BlockType, ConfidenceResult, TextBlock, TextParseResult
+from src.parser.routing import ParsedDocument
+from src.pipeline import Pipeline, build_source_document
 from src.storage.state import ProcessingStatus, StateStore
 
 
@@ -27,213 +28,88 @@ class _SupabaseRecorder:
     def __init__(self):
         self.calls = []
 
-    def insert_research(self, result, document_name: str):
-        self.calls.append((result, document_name))
-        return {"document_name": document_name}
+    def insert_research(self, source, document_name: str, **kwargs):
+        self.calls.append((source, document_name, kwargs))
+        return {"document_name": document_name, "id": 1, "document_hash": "hash"}
 
 
 def _build_pipeline(tmp_path, state: StateStore) -> Pipeline:
     pipeline = Pipeline.__new__(Pipeline)
     pipeline.settings = SimpleNamespace(
         artifact_base_dir=tmp_path / "artifacts",
-        boilerplate_deterministic_only=False,
         poll_interval_minutes=5,
         stale_processing_timeout_minutes=30,
+        docling_ocr_retry=True,
     )
     pipeline.state = state
     pipeline.drive = _FailingDrive()
     pipeline.docling_backend = _FailingBackend()
-    pipeline.llama_backend = _FailingBackend()
+    pipeline.docling_ocr_backend = None
     pipeline.mineru_backend = None
-    pipeline.llm = object()
-    pipeline.model_config = SimpleNamespace(
-        metadata=object(),
-        themes=object(),
-        trades=object(),
-        boilerplate=object(),
-    )
     pipeline.supabase = _SupabaseRecorder()
     return pipeline
 
 
-def test_process_file_resumes_from_artifacts_and_skips_completed_steps(tmp_path, monkeypatch):
-    file_id = "file-123"
-    file_name = "2026-03-15_Test_Report.pdf"
+def test_build_source_document_uses_filename_identity():
+    source = build_source_document(
+        "drive-1",
+        "2026-08-31_GS_Rates_Report.pdf",
+        "body",
+    )
+    assert source.source == "Goldman Sachs"
+    assert source.source_date == "2026-08-31"
+    assert source.document_id == "drive-1"
+    assert source.document_uri == "gdrive://drive-1"
+
+
+def test_process_file_resumes_from_artifacts(tmp_path):
+    file_id = "file-source-only"
+    file_name = "2026-08-31_GS_Rates_Report.pdf"
     state = StateStore(tmp_path / "state.db")
     pipeline = _build_pipeline(tmp_path, state)
 
     state.start_processing(file_id, file_name)
     state.update_step(file_id, "parse", True)
-    state.update_step(file_id, "boilerplate", True, ProcessingStatus.EXTRACTING)
-    state.update_step(file_id, "metadata", True)
-    state.update_step(file_id, "themes", False, error_message="Themes failed: old error")
-    state.update_step(file_id, "trades", False, error_message="Trades failed: old error")
-    state.mark_partial(file_id, "themes: old error; trades: old error")
+    state.update_step(file_id, "boilerplate", True, ProcessingStatus.PARSING)
 
     artifact_dir = pipeline.settings.artifact_base_dir / file_id
     artifact_dir.mkdir(parents=True)
-    (artifact_dir / "clean_text.md").write_text("clean text\n", encoding="utf-8")
-    (artifact_dir / "extraction.json").write_text(
-        json.dumps(
-            {
-                "metadata_ok": True,
-                "themes_ok": False,
-                "trades_ok": False,
-                "metadata": {
-                    "source": "Morgan Stanley",
-                    "source_date": "2026-03-15",
-                    "area": "USD",
-                    "region": "US",
-                    "asset_focus": "rates",
-                },
-                "themes": None,
-                "trades": None,
-            }
+    (artifact_dir / "clean_text.md").write_text(
+        "# Rates Outlook\n\nDuration should rally if payrolls cool.\n",
+        encoding="utf-8",
+    )
+    (artifact_dir / "blocks.jsonl").write_text(
+        "\n".join(
+            [
+                '{"block_type":"heading","text":"Rates Outlook","page":1,'
+                '"level":1,"bbox":null}',
+                '{"block_type":"paragraph","text":"Duration should rally if payrolls cool.",'
+                '"page":1,"level":null,"bbox":null}',
+                "",
+            ]
         ),
         encoding="utf-8",
     )
-
-    calls = {"metadata": 0, "themes": 0, "trades": 0}
-
-    def _fake_extract_metadata(*args, **kwargs):
-        calls["metadata"] += 1
-        raise AssertionError("metadata should not be re-extracted")
-
-    def _fake_extract_themes(*args, **kwargs):
-        calls["themes"] += 1
-        return [
-            Theme(
-                label="Curve steepening",
-                excerpts=[Excerpt(text="Front-end pressure")],
-                relevance=["Rates"],
-            )
-        ]
-
-    def _fake_extract_trades(*args, **kwargs):
-        calls["trades"] += 1
-        return [Trade(text="Receive 2y swaps")]
-
-    monkeypatch.setattr("src.pipeline.extract_metadata", _fake_extract_metadata)
-    monkeypatch.setattr("src.pipeline.extract_themes", _fake_extract_themes)
-    monkeypatch.setattr("src.pipeline.extract_trades", _fake_extract_trades)
+    (artifact_dir / "parse.json").write_text(
+        '{"backend":"docling","confidence_score":0.9,"confidence_status":"PASS","reasons":[]}\n',
+        encoding="utf-8",
+    )
 
     assert pipeline.process_file(file_id, file_name) is True
-
-    assert calls == {"metadata": 0, "themes": 1, "trades": 1}
     assert len(pipeline.supabase.calls) == 1
 
-    stored_result, stored_name = pipeline.supabase.calls[0]
+    stored, stored_name, stored_kwargs = pipeline.supabase.calls[0]
     assert stored_name == file_name
-    assert stored_result.metadata.source == "Morgan Stanley"
-    assert len(stored_result.themes) == 1
-    assert len(stored_result.trades) == 1
+    assert stored.source == "Goldman Sachs"
+    assert stored.source_date == "2026-08-31"
+    assert stored.full_text.startswith("# Rates Outlook")
+    assert stored_kwargs["artifact_context"].parse_backend == "docling"
+    assert stored_kwargs["artifact_context"].blocks
+    assert stored_kwargs["artifact_context"].blocks[0].text == "Rates Outlook"
 
     final_state = state.get_state(file_id)
     assert final_state is not None
     assert final_state.status == ProcessingStatus.COMPLETED
-
-    payload = json.loads((artifact_dir / "extraction.json").read_text(encoding="utf-8"))
-    assert payload["metadata_ok"] is True
-    assert payload["themes_ok"] is True
-    assert payload["trades_ok"] is True
-
-
-def test_process_file_reruns_stale_metadata_on_filename_source_mismatch(tmp_path, monkeypatch):
-    file_id = "file-456"
-    file_name = "2026-05-03_DB_Rates_Report.pdf"
-    state = StateStore(tmp_path / "state.db")
-    pipeline = _build_pipeline(tmp_path, state)
-
-    state.start_processing(file_id, file_name)
-    state.update_step(file_id, "parse", True)
-    state.update_step(file_id, "boilerplate", True, ProcessingStatus.EXTRACTING)
-    state.update_step(file_id, "metadata", True)
-    state.update_step(file_id, "themes", False, error_message="Themes failed: old error")
-    state.update_step(file_id, "trades", True)
-    state.mark_partial(file_id, "themes: old error")
-
-    artifact_dir = pipeline.settings.artifact_base_dir / file_id
-    artifact_dir.mkdir(parents=True)
-    (artifact_dir / "clean_text.md").write_text("clean text\n", encoding="utf-8")
-    (artifact_dir / "extraction.json").write_text(
-        json.dumps(
-            {
-                "metadata_ok": True,
-                "themes_ok": False,
-                "trades_ok": True,
-                "metadata": {
-                    "source": "Goldman Sachs",
-                    "source_date": "2026-05-03",
-                    "area": "USD",
-                    "region": "US",
-                    "asset_focus": "rates",
-                },
-                "themes": None,
-                "trades": [{"text": "Receive 2y swaps"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    calls = {"metadata": 0, "themes": 0, "trades": 0}
-
-    def _fake_extract_metadata(*args, **kwargs):
-        calls["metadata"] += 1
-        return Metadata(
-            source="Deutsche Bank",
-            source_date="2026-05-03",
-            area="USD",
-            region="US",
-            asset_focus="rates",
-        )
-
-    def _fake_extract_themes(*args, **kwargs):
-        calls["themes"] += 1
-        return [
-            Theme(
-                label="Balance sheet policy",
-                excerpts=[Excerpt(text="QT effects differ from rates")],
-                relevance=["Rates"],
-            )
-        ]
-
-    def _fake_extract_trades(*args, **kwargs):
-        calls["trades"] += 1
-        raise AssertionError("trades should be reused")
-
-    monkeypatch.setattr("src.pipeline.extract_metadata", _fake_extract_metadata)
-    monkeypatch.setattr("src.pipeline.extract_themes", _fake_extract_themes)
-    monkeypatch.setattr("src.pipeline.extract_trades", _fake_extract_trades)
-
-    assert pipeline.process_file(file_id, file_name) is True
-
-    assert calls == {"metadata": 1, "themes": 1, "trades": 0}
-    stored_result, _ = pipeline.supabase.calls[0]
-    assert stored_result.metadata.source == "Deutsche Bank"
-
-
-def test_metadata_reuse_accepts_known_filename_source_alias():
-    metadata = Metadata(source="J.P. Morgan")
-
-    assert _is_reusable_metadata(metadata, "2026-05-03_JPM_Rates_Report.pdf")
-
-
-def test_metadata_reuse_rejects_known_filename_source_mismatch():
-    metadata = Metadata(source="Goldman Sachs")
-
-    assert not _is_reusable_metadata(metadata, "2026-05-03_DB_Rates_Report.pdf")
-
-
-def test_metadata_reuse_accepts_unknown_filename_prefix_as_ambiguous():
-    metadata = Metadata(source="Goldman Sachs")
-
-    assert _is_reusable_metadata(metadata, "2026-05-03_BOFA_Rates_Report.pdf")
-
-
-def test_metadata_reuse_accepts_non_source_date_prefixed_filename_as_ambiguous():
-    metadata = Metadata(source="Morgan Stanley")
-
-    assert _is_reusable_metadata(metadata, "2026-05-03_US_Rates_Report.pdf")
 
 
 def test_run_once_retries_old_partial_rows_before_new_files(tmp_path):
@@ -243,7 +119,7 @@ def test_run_once_retries_old_partial_rows_before_new_files(tmp_path):
     pipeline = _build_pipeline(tmp_path, state)
 
     state.start_processing(file_id, file_name)
-    state.mark_partial(file_id, "metadata failed: old error")
+    state.mark_partial(file_id, "storage failed: old error")
 
     stale_timestamp = (datetime.utcnow() - timedelta(minutes=10)).isoformat()
     with state._connect() as conn:
@@ -263,3 +139,71 @@ def test_run_once_retries_old_partial_rows_before_new_files(tmp_path):
 
     assert pipeline.run_once() == 1
     assert retried == [(file_id, file_name)]
+
+
+def test_process_file_force_reparses_instead_of_resuming(tmp_path, monkeypatch):
+    file_id = "file-source-only"
+    file_name = "2026-08-31_GS_Rates_Report.pdf"
+    state = StateStore(tmp_path / "state.db")
+    pipeline = _build_pipeline(tmp_path, state)
+
+    state.start_processing(file_id, file_name)
+    state.update_step(file_id, "parse", True)
+    state.update_step(file_id, "boilerplate", True)
+    state.mark_completed(file_id)
+
+    artifact_dir = pipeline.settings.artifact_base_dir / file_id
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "clean_text.md").write_text("OLD CLEAN TEXT\n", encoding="utf-8")
+    (artifact_dir / "document.md").write_text("OLD DOCUMENT\n", encoding="utf-8")
+    (artifact_dir / "blocks.jsonl").write_text(
+        '{"block_type":"paragraph","text":"OLD CLEAN TEXT","page":1,"level":null,"bbox":null}\n',
+        encoding="utf-8",
+    )
+    (artifact_dir / "parse.json").write_text(
+        '{"backend":"docling","confidence_score":0.7,"confidence_status":"REPAIR","reasons":[]}\n',
+        encoding="utf-8",
+    )
+
+    downloaded = []
+
+    class _RecordingDrive:
+        def download_file(self, got_id: str, got_name: str) -> Path:
+            downloaded.append((got_id, got_name))
+            path = tmp_path / got_name
+            path.write_bytes(b"%PDF-1.4")
+            return path
+
+        def list_pdfs(self, days_ago=None, since=None):
+            return []
+
+    pipeline.drive = _RecordingDrive()
+
+    def fake_parse(**_kwargs):
+        blocks = [
+            TextBlock(block_type=BlockType.PARAGRAPH, text="NEW BODY FROM OCR", page=1),
+        ]
+        return ParsedDocument(
+            backend_name="docling-ocr",
+            text_result=TextParseResult(blocks=blocks, raw_output="NEW BODY FROM OCR"),
+            figures=[],
+            confidence=ConfidenceResult(score=0.9, status="PASS", reasons=[]),
+            ocr_retried=True,
+            ocr_retry_reasons=["missing_pages"],
+        )
+
+    monkeypatch.setattr("src.pipeline.parse_with_optional_ocr", fake_parse)
+
+    assert pipeline.process_file(file_id, file_name, force=True) is True
+    assert downloaded == [(file_id, file_name)]
+
+    clean_text = (artifact_dir / "clean_text.md").read_text(encoding="utf-8")
+    assert "NEW BODY FROM OCR" in clean_text
+    assert "OLD CLEAN TEXT" not in clean_text
+    assert "NEW BODY FROM OCR" in (artifact_dir / "document.md").read_text(encoding="utf-8")
+
+    stored, _stored_name, stored_kwargs = pipeline.supabase.calls[0]
+    assert "NEW BODY FROM OCR" in stored.full_text
+    assert stored_kwargs["artifact_context"].parse_backend == "docling-ocr"
+    assert stored_kwargs["artifact_context"].ocr_retried is True
+

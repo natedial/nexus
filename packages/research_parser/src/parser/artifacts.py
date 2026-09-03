@@ -61,22 +61,83 @@ def paragraph_stats(markdown: str) -> tuple[int, int, int]:
     return len(paragraphs), max_paragraph_chars, total_chars
 
 
-def blocks_to_markdown(blocks: list[TextBlock]) -> str:
+def block_to_dict(block: TextBlock) -> dict:
+    return {
+        "block_type": block.block_type.value,
+        "text": block.text,
+        "page": block.page,
+        "level": block.level,
+        "bbox": block.bbox,
+    }
+
+
+def block_from_dict(payload: dict) -> TextBlock:
+    return TextBlock(
+        block_type=BlockType(payload["block_type"]),
+        text=str(payload.get("text") or ""),
+        page=payload.get("page"),
+        level=payload.get("level"),
+        bbox=payload.get("bbox"),
+    )
+
+
+def blocks_to_markdown(
+    blocks: list[TextBlock],
+    *,
+    include_page_markers: bool = False,
+) -> str:
     parts: list[str] = []
+    current_page: int | None = None
     for block in blocks:
         if not block.text or not block.text.strip():
             continue
 
+        if include_page_markers:
+            page = block.page if block.page and block.page > 0 else None
+            if page is not None and page != current_page:
+                parts.append(f"--- PAGE {page} ---")
+                current_page = page
+
         if block.block_type == BlockType.HEADING:
             level = block.level if block.level and block.level > 0 else 1
-            prefix = "#" * level
-            parts.append(f"{prefix} {block.text}")
+            prefix = "#" * min(level, 6)
+            parts.append(f"{prefix} {block.text.strip()}")
         elif block.block_type == BlockType.LIST_ITEM:
-            parts.append(f"- {block.text}")
+            parts.append(f"- {block.text.strip()}")
+        elif block.block_type == BlockType.FIGURE_REF:
+            caption = block.text.strip()
+            parts.append(f"[Figure] {caption}" if caption else "[Figure]")
         else:
-            parts.append(block.text)
+            parts.append(block.text.strip())
 
     return "\n\n".join(parts)
+
+
+def filter_blocks_present_in_text(
+    blocks: list[TextBlock],
+    text: str,
+) -> list[TextBlock]:
+    """Keep blocks whose text still appears after boilerplate cleanup."""
+    if not text or not blocks:
+        return list(blocks)
+    kept = [
+        block
+        for block in blocks
+        if block.text and block.text.strip() and block.text.strip() in text
+    ]
+    return kept or list(blocks)
+
+
+def load_blocks(path: Path) -> list[TextBlock]:
+    if not path.exists():
+        return []
+    blocks: list[TextBlock] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        blocks.append(block_from_dict(json.loads(stripped)))
+    return blocks
 
 
 def markdown_to_blocks(markdown: str) -> list[TextBlock]:
@@ -242,6 +303,13 @@ def write_artifacts(
 
     document_path = artifact_dir / "document.md"
     document_path.write_text(content, encoding="utf-8")
+
+    blocks_path = artifact_dir / "blocks.jsonl"
+    if text_result.blocks:
+        block_lines = [json.dumps(block_to_dict(block)) for block in text_result.blocks]
+        blocks_path.write_text("\n".join(block_lines) + "\n", encoding="utf-8")
+    else:
+        blocks_path.write_text("", encoding="utf-8")
 
     figures_path = artifact_dir / "figures.jsonl"
     if figures:

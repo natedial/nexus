@@ -32,7 +32,8 @@ class ProcessingStatus(StrEnum):
 
     PENDING = "pending"
     PARSING = "parsing"
-    EXTRACTING = "extracting"
+    EXTRACTING = "extracting"  # legacy rows from the old extraction worker
+    STORING = "storing"
     COMPLETED = "completed"
     FAILED = "failed"
     PARTIAL = "partial"  # Some steps succeeded, some failed
@@ -195,7 +196,7 @@ class StateStore:
             rows = conn.execute(
                 """
                 SELECT * FROM processed_files
-                WHERE status IN (?, ?, ?)
+                WHERE status IN (?, ?, ?, ?)
                   AND COALESCE(storage_ok, 0) != 1
                   AND updated_at < ?
                 ORDER BY updated_at ASC
@@ -204,6 +205,7 @@ class StateStore:
                     ProcessingStatus.PENDING.value,
                     ProcessingStatus.PARSING.value,
                     ProcessingStatus.EXTRACTING.value,
+                    ProcessingStatus.STORING.value,
                     cutoff_iso,
                 ),
             ).fetchall()
@@ -324,9 +326,6 @@ class StateStore:
                     updated_at = ?,
                     parse_ok = 1,
                     boilerplate_ok = 1,
-                    metadata_ok = 1,
-                    themes_ok = 1,
-                    trades_ok = 1,
                     storage_ok = 1,
                     error_message = NULL
                 WHERE file_id = ?

@@ -1,6 +1,6 @@
 # Warning Capture System
 
-The research parser automatically captures warnings to individual files for later review. This helps track issues with specific documents during extraction.
+The research parser automatically captures warnings to individual files for later review. This helps track issues with specific documents during parse and storage.
 
 ## How It Works
 
@@ -23,13 +23,11 @@ data/warnings/Goldman_Sachs_Research_Q4_20260101_123045.txt
 
 ## What Gets Captured
 
-Warnings are captured from these extraction steps:
+Warnings are captured from parse and storage steps, including:
 
-- **Theme extraction failures** - When JSON parsing fails for themes
-- **Trade extraction failures** - When JSON parsing fails for trades
-- **Metadata extraction failures** - When JSON parsing fails for metadata
 - **Boilerplate stripping issues** - When text cleaning fails
-- **PDF parsing timeouts** - When LlamaIndex parsing times out
+- **PDF parsing timeouts** - When a local parser times out
+- **Artifact write failures** - When local parse artifacts cannot be persisted
 
 ## Warning File Format
 
@@ -87,59 +85,54 @@ ls -t data/warnings/ | head -5 | xargs -I {} cat "data/warnings/{}"
 
 ## Common Warning Patterns
 
-### JSON Parsing Failures
+### Boilerplate stripping fallback
 
-**Cause**: LLM returned malformed JSON
-
-**Example**:
-```
-Warning: Failed to parse themes JSON
-Context:
-  error: Invalid JSON format
-  raw: {"themes": [{"label": "Market Outlook"...
-```
-
-**Action**: Review the raw output to see if the LLM response was truncated or malformed
-
-### Extraction Timeouts
-
-**Cause**: LLM took too long or API issues
+**Cause**: Deterministic rules could not safely strip disclaimers
 
 **Example**:
 ```
-Warning: Theme extraction failed
+Warning: Boilerplate stripping failed, using raw markdown
 Context:
-  error: Request timeout after 60s
+  error: low_legal_density
 ```
 
-**Action**: Check API status, consider retrying the document
+**Action**: Review `config/boilerplate_rules.yaml` and the stored `clean_text.md`
 
-### Missing Required Fields
+### Parse artifact write failures
 
-**Cause**: LLM didn't include all required fields in response
+**Cause**: Disk or path issues while writing `blocks.jsonl` / `clean_text.md`
 
 **Example**:
 ```
-Warning: Failed to parse metadata JSON
+Warning: Artifact writing failed
 Context:
-  error: Missing required field 'source'
+  error: [Errno 28] No space left on device
 ```
 
-**Action**: Review extraction prompts, may need adjustment
+**Action**: Check disk space under `data/artifacts/`
+
+### Parser timeout
+
+**Cause**: Docling or MinerU exceeded its timeout
+
+**Example**:
+```
+Warning: MinerU unavailable; parse will rely on Docling only
+```
+
+**Action**: Confirm the local parser binary and timeout settings
 
 ## Integration with Pipeline
 
-The warning capture integrates seamlessly with the processing pipeline:
+The warning capture integrates with the processing pipeline:
 
 ```python
-# In pipeline.py
 log = logger.bind(file_id=file_id, file_name=file_name)
 
 try:
-    extraction.themes = extract_themes(llm, clean_text, config)
-except Exception as e:
-    # This warning is automatically captured to a file
-    log.warning("Theme extraction failed", error=str(e))
+    write_artifacts(artifact_dir, parsed.text_result, parsed.figures)
+except Exception as exc:
+    log.warning("Artifact writing failed", error=str(exc))
 ```
 
 ## Configuration

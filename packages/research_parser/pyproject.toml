@@ -1,11 +1,9 @@
 [project]
 name = "research-parser"
 version = "0.1.0"
-description = "Financial research PDF parser with LLM extraction"
+description = "Financial research PDF parser that stores source artifacts"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.40.0",
-    "openai>=1.60.0",
     "google-api-python-client>=2.150.0",
     "google-auth>=2.35.0",
     "supabase>=2.10.0",
@@ -16,8 +14,6 @@ dependencies = [
     "structlog>=24.4.0",
     "tenacity>=9.0.0",
     "pyyaml>=6.0.0",
-    "fastapi>=0.128.5",
-    "uvicorn>=0.40.0",
 ]
 
 [project.optional-dependencies]

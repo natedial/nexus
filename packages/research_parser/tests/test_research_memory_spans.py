@@ -1,4 +1,9 @@
-from src.research_memory import build_paragraph_spans, build_retrieval_chunks
+from src.parser import BlockType, TextBlock
+from src.research_memory import (
+    build_paragraph_spans,
+    build_retrieval_chunks,
+    build_spans_from_blocks,
+)
 
 
 def test_build_paragraph_spans_preserves_pages_and_sections():
@@ -69,3 +74,41 @@ def test_build_retrieval_chunks_tracks_span_keys_and_page_range():
     assert chunks[0].page_start == 1
     assert chunks[-1].page_end == 2
     assert chunks[0].chunk_key != chunks[-1].chunk_key
+
+
+def test_build_spans_from_blocks_preserves_tables_pages_and_coordinates():
+    blocks = [
+        TextBlock(block_type=BlockType.HEADING, text="Rates Outlook", page=1, level=1),
+        TextBlock(
+            block_type=BlockType.PARAGRAPH,
+            text="Duration should rally if payrolls cool.",
+            page=1,
+            bbox=[0.0, 1.0, 2.0, 3.0],
+        ),
+        TextBlock(
+            block_type=BlockType.TABLE,
+            text="| Tenor | Yield |\n| 2y | 3.8 |",
+            page=2,
+        ),
+    ]
+
+    spans = build_spans_from_blocks(blocks, document_hash="doc-hash")
+
+    assert [span.span_type for span in spans] == ["section", "paragraph", "table"]
+    assert spans[1].section_path == ("Rates Outlook",)
+    assert spans[1].page_start == 1
+    assert spans[1].coordinates == {"bbox": [0.0, 1.0, 2.0, 3.0]}
+    assert spans[2].page_start == 2
+    assert spans[2].span_type == "table"
+
+
+def test_build_spans_from_blocks_is_stable_for_same_input():
+    blocks = [
+        TextBlock(block_type=BlockType.PARAGRAPH, text="First paragraph.", page=1),
+        TextBlock(block_type=BlockType.PARAGRAPH, text="Second paragraph.", page=2),
+    ]
+
+    first = build_spans_from_blocks(blocks, document_hash="doc-hash")
+    second = build_spans_from_blocks(blocks, document_hash="doc-hash")
+
+    assert [span.span_key for span in first] == [span.span_key for span in second]

@@ -1,24 +1,28 @@
 """Supabase PostgreSQL client for storing parsed research."""
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 
 import structlog
 from supabase import Client, create_client
 from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
-from src.extraction.models import ExtractionResult, Theme
+from src.research_memory import (
+    ResearchArtifactContext,
+    build_memory_records,
+    replace_memory_records,
+)
+from src.source import SourceDocument
 
 logger = structlog.get_logger()
 
 
 def _compute_document_hash(text: str) -> str:
-    """Compute SHA256 hash of cleaned text for idempotent backfill."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class SupabaseClient:
-    """Client for storing parsed research in Supabase PostgreSQL."""
+    """Persist parsed source documents and memory substrate rows."""
 
     def __init__(self, url: str, key: str):
         self._client: Client = create_client(url, key)
@@ -28,88 +32,65 @@ class SupabaseClient:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_not_exception_type(ValueError),
+        reraise=True,
     )
     def insert_research(
         self,
-        result: ExtractionResult,
+        source: SourceDocument,
         document_name: str,
+        *,
+        artifact_context: ResearchArtifactContext | None = None,
     ) -> dict:
-        """
-        Insert parsed research into the database.
+        """Upsert parsed_research by Drive document_id, then write spans."""
+        document_id = (source.document_id or "").strip()
+        if not document_id:
+            raise ValueError("document_id is required for parsed_research identity")
 
-        Dual-write pattern:
-        - parsed_data: JSONB with all extraction results (archival)
-        - Normalized tables: research_themes, research_theme_excerpts, research_theme_links (queryable)
+        source_date = source.source_date
+        if not source_date or source_date in ("null", "undefined", ""):
+            source_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        Matches the schema from the n8n workflow:
-        - parsed_data: JSONB with all extraction results
-        - source_date: publication date
-        - source: research firm name
-        - document_name: original file name
-        """
-        # Build the parsed_data JSON structure
-        # Note: through_lines and callouts are now synthesized downstream
+        document_hash = _compute_document_hash(source.full_text)
         parsed_data = {
-            "metadata": result.metadata.model_dump(),
-            "themes": [t.model_dump() for t in result.themes],
-            "trades": [t.model_dump() for t in result.trades],
-            "full_text": result.full_text,
-            "extraction_stats": {
-                "num_themes": len(result.themes),
-                "num_trades": len(result.trades),
-                "extraction_method": "LLM-based extraction",
-                "metadata_ok": result.metadata_ok,
-                "themes_ok": result.themes_ok,
-                "trades_ok": result.trades_ok,
+            "full_text": source.full_text,
+            "identity": {
+                "document_id": document_id,
+                "document_uri": source.document_uri,
+                "document_link": source.document_link,
+                "source": source.source,
+                "source_date": source_date,
             },
         }
+        if artifact_context is not None:
+            parsed_data["parse"] = {
+                "backend": artifact_context.parse_backend,
+                "parser_version": artifact_context.parser_version,
+                "confidence_score": artifact_context.parse_confidence_score,
+                "confidence_status": artifact_context.parse_confidence_status,
+                "ocr_retried": artifact_context.ocr_retried,
+                "ocr_retry_reasons": list(artifact_context.ocr_retry_reasons),
+                "source_page_count": artifact_context.source_page_count,
+                "raw_markdown_path": artifact_context.raw_markdown_path,
+                "clean_text_path": artifact_context.clean_text_path,
+                "blocks_path": artifact_context.blocks_path,
+            }
 
-        # Determine source_date
-        source_date = result.metadata.source_date
-        if not source_date or source_date in ("null", "undefined", ""):
-            source_date = datetime.utcnow().strftime("%Y-%m-%d")
-
-        # Build document title
-        # Note: title synthesis now happens downstream
-        document_title = f"Analysis of {result.metadata.source}"
-
-        # Compute document hash from cleaned text
-        document_hash = _compute_document_hash(result.full_text)
-        document_id = (result.metadata.document_id or "").strip()
-        if not document_id:
-            raise ValueError("metadata.document_id is required for parsed_research identity")
-
-        # Build document-level record with normalized columns
         record = {
             "document_id": document_id,
             "parsed_data": parsed_data,
             "source_date": source_date,
-            "source": result.metadata.source,
+            "source": source.source,
             "document_name": document_name,
-            # New normalized columns
-            "document_title": document_title,
-            "publisher": result.metadata.publisher,
-            "area": result.metadata.area,
-            "region": result.metadata.region,
-            "asset_focus": result.metadata.asset_focus,
-            "document_link": result.metadata.document_link,
-            "theme_count": len(result.themes),
-            "trade_count": len(result.trades),
+            "document_title": source.document_title,
+            "document_link": source.document_link,
             "document_hash": document_hash,
-            "index_status": "pending",
-            "indexed_at": None,
-            "index_error": None,
-            "index_version": None,
-            "indexing_batch_id": None,
         }
 
         logger.info(
             "Inserting research",
             document_name=document_name,
-            source=result.metadata.source,
+            source=source.source,
             source_date=source_date,
-            theme_count=len(result.themes),
-            trade_count=len(result.trades),
         )
 
         research_row = self._get_or_create_research_row(
@@ -117,27 +98,48 @@ class SupabaseClient:
             record=record,
         )
         if not research_row:
-            logger.error("Failed to persist research", document_name=document_name)
-            return {}
+            raise RuntimeError(f"Failed to persist research for {document_name}")
 
         research_id = research_row.get("id")
-        logger.info(
-            "Research persisted",
-            document_name=document_name,
-            research_id=research_id,
+        if not research_id:
+            raise RuntimeError(f"Persisted research row is missing id for {document_name}")
+
+        self._persist_memory_substrate(
+            research_id=int(research_id),
+            document_hash=document_hash,
+            clean_text=source.full_text,
+            artifact_context=artifact_context,
         )
-
-        if research_id:
-            self._replace_normalized_themes(research_id, result.themes)
-
         return research_row
+
+    def _persist_memory_substrate(
+        self,
+        *,
+        research_id: int,
+        document_hash: str,
+        clean_text: str,
+        artifact_context: ResearchArtifactContext | None,
+    ) -> None:
+        records = build_memory_records(
+            research_id=research_id,
+            document_hash=document_hash,
+            clean_text=clean_text,
+            context=artifact_context,
+        )
+        replace_memory_records(self._client, records)
+        logger.info(
+            "Research memory substrate persisted",
+            research_id=research_id,
+            span_count=len(records["spans"]),
+            chunk_count=len(records["chunks"]),
+            backend=(artifact_context.parse_backend if artifact_context else None),
+        )
 
     def _get_or_create_research_row(
         self,
         document_id: str,
         record: dict,
     ) -> dict:
-        """Upsert the document row using the dedupe key enforced in SQL."""
         upserted = (
             self._client.table("parsed_research")
             .upsert(
@@ -159,51 +161,3 @@ class SupabaseClient:
         if not fetched.data:
             return {}
         return fetched.data[0]
-
-    def _replace_normalized_themes(self, research_id: int, themes: list[Theme]) -> None:
-        """Replace normalized theme rows for a document."""
-        self._client.table("research_themes").delete().eq("research_id", research_id).execute()
-        if not themes:
-            logger.info("Normalized themes cleared", research_id=research_id)
-            return
-
-        for idx, theme in enumerate(themes, start=1):
-            # Insert theme
-            theme_record = {
-                "research_id": research_id,
-                "theme_order": idx,
-                "label": theme.label,
-                "scope": None,
-                "primary_category": theme.relevance[0] if theme.relevance else None,
-                "relevance": theme.relevance,
-                "classification": theme.classification,
-                "strength": theme.strength,
-                "confidence": theme.confidence,
-                "evidence_count": len(theme.excerpts),
-                "mention_count": theme.mention_count,
-                "context": theme.context,
-                "directionality": theme.directionality,
-                "argument_structure": (
-                    theme.argument_structure.model_dump() if theme.argument_structure else None
-                ),
-            }
-
-            theme_response = self._client.table("research_themes").insert(theme_record).execute()
-
-            if theme_response.data:
-                theme_id = theme_response.data[0].get("id")
-                # Insert excerpts
-                for excerpt_idx, excerpt in enumerate(theme.excerpts, start=1):
-                    self._client.table("research_theme_excerpts").insert(
-                        {
-                            "theme_id": theme_id,
-                            "excerpt_order": excerpt_idx,
-                            "excerpt_text": excerpt.text,
-                        }
-                    ).execute()
-
-        logger.info(
-            "Normalized themes inserted",
-            research_id=research_id,
-            theme_count=len(themes),
-        )

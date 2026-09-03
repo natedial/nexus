@@ -1,4 +1,4 @@
-from src.extraction.boilerplate import _strip_boilerplate_deterministic
+from src.parser.boilerplate import _strip_boilerplate_deterministic
 
 
 def _build_document(
@@ -67,3 +67,22 @@ def test_source_specific_rule_allows_earlier_cut_for_jpm():
     assert cleaned_jpm is not None
     assert info_jpm is not None
     assert info_jpm["source_key"] == "jpm"
+
+
+def test_rejects_strip_that_removes_too_much_body():
+    lines = ["Research content line"] * 80
+    lines.append("Disclosures")
+    lines.extend(
+        [
+            "Analyst disclosures, conflict of interest, regulatory details, "
+            "and compensation notes. " * 40
+        ]
+        * 20
+    )
+    text = "\n".join(lines)
+
+    cleaned, info = _strip_boilerplate_deterministic(text)
+
+    assert cleaned is None
+    assert info is not None
+    assert info["reason"] == "strip_too_large"

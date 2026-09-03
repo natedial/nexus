@@ -53,9 +53,6 @@ def test_mark_completed_clears_stale_error_message(tmp_path):
     assert state.error_message is None
     assert state.parse_ok is True
     assert state.boilerplate_ok is True
-    assert state.metadata_ok is True
-    assert state.themes_ok is True
-    assert state.trades_ok is True
     assert state.storage_ok is True
 
 

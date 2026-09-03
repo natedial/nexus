@@ -1,7 +1,7 @@
 # Docling Paragraph Grouping Checklist
 
 Use this checklist to keep paragraph boundaries stable in the current parser pipeline:
-`Docling/LlamaIndex -> markdown_to_blocks -> confidence -> boilerplate -> extraction`.
+`Docling -> blocks -> confidence -> boilerplate -> storage`.
 
 ## 1. Reproduce and lock a baseline
 
@@ -29,9 +29,7 @@ Current behavior keeps raw parser markdown (`text_result.raw_output`) and only t
 Add a shared normalization step before tokenization:
 
 - [ ] Add `normalize_markdown(markdown: str) -> str` in `src/parser/artifacts.py`.
-- [ ] Call it in both:
-  - `src/parser/docling_backend.py` (`parse_text`)
-  - `src/parser/llamaindex_backend.py` (`parse_text`)
+- [ ] Call it from `src/parser/docling_backend.py` (`parse_text`)
 - [ ] Include at least:
   - newline normalization (`\r\n` -> `\n`)
   - collapse 3+ blank lines to 2
@@ -66,7 +64,7 @@ def paragraph_stats(markdown: str) -> tuple[int, int, int]:
 - [ ] `tests/test_artifacts.py`
   - add normalization tests (headings/lists separated by blank lines)
   - add paragraph stats tests
-- [ ] `tests/test_llamaindex_backend.py`
+- [ ] `tests/test_docling_blocks.py`
   - add a case where poorly separated markdown still yields multiple paragraph blocks after normalization
 - [ ] add confidence tests for `low_paragraph_count` and `very_long_paragraph`
 
@@ -75,13 +73,7 @@ def paragraph_stats(markdown: str) -> tuple[int, int, int]:
 - [ ] Run tests:
 
 ```bash
-pytest tests/test_artifacts.py tests/test_llamaindex_backend.py
-```
-
-- [ ] Re-run baseline compare on representative docs:
-
-```bash
-python3 scripts/compare_baseline.py --manifest data/baselines/manifest.json --mode compare
+pytest tests/test_artifacts.py tests/test_docling_blocks.py
 ```
 
 - [ ] Verify no regression in extraction quality and fewer parse-confidence repairs caused by paragraph grouping.

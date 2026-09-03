@@ -4,6 +4,7 @@ defaults:
   density_window_lines: 40
   min_density: 0.12
   min_hits: 3
+  max_strip_fraction: 0.40
 
   headers:
     - appendix
@@ -71,6 +72,7 @@ sources:
       - "jpmorgan"
     min_fraction: 0.35
     min_density: 0.10
+    max_strip_fraction: 0.55
     headers:
       - analyst certification
       - analyst compensation
@@ -82,8 +84,9 @@ sources:
     aliases:
       - "_gs_"
       - "goldman sachs"
-    min_fraction: 0.50
-    min_density: 0.08
+    min_fraction: 0.70
+    min_density: 0.12
+    max_strip_fraction: 0.35
     headers:
       - disclosures
       - additional information

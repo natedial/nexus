@@ -79,7 +79,7 @@ def main():
     )
     parser.add_argument(
         "--status",
-        choices=["pending", "parsing", "extracting", "completed", "failed", "partial"],
+        choices=["pending", "parsing", "storing", "extracting", "completed", "failed", "partial"],
         help="Filter by status",
     )
     parser.add_argument(

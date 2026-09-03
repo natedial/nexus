@@ -41,7 +41,6 @@ FROM base
 COPY --from=deps /usr/local /usr/local
 COPY src/ ./src/
 COPY config/ ./config/
-COPY prompts/ ./prompts/
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

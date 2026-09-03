@@ -28,6 +28,7 @@ class SpanDraft:
     paragraph_end: int | None = None
     char_start: int | None = None
     char_end: int | None = None
+    coordinates: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,89 @@ class _Block:
     char_end: int
     page_start: int
     page_end: int
+
+
+def build_spans_from_blocks(
+    blocks: list,
+    *,
+    document_hash: str,
+    span_version: str = "span-v3",
+    key_namespace: str | None = None,
+) -> list[SpanDraft]:
+    """Build source spans from parser blocks, preserving page, type, and bbox."""
+    from src.parser.backend import BlockType, TextBlock
+
+    key_namespace = key_namespace or document_hash
+    spans: list[SpanDraft] = []
+    section_stack: list[str] = []
+    paragraph_index = 0
+    offset = 0
+
+    for block in blocks:
+        if not isinstance(block, TextBlock):
+            continue
+        text = (block.text or "").strip()
+        if not text:
+            continue
+
+        if block.block_type == BlockType.HEADING:
+            level = block.level if block.level and block.level > 0 else 1
+            section_stack = section_stack[: level - 1]
+            section_stack.append(text)
+            span_type = "section"
+            paragraph_start = None
+            paragraph_end = None
+        elif block.block_type == BlockType.TABLE:
+            span_type = "table"
+            paragraph_start = None
+            paragraph_end = None
+        elif block.block_type in {BlockType.FIGURE_REF, BlockType.CAPTION}:
+            span_type = "figure"
+            paragraph_start = None
+            paragraph_end = None
+        else:
+            paragraph_index += 1
+            span_type = "paragraph"
+            paragraph_start = paragraph_index
+            paragraph_end = paragraph_index
+
+        page = block.page if block.page and block.page > 0 else 1
+        char_start = offset
+        char_end = offset + len(text)
+        offset = char_end + 2
+        span_order = len(spans) + 1
+        text_hash = _hash_text(text)
+        coordinates = {"bbox": block.bbox} if block.bbox else None
+        spans.append(
+            SpanDraft(
+                span_key=_stable_key(
+                    "span",
+                    key_namespace,
+                    span_version,
+                    span_type,
+                    str(span_order),
+                    str(page),
+                    str(paragraph_start or ""),
+                    text_hash,
+                ),
+                document_hash=document_hash,
+                span_version=span_version,
+                span_type=span_type,
+                span_order=span_order,
+                text=text,
+                text_hash=text_hash,
+                page_start=page,
+                page_end=page,
+                section_path=tuple(section_stack),
+                paragraph_start=paragraph_start,
+                paragraph_end=paragraph_end,
+                char_start=char_start,
+                char_end=char_end,
+                coordinates=coordinates,
+            )
+        )
+
+    return spans
 
 
 def build_paragraph_spans(

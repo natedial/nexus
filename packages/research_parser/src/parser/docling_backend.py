@@ -13,7 +13,8 @@ from .backend import BlockType, FigureRecord, ParserBackend, TextBlock, TextPars
 
 
 class DoclingBackend(ParserBackend):
-    def __init__(self):
+    def __init__(self, *, do_ocr: bool = False):
+        self.do_ocr = do_ocr
         self._converter = None
         self._logger = structlog.get_logger()
         self._last_document = None
@@ -26,7 +27,7 @@ class DoclingBackend(ParserBackend):
         try:
             module = importlib.import_module("docling.document_converter")
         except Exception as exc:
-            raise ImportError("Docling is not installed") from exc
+            raise ImportError(f"Docling is not available: {exc}") from exc
 
         if not hasattr(module, "DocumentConverter"):
             raise ImportError("Docling DocumentConverter not found")
@@ -40,8 +41,26 @@ class DoclingBackend(ParserBackend):
             pipeline_options = PdfPipelineOptions()
             pipeline_options.images_scale = 2.0
             pipeline_options.generate_picture_images = True
-            pipeline_options.do_ocr = False
-            pipeline_options.do_table_structure = False
+            pipeline_options.do_ocr = self.do_ocr
+            pipeline_options.do_table_structure = True
+            if self.do_ocr:
+                try:
+                    from docling.datamodel.pipeline_options import EasyOcrOptions
+
+                    pipeline_options.ocr_options = EasyOcrOptions(force_full_page_ocr=False)
+                except Exception:
+                    pass
+            try:
+                from docling.datamodel.pipeline_options import (
+                    TableFormerMode,
+                    TableStructureOptions,
+                )
+
+                pipeline_options.table_structure_options = TableStructureOptions(
+                    mode=TableFormerMode.FAST
+                )
+            except Exception:
+                pass
 
             self._converter = module.DocumentConverter(
                 format_options={
@@ -105,11 +124,17 @@ class DoclingBackend(ParserBackend):
         if not markdown or not markdown.strip():
             raise ValueError("Empty markdown returned")
 
-        blocks = markdown_to_blocks(markdown)
+        blocks = blocks_from_docling_document(self._last_document)
+        if not blocks:
+            blocks = markdown_to_blocks(markdown)
         if not blocks:
             blocks = [TextBlock(block_type=BlockType.PARAGRAPH, text=markdown.strip())]
 
-        return TextParseResult(blocks=blocks, raw_output=markdown)
+        return TextParseResult(
+            blocks=blocks,
+            raw_output=markdown,
+            source_page_count=_source_page_count(self._last_document, self._last_conv_res),
+        )
 
     def extract_figures(self, pdf_path: Path) -> list[FigureRecord]:
         try:
@@ -214,3 +239,306 @@ class DoclingBackend(ParserBackend):
                 available_attrs=figure_attrs,
             )
         return figures
+
+
+def _source_page_count(document, conv_res) -> int | None:
+    for obj in (conv_res, document):
+        if obj is None:
+            continue
+        pages = getattr(obj, "pages", None)
+        if pages is None:
+            pass
+        else:
+            try:
+                count = len(pages)
+            except TypeError:
+                count = 0
+            if count > 0:
+                return count
+        for attr in ("page_count", "num_pages"):
+            value = getattr(obj, attr, None)
+            if callable(value):
+                try:
+                    value = value()
+                except Exception:
+                    value = None
+            if isinstance(value, int) and value > 0:
+                return value
+    return None
+
+
+_HEADING_LABELS = {
+    "title",
+    "section_header",
+    "section-header",
+    "heading",
+    "subtitle",
+    "document_index",
+}
+_LIST_LABELS = {"list_item", "list-item"}
+_TABLE_LABELS = {"table"}
+_PICTURE_LABELS = {"picture", "image", "figure", "chart"}
+_CAPTION_LABELS = {"caption", "footnote"}
+
+
+def blocks_from_docling_document(document) -> list[TextBlock]:
+    """Build page-aware blocks from a Docling document, if item iteration is available."""
+    if document is None:
+        return []
+
+    blocks: list[TextBlock] = []
+    for item, level in _iter_docling_items(document):
+        block = _block_from_docling_item(item, level, document)
+        if block is not None:
+            blocks.append(block)
+    return blocks
+
+
+def _iter_docling_items(document):
+    iterate = getattr(document, "iterate_items", None)
+    if not callable(iterate):
+        return
+
+    try:
+        entries = iterate()
+    except TypeError:
+        try:
+            entries = iterate(traverse_pictures=True)
+        except Exception:
+            return
+    except Exception:
+        return
+
+    for entry in entries:
+        if isinstance(entry, tuple) and entry:
+            item = entry[0]
+            nested_level = entry[1] if len(entry) > 1 else 0
+            yield item, nested_level
+        else:
+            yield entry, 0
+
+
+def _block_from_docling_item(item, level, document) -> TextBlock | None:
+    label = _normalize_label(getattr(item, "label", None) or type(item).__name__)
+    page, bbox = _item_page_bbox(item)
+    text = _item_text(item, document, label)
+    if not text:
+        if label not in _PICTURE_LABELS:
+            return None
+        text = ""
+
+    if label in _HEADING_LABELS:
+        heading_level = getattr(item, "level", None)
+        if not isinstance(heading_level, int) or heading_level <= 0:
+            heading_level = 1 if label == "title" else max(int(level or 0) + 1, 1)
+        return TextBlock(
+            block_type=BlockType.HEADING,
+            text=text,
+            page=page,
+            level=min(heading_level, 6),
+            bbox=bbox,
+        )
+    if label in _LIST_LABELS:
+        return TextBlock(
+            block_type=BlockType.LIST_ITEM,
+            text=text,
+            page=page,
+            bbox=bbox,
+        )
+    if label in _TABLE_LABELS:
+        return TextBlock(
+            block_type=BlockType.TABLE,
+            text=text,
+            page=page,
+            bbox=bbox,
+        )
+    if label in _PICTURE_LABELS:
+        return TextBlock(
+            block_type=BlockType.FIGURE_REF,
+            text=text or "Figure",
+            page=page,
+            bbox=bbox,
+        )
+    if label in _CAPTION_LABELS:
+        return TextBlock(
+            block_type=BlockType.CAPTION,
+            text=text,
+            page=page,
+            bbox=bbox,
+        )
+    if not text:
+        return None
+    return TextBlock(
+        block_type=BlockType.PARAGRAPH,
+        text=text,
+        page=page,
+        bbox=bbox,
+    )
+
+
+def _normalize_label(label) -> str:
+    value = getattr(label, "value", None)
+    text = value if isinstance(value, str) else str(label or "")
+    text = text.strip().lower()
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+    return text.replace(" ", "_")
+
+
+def _item_page_bbox(item) -> tuple[int | None, list[float] | None]:
+    prov = getattr(item, "prov", None) or []
+    first = prov[0] if prov else item
+    page = getattr(first, "page_no", None)
+    if page is None:
+        page = getattr(first, "page", None)
+    if page is None:
+        page = getattr(item, "page_no", None)
+    bbox = getattr(first, "bbox", None)
+    if bbox is None:
+        bbox = getattr(item, "bbox", None)
+    return _coerce_page(page), _coerce_bbox(bbox)
+
+
+def _coerce_page(page) -> int | None:
+    try:
+        value = int(page)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _coerce_bbox(bbox) -> list[float] | None:
+    if bbox is None:
+        return None
+    if isinstance(bbox, (list, tuple)):
+        try:
+            return [float(value) for value in bbox]
+        except (TypeError, ValueError):
+            return None
+    coords = []
+    for attr in ("l", "t", "r", "b"):
+        value = getattr(bbox, attr, None)
+        if value is None:
+            coords = []
+            break
+        coords.append(value)
+    if len(coords) == 4:
+        try:
+            return [float(value) for value in coords]
+        except (TypeError, ValueError):
+            return None
+    for attr in ("as_tuple", "to_tuple", "tolist", "to_list"):
+        fn = getattr(bbox, attr, None)
+        if callable(fn):
+            try:
+                return _coerce_bbox(fn())
+            except Exception:
+                continue
+    return None
+
+
+def _item_text(item, document, label: str) -> str:
+    if label in _TABLE_LABELS:
+        table_text = _table_text(item, document)
+        if table_text:
+            return table_text
+    if label in _PICTURE_LABELS:
+        caption = _caption_text(item, document)
+        if caption:
+            return caption
+
+    for attr in ("text", "orig"):
+        value = getattr(item, attr, None)
+        if callable(value):
+            try:
+                value = value()
+            except TypeError:
+                try:
+                    value = value(document)
+                except Exception:
+                    value = None
+            except Exception:
+                value = None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    get_text = getattr(item, "get_text", None)
+    if callable(get_text):
+        try:
+            value = get_text()
+        except TypeError:
+            try:
+                value = get_text(document)
+            except Exception:
+                value = None
+        except Exception:
+            value = None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return _caption_text(item, document)
+
+
+def _caption_text(item, document) -> str:
+    caption = getattr(item, "caption_text", None)
+    if callable(caption):
+        try:
+            caption = caption(document)
+        except TypeError:
+            try:
+                caption = caption()
+            except Exception:
+                caption = None
+        except Exception:
+            caption = None
+    if isinstance(caption, str) and caption.strip():
+        return caption.strip()
+    caption = getattr(item, "caption", None)
+    if isinstance(caption, str) and caption.strip():
+        return caption.strip()
+    return ""
+
+
+def _table_text(item, document) -> str:
+    for attr in ("export_to_markdown", "to_markdown"):
+        fn = getattr(item, attr, None)
+        if not callable(fn):
+            continue
+        for args in ((), (document,), (),):
+            try:
+                value = fn(*args) if args else fn()
+            except TypeError:
+                continue
+            except Exception:
+                value = None
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    for attr in ("export_to_dataframe", "to_dataframe"):
+        fn = getattr(item, attr, None)
+        if not callable(fn):
+            continue
+        frame = None
+        for args in ((document,), ()):
+            try:
+                frame = fn(*args) if args else fn()
+                break
+            except TypeError:
+                continue
+            except Exception:
+                frame = None
+        to_markdown = getattr(frame, "to_markdown", None)
+        if callable(to_markdown):
+            try:
+                value = to_markdown(index=False)
+            except TypeError:
+                try:
+                    value = to_markdown()
+                except Exception:
+                    value = None
+            except Exception:
+                value = None
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+

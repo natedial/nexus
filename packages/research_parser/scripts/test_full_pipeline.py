@@ -21,7 +21,10 @@ def parse_args():
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Reprocess PDFs even if they were already processed.",
+        help=(
+            "Re-download and re-parse PDFs even if they were already processed. "
+            "Does not resume from local artifacts."
+        ),
     )
     parser.add_argument(
         "--log-file",
@@ -70,6 +73,7 @@ def main():
 
     all_files = pipeline.drive.list_pdfs(since=since_dt)
     if args.force:
+        print("Force reparse enabled: skipping already-processed and artifact resume.")
         new_files = list(all_files)
     else:
         new_files = [f for f in all_files if not pipeline.state.is_processed(f.id)]
@@ -98,7 +102,7 @@ def main():
     processed = 0
     for file in files_to_process:
         try:
-            success = pipeline.process_file(file.id, file.name)
+            success = pipeline.process_file(file.id, file.name, force=args.force)
             if success:
                 processed += 1
         except Exception as e:

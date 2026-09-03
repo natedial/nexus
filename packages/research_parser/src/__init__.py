@@ -1,1 +1,1 @@
-"""Research Parser - Financial research PDF extraction service."""
+"""Research Parser - financial research PDF parse-and-store service."""

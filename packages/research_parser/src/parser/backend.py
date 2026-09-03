@@ -49,6 +49,7 @@ class ConfidenceResult:
 class TextParseResult:
     blocks: list[TextBlock]
     raw_output: str | None
+    source_page_count: int | None = None
 
 
 class ParserBackend(ABC):
@@ -111,6 +112,21 @@ class ParserBackend(ABC):
         if max_paragraph_chars > 2500:
             score -= 0.2
             reasons.append("very_long_paragraph")
+
+        tables = sum(1 for block in blocks if block.block_type == BlockType.TABLE)
+        if tables:
+            score += 0.1
+        else:
+            reasons.append("no_tables")
+
+        paged_blocks = sum(1 for block in blocks if block.page)
+        if paged_blocks:
+            score += 0.05
+        else:
+            reasons.append("no_page_metadata")
+
+        if figures:
+            score += 0.05
 
         score = max(0.0, min(1.0, score))
         if score >= 0.75:

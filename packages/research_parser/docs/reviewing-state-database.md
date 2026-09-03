@@ -11,7 +11,7 @@ This guide explains how to inspect and review the `state.db` SQLite database tha
 sqlite3 data/state.db "SELECT file_name, status, updated_at FROM processed_files ORDER BY updated_at DESC LIMIT 10;"
 
 # View with step details
-sqlite3 -header -column data/state.db "SELECT file_name, status, parse_ok, metadata_ok, themes_ok, trades_ok, storage_ok FROM processed_files ORDER BY updated_at DESC LIMIT 10;"
+sqlite3 -header -column data/state.db "SELECT file_name, status, parse_ok, boilerplate_ok, storage_ok FROM processed_files ORDER BY updated_at DESC LIMIT 10;"
 
 # Count by status
 sqlite3 data/state.db "SELECT status, COUNT(*) FROM processed_files GROUP BY status;"
@@ -89,9 +89,9 @@ The `processed_files` table contains:
 | `updated_at` | TEXT | Last update timestamp (ISO timestamp) |
 | `parse_ok` | INTEGER | PDF parsing success (1=success, 0=failed, NULL=not run) |
 | `boilerplate_ok` | INTEGER | Boilerplate stripping success |
-| `metadata_ok` | INTEGER | Metadata extraction success |
-| `themes_ok` | INTEGER | Theme extraction success |
-| `trades_ok` | INTEGER | Trade extraction success |
+| `metadata_ok` | INTEGER | Legacy column from the old extraction worker |
+| `themes_ok` | INTEGER | Legacy column from the old extraction worker |
+| `trades_ok` | INTEGER | Legacy column from the old extraction worker |
 | `storage_ok` | INTEGER | Supabase storage success |
 | `error_message` | TEXT | Error details if any |
 
@@ -99,9 +99,10 @@ The `processed_files` table contains:
 
 - `pending` - File queued for processing
 - `parsing` - Currently parsing PDF to markdown
-- `extracting` - Currently running LLM extraction steps
-- `completed` - All steps succeeded
-- `partial` - Some steps succeeded, some failed (still stored)
+- `storing` - Writing `parsed_research` and memory tables
+- `extracting` - Legacy in-progress rows from the old extraction worker
+- `completed` - Parse, clean, and storage succeeded
+- `partial` - Some steps succeeded, some failed
 - `failed` - Fatal failure (e.g., PDF parsing failed)
 
 ## Common Queries
@@ -114,20 +115,18 @@ WHERE updated_at > datetime('now', '-1 day')
 ORDER BY updated_at DESC;
 ```
 
-### Files with metadata extraction failures
+### Files with storage failures
 ```sql
 SELECT file_name, error_message
 FROM processed_files
-WHERE metadata_ok = 0;
+WHERE storage_ok = 0;
 ```
 
 ### Success rate by step
 ```sql
 SELECT
     SUM(parse_ok) as parse_success,
-    SUM(metadata_ok) as metadata_success,
-    SUM(themes_ok) as themes_success,
-    SUM(trades_ok) as trades_success,
+    SUM(boilerplate_ok) as boilerplate_success,
     SUM(storage_ok) as storage_success,
     COUNT(*) as total
 FROM processed_files;
@@ -191,5 +190,5 @@ print(get_settings().state_db_path)
 ## Related Documentation
 
 - [Pipeline Architecture](../CLAUDE.md#architecture) - How processing works
-- [Warning Capture](./warning-capture.md) - Reviewing extraction warnings
+- [Warning Capture](./warning-capture.md) - Reviewing parse and storage warnings
 - [State Management](../src/storage/state.py) - State tracking implementation

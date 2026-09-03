@@ -149,6 +149,38 @@ def test_paragraph_stats_reports_expected_values():
     assert total_chars == len(markdown)
 
 
+def test_write_artifacts_includes_blocks_jsonl(tmp_path):
+    blocks = [
+        TextBlock(block_type=BlockType.HEADING, text="Heading", level=1, page=1),
+        TextBlock(block_type=BlockType.PARAGRAPH, text="Body", page=1, bbox=[1, 2, 3, 4]),
+    ]
+    text_result = TextParseResult(blocks=blocks, raw_output="# Heading\n\nBody")
+    artifact_dir = tmp_path / "artifacts"
+
+    write_artifacts(artifact_dir, text_result, [])
+
+    lines = (artifact_dir / "blocks.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    assert first["block_type"] == "heading"
+    assert first["page"] == 1
+
+
+def test_blocks_to_markdown_includes_page_markers():
+    from src.parser import blocks_to_markdown
+
+    markdown = blocks_to_markdown(
+        [
+            TextBlock(block_type=BlockType.HEADING, text="Title", level=1, page=1),
+            TextBlock(block_type=BlockType.PARAGRAPH, text="Page two body", page=2),
+        ],
+        include_page_markers=True,
+    )
+
+    assert markdown.startswith("--- PAGE 1 ---")
+    assert "--- PAGE 2 ---" in markdown
+
+
 def test_paragraph_stats_handles_empty_text():
     paragraph_count, max_paragraph_chars, total_chars = paragraph_stats(" \n\t")
 

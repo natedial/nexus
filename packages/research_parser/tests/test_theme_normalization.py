@@ -7,7 +7,7 @@ from scripts.backfill_theme_normalization import (
     _extract_themes_from_parsed_data,
     _process_batch,
 )
-from src.extraction.models import Excerpt, ExtractionResult, Metadata, Theme
+from src.source import SourceDocument
 from src.storage.supabase import SupabaseClient, _compute_document_hash
 
 
@@ -83,17 +83,26 @@ class _FakeTable:
             return _FakeResponse([dict(row)])
 
         if self._action == "upsert":
-            for row in rows:
-                if all(row.get(column) == self._payload.get(column) for column in self._on_conflict):
-                    row.update(self._payload)
-                    return _FakeResponse([dict(row)])
-
-            row = dict(self._payload)
-            if "id" not in row:
-                row["id"] = self._client.next_ids.setdefault(self._name, 1)
-                self._client.next_ids[self._name] += 1
-            rows.append(row)
-            return _FakeResponse([dict(row)])
+            payloads = self._payload if isinstance(self._payload, list) else [self._payload]
+            stored = []
+            for payload in payloads:
+                updated = False
+                for row in rows:
+                    if all(
+                        row.get(column) == payload.get(column) for column in self._on_conflict
+                    ):
+                        row.update(payload)
+                        stored.append(dict(row))
+                        updated = True
+                        break
+                if not updated:
+                    row = dict(payload)
+                    if "id" not in row:
+                        row["id"] = self._client.next_ids.setdefault(self._name, 1)
+                        self._client.next_ids[self._name] += 1
+                    rows.append(row)
+                    stored.append(dict(row))
+            return _FakeResponse(stored)
 
         if self._action == "delete":
             kept = [row for row in rows if not self._matches(row)]
@@ -174,38 +183,22 @@ def test_extract_themes_from_parsed_data_normalizes_string_relevance():
     assert themes[0]["relevance"] == ["Rates"]
 
 
-def test_insert_research_reuses_existing_row_and_replaces_normalized_children():
+def test_insert_research_reuses_existing_row_and_preserves_themes():
     fake_backend = _FakeSupabase()
     client = SupabaseClient.__new__(SupabaseClient)
     client._client = fake_backend
 
-    result = ExtractionResult(
-        metadata=Metadata(
-            source="Morgan Stanley",
-            source_date="2026-03-21",
-            area="Macro",
-            region="US",
-            asset_focus="rates",
-            publisher="Morgan Stanley",
-            document_link="https://example.com/ms",
-            document_id="drive-ms",
-        ),
-        themes=[
-            Theme(
-                label="Curve steepening",
-                excerpts=[Excerpt(text="Front-end pressure shifts to the belly.")],
-                relevance=["Rates"],
-                mention_count=1,
-                strength="Primary",
-                confidence="High",
-                context="Pressure shifts from front-end to the belly of the curve.",
-            )
-        ],
-        trades=[],
+    source = SourceDocument(
+        document_id="drive-ms",
+        document_name="ms-note.pdf",
         full_text="Cleaned document text",
+        source="Morgan Stanley",
+        source_date="2026-03-21",
+        document_link="https://example.com/ms",
+        document_uri="gdrive://drive-ms",
     )
 
-    document_hash = _compute_document_hash(result.full_text)
+    document_hash = _compute_document_hash(source.full_text)
     fake_backend.tables["parsed_research"].append(
         {
             "id": 7,
@@ -250,30 +243,32 @@ def test_insert_research_reuses_existing_row_and_replaces_normalized_children():
     fake_backend.next_ids["research_themes"] = 4
     fake_backend.next_ids["research_theme_excerpts"] = 6
 
-    stored = client.insert_research(result, "ms-note.pdf")
+    stored = client.insert_research(source, "ms-note.pdf")
 
     assert stored["id"] == 7
     assert len(fake_backend.tables["parsed_research"]) == 1
-    assert fake_backend.tables["parsed_research"][0]["theme_count"] == 1
-    assert fake_backend.tables["parsed_research"][0]["document_hash"] == document_hash
-    assert fake_backend.tables["parsed_research"][0]["index_status"] == "pending"
-    assert fake_backend.tables["parsed_research"][0]["indexed_at"] is None
-    assert fake_backend.tables["parsed_research"][0]["index_error"] is None
-    assert fake_backend.tables["parsed_research"][0]["index_version"] is None
-    assert fake_backend.tables["parsed_research"][0]["indexing_batch_id"] is None
-    assert (
-        fake_backend.tables["parsed_research"][0]["document_title"]
-        == "Analysis of Morgan Stanley"
-    )
+    row = fake_backend.tables["parsed_research"][0]
+    assert row["theme_count"] == 99
+    assert row["trade_count"] == 99
+    assert row["document_hash"] == document_hash
+    assert row["index_status"] == "indexed"
+    assert row["indexed_at"] == "2026-03-20T12:00:00Z"
+    assert row["index_error"] == "old error"
+    assert row["index_version"] == "old-version"
+    assert row["indexing_batch_id"] == 123
+    assert row["publisher"] == "Old publisher"
+    assert row["document_title"] == "ms-note"
+    assert "themes" not in row["parsed_data"]
+    assert "trades" not in row["parsed_data"]
 
     themes = fake_backend.tables["research_themes"]
     assert len(themes) == 1
     assert themes[0]["research_id"] == 7
-    assert themes[0]["label"] == "Curve steepening"
+    assert themes[0]["label"] == "Old theme"
 
     excerpts = fake_backend.tables["research_theme_excerpts"]
     assert len(excerpts) == 1
-    assert excerpts[0]["excerpt_text"] == "Front-end pressure shifts to the belly."
+    assert excerpts[0]["excerpt_text"] == "Old excerpt"
 
 
 def test_insert_research_requires_document_id():
@@ -281,19 +276,20 @@ def test_insert_research_requires_document_id():
     client = SupabaseClient.__new__(SupabaseClient)
     client._client = fake_backend
 
-    result = ExtractionResult(
-        metadata=Metadata(source="Morgan Stanley", source_date="2026-03-21"),
-        themes=[],
-        trades=[],
+    source = SourceDocument(
+        document_id="",
+        document_name="ms-note.pdf",
         full_text="Cleaned document text",
+        source="Morgan Stanley",
+        source_date="2026-03-21",
     )
 
     try:
-        client.insert_research(result, "ms-note.pdf")
+        client.insert_research(source, "ms-note.pdf")
     except ValueError as exc:
-        assert "metadata.document_id is required" in str(exc)
+        assert "document_id is required" in str(exc)
     else:
-        raise AssertionError("insert_research should require metadata.document_id")
+        raise AssertionError("insert_research should require document_id")
 
 
 def test_backfill_replaces_partial_existing_normalized_rows():

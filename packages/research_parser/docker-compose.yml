@@ -23,7 +23,7 @@ services:
       # Mount Google service account credentials (read-only)
       - ./credentials:/app/credentials:ro
 
-      # Mount model configuration (read-only)
+      # Mount config (boilerplate rules)
       - ./config:/app/config:ro
 
       # Mount shared pipeline ops package (read-only)
