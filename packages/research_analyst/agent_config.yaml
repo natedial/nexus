@@ -166,7 +166,7 @@ agents:
         output_schema: DocumentAnalysis
         tools: []
         max_tool_calls: 0
-        timeout_seconds: 180
+        timeout_seconds: 300
         retry_count: 2
         temperature: 0.2
         priority: 90

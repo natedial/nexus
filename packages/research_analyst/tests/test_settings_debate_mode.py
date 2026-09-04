@@ -64,3 +64,48 @@ def test_validate_rejects_anthropic_provider(monkeypatch):
     s = Settings.from_env()
     errors = s.validate()
     assert any("anthropic is no longer supported" in e for e in errors)
+
+
+def test_validate_codex_does_not_require_api_key(monkeypatch, tmp_path):
+    fake_bin = tmp_path / "codex"
+    fake_bin.write_text("#!/bin/sh\n")
+    fake_bin.chmod(0o755)
+    _base_env(
+        monkeypatch,
+        AGENT_EXECUTION_ENABLED="true",
+        AGENT_LLM_PROVIDER="codex",
+        AGENT_LLM_CODEX_BIN=str(fake_bin),
+    )
+    monkeypatch.delenv("AGENT_LLM_API_KEY", raising=False)
+    s = Settings.from_env()
+    errors = s.validate()
+    assert not any("api key" in e.lower() for e in errors)
+    assert s.agent_execution_enabled is True
+
+
+def test_validate_codex_requires_binary(monkeypatch):
+    _base_env(
+        monkeypatch,
+        AGENT_EXECUTION_ENABLED="true",
+        AGENT_LLM_PROVIDER="codex",
+        AGENT_LLM_CODEX_BIN="/no/such/codex-binary",
+    )
+    monkeypatch.delenv("AGENT_LLM_API_KEY", raising=False)
+    s = Settings.from_env()
+    errors = s.validate()
+    assert any("codex CLI not found" in e for e in errors)
+
+
+def test_codex_provider_enables_agents_without_explicit_flag(monkeypatch, tmp_path):
+    fake_bin = tmp_path / "codex"
+    fake_bin.write_text("#!/bin/sh\n")
+    fake_bin.chmod(0o755)
+    _base_env(
+        monkeypatch,
+        AGENT_LLM_PROVIDER="codex",
+        AGENT_LLM_CODEX_BIN=str(fake_bin),
+    )
+    monkeypatch.delenv("AGENT_EXECUTION_ENABLED", raising=False)
+    monkeypatch.delenv("AGENT_LLM_API_KEY", raising=False)
+    s = Settings.from_env()
+    assert s.agent_execution_enabled is True

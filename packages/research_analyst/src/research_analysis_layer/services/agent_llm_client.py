@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 import urllib.request
 
-from research_analysis_layer.config import Settings
+from research_analysis_layer.config import Settings, resolve_codex_bin
+
+_API_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "AGENT_LLM_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "CODEX_API_KEY",
+)
 
 logger = logging.getLogger(__name__)
 _MAX_TOOL_RESULT_TEXT_CHARS = 1_200
@@ -420,15 +431,212 @@ class OpenAICompatibleAgentLlmClient:
         return parsed
 
 
+class CodexCliAgentLlmClient:
+    """Run analysis agents through local `codex exec` instead of an HTTP API.
+
+    Uses the signed-in Codex/ChatGPT CLI quota. API keys are stripped from the
+    child environment so Codex cannot fall back to Chat Completions.
+    """
+
+    _JSON_ONLY_INSTRUCTION = (
+        "You are a JSON-only analysis agent. Do not run shell commands, "
+        "edit files, or browse the workspace. Reply with a single JSON "
+        "object and nothing else. No markdown fences, no commentary."
+    )
+    _OUTPUT_SCHEMA = {"type": "object"}
+
+    def __init__(self, *, binary: str):
+        self.binary = binary
+
+    def generate_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_payload: dict[str, object],
+        model: str,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        messages = [
+            {
+                "role": "user",
+                "content": json.dumps(user_payload, ensure_ascii=True, sort_keys=True),
+            }
+        ]
+        raw_text = self._exec(
+            system_prompt=system_prompt,
+            messages=messages,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+        parsed = _try_parse_json(raw_text)
+        if parsed is None:
+            raise ValueError(
+                f"Could not parse JSON from Codex CLI response: {raw_text!r}"
+            )
+        return parsed
+
+    def generate_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+        max_tool_calls: int = 4,
+        timeout_seconds: int = 120,
+    ) -> AgentCallResult:
+        del max_tool_calls
+        if tools:
+            logger.warning(
+                "Codex CLI provider ignores tool schemas (%d tools); answering from the prompt only",
+                len(tools),
+            )
+        raw_text = self._exec(
+            system_prompt=system_prompt,
+            messages=messages,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+        parsed = _try_parse_json(raw_text)
+        return AgentCallResult(
+            raw_text=raw_text,
+            parsed_output=parsed,
+            tool_calls=[],
+            token_usage=TokenUsage(),
+            model_used=model,
+            stop_reason="stop" if parsed is not None else "parse_error",
+            attempt_count=1,
+        )
+
+    def _exec(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        model: str,
+        timeout_seconds: int,
+    ) -> str:
+        prompt = self._build_prompt(system_prompt, messages)
+        with tempfile.TemporaryDirectory(prefix="codex-agent-") as tmp:
+            tmp_path = Path(tmp)
+            last_message_path = tmp_path / "last_message.txt"
+            schema_path = tmp_path / "output_schema.json"
+            schema_path.write_text(
+                json.dumps(self._OUTPUT_SCHEMA),
+                encoding="utf-8",
+            )
+            command = [
+                self.binary,
+                "exec",
+                "--skip-git-repo-check",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--color",
+                "never",
+                "--output-schema",
+                str(schema_path),
+                "--output-last-message",
+                str(last_message_path),
+                "-C",
+                str(tmp_path),
+                "-m",
+                model,
+                "-",
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                    env=self._child_env(),
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(
+                    f"Codex CLI timed out after {timeout_seconds}s using {model}"
+                ) from exc
+            raw_text = self._read_last_message(last_message_path, completed.stdout)
+            if completed.returncode != 0 and not raw_text.strip():
+                stderr = (completed.stderr or "").strip()
+                raise RuntimeError(
+                    f"Codex CLI exited {completed.returncode}"
+                    + (f": {stderr[-2000:]}" if stderr else "")
+                )
+            if completed.returncode != 0:
+                logger.warning(
+                    "Codex CLI exited %s; using last message anyway. stderr=%s",
+                    completed.returncode,
+                    (completed.stderr or "").strip()[-500:],
+                )
+            return raw_text
+
+    @classmethod
+    def _build_prompt(
+        cls,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+    ) -> str:
+        sections = [cls._JSON_ONLY_INSTRUCTION]
+        if system_prompt:
+            sections.append(f"# System\n{system_prompt.strip()}")
+        for index, message in enumerate(messages, start=1):
+            role = str(message.get("role") or "user")
+            text = _flatten_message_content(message.get("content"))
+            if not text.strip():
+                continue
+            sections.append(f"# {role} {index}\n{text.strip()}")
+        return "\n\n".join(sections) + "\n"
+
+    @staticmethod
+    def _child_env() -> dict[str, str]:
+        env = os.environ.copy()
+        for key in _API_ENV_KEYS:
+            env.pop(key, None)
+        return env
+
+    @staticmethod
+    def _read_last_message(path: Path, stdout: str) -> str:
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            if text.strip():
+                return text
+        return stdout or ""
+
+
+def _flatten_message_content(content: Any) -> str:
+    """Flatten string or Anthropic-shaped message content into plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        if "text" in content:
+            return str(content["text"])
+        return json.dumps(content, ensure_ascii=True, sort_keys=True)
+    if isinstance(content, list):
+        parts = [_flatten_message_content(item) for item in content]
+        return "\n".join(part for part in parts if part)
+    return str(content)
+
+
 def build_agent_llm_client(
     settings: Settings, tool_registry: Any | None = None
 ) -> AgentLlmClient | None:
     """Construct the configured agent LLM client."""
     if not settings.agent_execution_enabled:
         return None
-    provider = settings.agent_llm_provider
+    provider = (settings.agent_llm_provider or "").strip().lower()
     api_key = settings.agent_llm_api_key
     base_url = settings.agent_llm_base_url
+    if provider == "codex":
+        binary = resolve_codex_bin(getattr(settings, "agent_llm_codex_bin", None))
+        if not binary:
+            logger.warning("codex CLI not found — agent execution disabled")
+            return None
+        return CodexCliAgentLlmClient(binary=binary)
     if not api_key:
         return None
     if provider in {"openai", "openai_compatible"}:

@@ -125,7 +125,8 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     llm_client = build_agent_llm_client(settings)
     if llm_client is None:
         print(
-            "Error: set AGENT_LLM_PROVIDER=openai and AGENT_LLM_API_KEY",
+            "Error: set AGENT_LLM_PROVIDER=openai (with AGENT_LLM_API_KEY) "
+            "or AGENT_LLM_PROVIDER=codex",
             file=sys.stderr,
         )
         return 1

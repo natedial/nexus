@@ -379,6 +379,20 @@ class TestBuildAgentLlmClient:
         client = build_agent_llm_client(self._settings("unknown_llm"))
         assert client is None
 
+    def test_codex_provider_returns_codex_client_without_api_key(self):
+        s = self._settings("codex", key="")
+        s.agent_llm_codex_bin = "/opt/homebrew/bin/codex"
+        with patch(
+            "research_analysis_layer.services.agent_llm_client.resolve_codex_bin",
+            return_value="/opt/homebrew/bin/codex",
+        ):
+            from research_analysis_layer.services.agent_llm_client import (
+                CodexCliAgentLlmClient,
+            )
+
+            client = build_agent_llm_client(s)
+        assert isinstance(client, CodexCliAgentLlmClient)
+
     def test_disabled_returns_none(self):
         s = MagicMock(spec=Settings)
         s.agent_execution_enabled = False
