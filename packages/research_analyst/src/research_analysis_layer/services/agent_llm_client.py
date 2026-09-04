@@ -446,7 +446,6 @@ class CodexCliAgentLlmClient:
         "edit files, or browse the workspace. Reply with a single JSON "
         "object and nothing else. No markdown fences, no commentary."
     )
-    _OUTPUT_SCHEMA = {"type": "object"}
     _CHATGPT_MODEL_ALIASES = {
         "gpt-5": "gpt-5.6-terra",
         "gpt-5-mini": "gpt-5.6-luna",
@@ -534,11 +533,6 @@ class CodexCliAgentLlmClient:
         with tempfile.TemporaryDirectory(prefix="codex-agent-") as tmp:
             tmp_path = Path(tmp)
             last_message_path = tmp_path / "last_message.txt"
-            schema_path = tmp_path / "output_schema.json"
-            schema_path.write_text(
-                json.dumps(self._OUTPUT_SCHEMA),
-                encoding="utf-8",
-            )
             command = [
                 self.binary,
                 "exec",
@@ -549,8 +543,6 @@ class CodexCliAgentLlmClient:
                 "read-only",
                 "--color",
                 "never",
-                "--output-schema",
-                str(schema_path),
                 "--output-last-message",
                 str(last_message_path),
                 "-C",
@@ -617,14 +609,14 @@ class CodexCliAgentLlmClient:
     def _format_failure(returncode: int, stderr: str | None, stdout: str | None) -> str:
         text = f"{stderr or ''}\n{stdout or ''}"
         for line in reversed(text.splitlines()):
-            stripped = line.strip()
+            stripped = line.strip().rstrip(",")
             if not stripped:
                 continue
-            if (
-                "not supported" in stripped
-                or "invalid_request_error" in stripped
-                or stripped.startswith("ERROR:")
-            ):
+            if "not supported" in stripped or "invalid_json_schema" in stripped:
+                return f"Codex CLI exited {returncode}: {stripped}"
+            if '"message":' in stripped:
+                return f"Codex CLI exited {returncode}: {stripped}"
+            if stripped.startswith("ERROR:"):
                 return f"Codex CLI exited {returncode}: {stripped}"
         tail = text.strip()[-500:]
         if tail:

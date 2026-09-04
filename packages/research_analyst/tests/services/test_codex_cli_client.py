@@ -91,8 +91,8 @@ class TestCodexCliClient:
         assert cmd[cmd.index("--sandbox") + 1] == "read-only"
         assert cmd[cmd.index("-m") + 1] == "gpt-5.6-terra"
         assert cmd[-1] == "-"
-        assert "--output-schema" in cmd
         assert "--output-last-message" in cmd
+        assert "--output-schema" not in cmd
         prompt = captured["kwargs"]["input"]
         assert "Be a synthesizer." in prompt
         assert '{"doc": 1}' in prompt
@@ -193,15 +193,20 @@ class TestCodexCliClient:
         client = CodexCliAgentLlmClient(binary="/usr/bin/true")
         stderr = (
             '{"prompt": "huge dump"}\n'
-            'ERROR: {"type":"error","status":400,"error":{'
-            '"type":"invalid_request_error",'
-            '"message":"The \'gpt-5\' model is not supported when using Codex with a ChatGPT account."}}'
+            'ERROR: {\n'
+            '  "type": "error",\n'
+            '  "error": {\n'
+            '    "type": "invalid_request_error",\n'
+            '    "code": "invalid_json_schema",\n'
+            '    "message": "Invalid schema for response_format \'codex_output_schema\': additionalProperties is required."\n'
+            "  }\n"
+            "}"
         )
         with patch(
             "research_analysis_layer.services.agent_llm_client.subprocess.run",
             side_effect=_fake_run("not json", returncode=1, stderr=stderr),
         ):
-            with pytest.raises(RuntimeError, match="not supported when using Codex"):
+            with pytest.raises(RuntimeError, match="invalid_json_schema|additionalProperties"):
                 client.generate_with_tools(
                     system_prompt="sys",
                     messages=[{"role": "user", "content": "hi"}],
