@@ -133,6 +133,7 @@ class Settings:
     agent_llm_api_key: str | None = None
     agent_llm_base_url: str | None = None
     agent_llm_codex_bin: str | None = None
+    agent_llm_codex_model: str | None = None
     agent_llm_timeout_seconds: int | None = None
     agent_llm_max_output_tokens: int = 16384
     agent_llm_reasoning_effort: str | None = None
@@ -204,6 +205,7 @@ class Settings:
             agent_llm_api_key=agent_llm_api_key,
             agent_llm_base_url=os.getenv("AGENT_LLM_BASE_URL"),
             agent_llm_codex_bin=os.getenv("AGENT_LLM_CODEX_BIN") or None,
+            agent_llm_codex_model=os.getenv("AGENT_LLM_CODEX_MODEL") or None,
             agent_llm_timeout_seconds=(
                 _env_int("AGENT_LLM_TIMEOUT_SECONDS", 60)
                 if os.getenv("AGENT_LLM_TIMEOUT_SECONDS") is not None

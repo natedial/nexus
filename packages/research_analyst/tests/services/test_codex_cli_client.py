@@ -23,6 +23,7 @@ def _settings(*, provider: str = "codex", key: str | None = None, enabled: bool 
     s.agent_llm_api_key = key
     s.agent_llm_base_url = None
     s.agent_llm_codex_bin = "/usr/bin/true"
+    s.agent_llm_codex_model = None
     s.agent_llm_max_output_tokens = 16384
     s.agent_llm_reasoning_effort = None
     return s
@@ -85,12 +86,13 @@ class TestCodexCliClient:
         assert cmd[0] == "/opt/homebrew/bin/codex"
         assert cmd[1] == "exec"
         assert "--ephemeral" in cmd
+        assert "--ignore-user-config" in cmd
         assert "--skip-git-repo-check" in cmd
         assert cmd[cmd.index("--sandbox") + 1] == "read-only"
-        assert cmd[cmd.index("-m") + 1] == "gpt-5"
+        assert cmd[cmd.index("-m") + 1] == "gpt-5.6-terra"
         assert cmd[-1] == "-"
-        assert "--output-schema" in cmd
         assert "--output-last-message" in cmd
+        assert "--output-schema" not in cmd
         prompt = captured["kwargs"]["input"]
         assert "Be a synthesizer." in prompt
         assert '{"doc": 1}' in prompt
@@ -100,7 +102,7 @@ class TestCodexCliClient:
         assert "OPENAI_API_KEY" not in env
         assert "AGENT_LLM_API_KEY" not in env
         assert result.parsed_output == {"thesis": "ok"}
-        assert result.model_used == "gpt-5"
+        assert result.model_used == "gpt-5.6-terra"
         assert result.stop_reason == "stop"
         assert result.tool_calls == []
 
@@ -134,6 +136,85 @@ class TestCodexCliClient:
             )
         assert result.parsed_output == {"ok": True}
         assert result.tool_calls == []
+
+    def test_maps_mini_to_luna(self):
+        client = CodexCliAgentLlmClient(binary="/usr/bin/true")
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            out_path = Path(cmd[cmd.index("--output-last-message") + 1])
+            out_path.write_text('{"ok": true}', encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch(
+            "research_analysis_layer.services.agent_llm_client.subprocess.run",
+            side_effect=fake_run,
+        ):
+            result = client.generate_with_tools(
+                system_prompt="sys",
+                messages=[{"role": "user", "content": "hi"}],
+                tools=[],
+                model="gpt-5-mini",
+                max_tool_calls=0,
+                timeout_seconds=10,
+            )
+        assert captured["cmd"][captured["cmd"].index("-m") + 1] == "gpt-5.6-luna"
+        assert result.model_used == "gpt-5.6-luna"
+
+    def test_model_override_wins(self):
+        client = CodexCliAgentLlmClient(
+            binary="/usr/bin/true",
+            model_override="gpt-5.6-sol",
+        )
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            out_path = Path(cmd[cmd.index("--output-last-message") + 1])
+            out_path.write_text('{"ok": true}', encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch(
+            "research_analysis_layer.services.agent_llm_client.subprocess.run",
+            side_effect=fake_run,
+        ):
+            client.generate_with_tools(
+                system_prompt="sys",
+                messages=[{"role": "user", "content": "hi"}],
+                tools=[],
+                model="gpt-5",
+                max_tool_calls=0,
+                timeout_seconds=10,
+            )
+        assert captured["cmd"][captured["cmd"].index("-m") + 1] == "gpt-5.6-sol"
+
+    def test_surfaces_chatgpt_unsupported_model_error(self):
+        client = CodexCliAgentLlmClient(binary="/usr/bin/true")
+        stderr = (
+            '{"prompt": "huge dump"}\n'
+            'ERROR: {\n'
+            '  "type": "error",\n'
+            '  "error": {\n'
+            '    "type": "invalid_request_error",\n'
+            '    "code": "invalid_json_schema",\n'
+            '    "message": "Invalid schema for response_format \'codex_output_schema\': additionalProperties is required."\n'
+            "  }\n"
+            "}"
+        )
+        with patch(
+            "research_analysis_layer.services.agent_llm_client.subprocess.run",
+            side_effect=_fake_run("not json", returncode=1, stderr=stderr),
+        ):
+            with pytest.raises(RuntimeError, match="invalid_json_schema|additionalProperties"):
+                client.generate_with_tools(
+                    system_prompt="sys",
+                    messages=[{"role": "user", "content": "hi"}],
+                    tools=[],
+                    model="gpt-5",
+                    max_tool_calls=0,
+                    timeout_seconds=10,
+                )
 
     def test_nonzero_exit_with_empty_output_raises(self):
         client = CodexCliAgentLlmClient(binary="/usr/bin/true")

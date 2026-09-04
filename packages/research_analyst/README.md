@@ -106,6 +106,7 @@ Optional environment variables:
 - `AGENT_LLM_PROVIDER` (`openai`, `openai_compatible`, or `codex`)
 - `AGENT_LLM_API_KEY` (required for openai providers; omit for `codex`)
 - `AGENT_LLM_CODEX_BIN` (optional path to the `codex` CLI)
+- `AGENT_LLM_CODEX_MODEL` (optional ChatGPT Codex slug; otherwise `gpt-5` maps to `gpt-5.6-terra` and `gpt-5-mini` to `gpt-5.6-luna`)
 
 ## Backfill safety
 

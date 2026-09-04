@@ -109,3 +109,17 @@ def test_codex_provider_enables_agents_without_explicit_flag(monkeypatch, tmp_pa
     monkeypatch.delenv("AGENT_LLM_API_KEY", raising=False)
     s = Settings.from_env()
     assert s.agent_execution_enabled is True
+
+
+def test_codex_model_override_from_env(monkeypatch, tmp_path):
+    fake_bin = tmp_path / "codex"
+    fake_bin.write_text("#!/bin/sh\n")
+    fake_bin.chmod(0o755)
+    _base_env(
+        monkeypatch,
+        AGENT_LLM_PROVIDER="codex",
+        AGENT_LLM_CODEX_BIN=str(fake_bin),
+        AGENT_LLM_CODEX_MODEL="gpt-5.6-sol",
+    )
+    s = Settings.from_env()
+    assert s.agent_llm_codex_model == "gpt-5.6-sol"

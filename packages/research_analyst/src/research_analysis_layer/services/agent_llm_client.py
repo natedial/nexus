@@ -436,6 +436,9 @@ class CodexCliAgentLlmClient:
 
     Uses the signed-in Codex/ChatGPT CLI quota. API keys are stripped from the
     child environment so Codex cannot fall back to Chat Completions.
+
+    ChatGPT login rejects API model IDs such as `gpt-5`. Those are mapped to
+    current Codex ChatGPT slugs unless AGENT_LLM_CODEX_MODEL overrides them.
     """
 
     _JSON_ONLY_INSTRUCTION = (
@@ -443,10 +446,18 @@ class CodexCliAgentLlmClient:
         "edit files, or browse the workspace. Reply with a single JSON "
         "object and nothing else. No markdown fences, no commentary."
     )
-    _OUTPUT_SCHEMA = {"type": "object"}
+    _CHATGPT_MODEL_ALIASES = {
+        "gpt-5": "gpt-5.6-terra",
+        "gpt-5-mini": "gpt-5.6-luna",
+        "gpt-5-nano": "gpt-5.6-luna",
+        "gpt-5.4": "gpt-5.6-terra",
+        "gpt-5.4-mini": "gpt-5.6-luna",
+        "gpt-5.5": "gpt-5.6-terra",
+    }
 
-    def __init__(self, *, binary: str):
+    def __init__(self, *, binary: str, model_override: str | None = None):
         self.binary = binary
+        self.model_override = (model_override or "").strip() or None
 
     def generate_structured(
         self,
@@ -498,12 +509,13 @@ class CodexCliAgentLlmClient:
             timeout_seconds=timeout_seconds,
         )
         parsed = _try_parse_json(raw_text)
+        resolved = self._resolve_model(model)
         return AgentCallResult(
             raw_text=raw_text,
             parsed_output=parsed,
             tool_calls=[],
             token_usage=TokenUsage(),
-            model_used=model,
+            model_used=resolved,
             stop_reason="stop" if parsed is not None else "parse_error",
             attempt_count=1,
         )
@@ -517,31 +529,26 @@ class CodexCliAgentLlmClient:
         timeout_seconds: int,
     ) -> str:
         prompt = self._build_prompt(system_prompt, messages)
+        resolved_model = self._resolve_model(model)
         with tempfile.TemporaryDirectory(prefix="codex-agent-") as tmp:
             tmp_path = Path(tmp)
             last_message_path = tmp_path / "last_message.txt"
-            schema_path = tmp_path / "output_schema.json"
-            schema_path.write_text(
-                json.dumps(self._OUTPUT_SCHEMA),
-                encoding="utf-8",
-            )
             command = [
                 self.binary,
                 "exec",
                 "--skip-git-repo-check",
                 "--ephemeral",
+                "--ignore-user-config",
                 "--sandbox",
                 "read-only",
                 "--color",
                 "never",
-                "--output-schema",
-                str(schema_path),
                 "--output-last-message",
                 str(last_message_path),
                 "-C",
                 str(tmp_path),
                 "-m",
-                model,
+                resolved_model,
                 "-",
             ]
             try:
@@ -556,14 +563,16 @@ class CodexCliAgentLlmClient:
                 )
             except subprocess.TimeoutExpired as exc:
                 raise TimeoutError(
-                    f"Codex CLI timed out after {timeout_seconds}s using {model}"
+                    f"Codex CLI timed out after {timeout_seconds}s using {resolved_model}"
                 ) from exc
             raw_text = self._read_last_message(last_message_path, completed.stdout)
-            if completed.returncode != 0 and not raw_text.strip():
-                stderr = (completed.stderr or "").strip()
+            if completed.returncode != 0 and _try_parse_json(raw_text) is None:
                 raise RuntimeError(
-                    f"Codex CLI exited {completed.returncode}"
-                    + (f": {stderr[-2000:]}" if stderr else "")
+                    self._format_failure(
+                        completed.returncode,
+                        completed.stderr,
+                        completed.stdout,
+                    )
                 )
             if completed.returncode != 0:
                 logger.warning(
@@ -589,6 +598,30 @@ class CodexCliAgentLlmClient:
                 continue
             sections.append(f"# {role} {index}\n{text.strip()}")
         return "\n\n".join(sections) + "\n"
+
+    def _resolve_model(self, requested: str) -> str:
+        if self.model_override:
+            return self.model_override
+        key = (requested or "").strip()
+        return self._CHATGPT_MODEL_ALIASES.get(key, key) or key
+
+    @staticmethod
+    def _format_failure(returncode: int, stderr: str | None, stdout: str | None) -> str:
+        text = f"{stderr or ''}\n{stdout or ''}"
+        for line in reversed(text.splitlines()):
+            stripped = line.strip().rstrip(",")
+            if not stripped:
+                continue
+            if "not supported" in stripped or "invalid_json_schema" in stripped:
+                return f"Codex CLI exited {returncode}: {stripped}"
+            if '"message":' in stripped:
+                return f"Codex CLI exited {returncode}: {stripped}"
+            if stripped.startswith("ERROR:"):
+                return f"Codex CLI exited {returncode}: {stripped}"
+        tail = text.strip()[-500:]
+        if tail:
+            return f"Codex CLI exited {returncode}: {tail}"
+        return f"Codex CLI exited {returncode}"
 
     @staticmethod
     def _child_env() -> dict[str, str]:
@@ -636,7 +669,10 @@ def build_agent_llm_client(
         if not binary:
             logger.warning("codex CLI not found — agent execution disabled")
             return None
-        return CodexCliAgentLlmClient(binary=binary)
+        return CodexCliAgentLlmClient(
+            binary=binary,
+            model_override=getattr(settings, "agent_llm_codex_model", None),
+        )
     if not api_key:
         return None
     if provider in {"openai", "openai_compatible"}:
