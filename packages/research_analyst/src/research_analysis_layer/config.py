@@ -116,11 +116,6 @@ class Settings:
     analyst_debate_judge_model: str | None = None
     analyst_max_debate_arguments: int = 8
 
-    @property
-    def anthropic_api_key(self) -> str | None:
-        """Legacy property for ANTHROPIC_API_KEY env var."""
-        return os.getenv("ANTHROPIC_API_KEY") or self.agent_llm_api_key
-
     @classmethod
     def from_env(cls) -> "Settings":
         parsed_db_url = os.getenv("PARSED_DB_URL") or os.getenv("SUPABASE_URL", "")
@@ -234,13 +229,14 @@ class Settings:
         if self.agent_execution_enabled:
             if not self.agent_llm_provider:
                 errors.append("missing agent llm provider: set AGENT_LLM_PROVIDER")
-            elif self.agent_llm_provider not in {
-                "anthropic",
-                "openai",
-                "openai_compatible",
-            }:
+            elif self.agent_llm_provider == "anthropic":
                 errors.append(
-                    "invalid agent llm provider: expected anthropic, openai, or openai_compatible, "
+                    "anthropic is no longer supported: set AGENT_LLM_PROVIDER "
+                    "to openai or openai_compatible"
+                )
+            elif self.agent_llm_provider not in {"openai", "openai_compatible"}:
+                errors.append(
+                    "invalid agent llm provider: expected openai or openai_compatible, "
                     f"received {self.agent_llm_provider!r}"
                 )
             if not self.agent_llm_api_key:

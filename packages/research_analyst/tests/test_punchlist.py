@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 from research_analysis_layer.config import Settings
 from research_analysis_layer.db.analysis_store import AnalysisStore
 from research_analysis_layer.services.agent_llm_client import (
-    AnthropicAgentLlmClient,
+    OpenAICompatibleAgentLlmClient,
     build_agent_llm_client,
 )
 from research_analysis_layer.services.dispatch_batch_exporter import (
@@ -31,7 +31,7 @@ class TestR1NoLlmSafeBaseline(unittest.TestCase):
         """When agent_execution_enabled is False, return None."""
         env = {
             "AGENT_EXECUTION_ENABLED": "false",
-            "AGENT_LLM_PROVIDER": "anthropic",
+            "AGENT_LLM_PROVIDER": "openai",
             "AGENT_LLM_API_KEY": "test-key",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -43,7 +43,7 @@ class TestR1NoLlmSafeBaseline(unittest.TestCase):
         """When API key is missing, return None even if enabled."""
         env = {
             "AGENT_EXECUTION_ENABLED": "true",
-            "AGENT_LLM_PROVIDER": "anthropic",
+            "AGENT_LLM_PROVIDER": "openai",
             "AGENT_LLM_API_KEY": "",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -218,9 +218,9 @@ class TestR3ToolWiring(unittest.TestCase):
     """R3: Rewire tool use end to end."""
 
     def test_tool_registry_passed_to_llm_client(self) -> None:
-        """ToolRegistry should be passed to AnthropicAgentLlmClient."""
+        """ToolRegistry should be passed to the OpenAI agent client."""
         tool_registry = ToolRegistry()
-        client = AnthropicAgentLlmClient(
+        client = OpenAICompatibleAgentLlmClient(
             api_key="test-key",
             tool_registry=tool_registry,
         )

@@ -161,8 +161,8 @@ agents:
     synthesizer:
         prompt_path: prompts/agents/debate/synthesizer.md
         model:
-            primary: gpt-5-mini
-            fallback: gpt-5-nano
+            primary: gpt-5
+            fallback: gpt-5-mini
         output_schema: DocumentAnalysis
         tools: []
         max_tool_calls: 0

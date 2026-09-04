@@ -9,6 +9,7 @@ from research_analysis_layer.services.agent_llm_client import (
     AgentCallResult,
     TokenUsage,
     build_agent_llm_client,
+    _try_parse_json,
 )
 from research_analysis_layer.config import Settings
 
@@ -53,6 +54,14 @@ def _tool_call_resp(tool_calls: list[dict]) -> dict:
         ],
         "usage": {"prompt_tokens": 80, "completion_tokens": 30, "total_tokens": 110},
     }
+
+
+class TestTryParseJson:
+    def test_parses_fenced_json(self):
+        assert _try_parse_json('```json\n{"ok": true}\n```') == {"ok": True}
+
+    def test_returns_none_for_non_json(self):
+        assert _try_parse_json("not json") is None
 
 
 class TestOpenAIClientInit:
@@ -362,13 +371,9 @@ class TestBuildAgentLlmClient:
         assert isinstance(client, OpenAICompatibleAgentLlmClient)
         assert client._use_max_completion_tokens is False
 
-    def test_anthropic_provider_still_works(self):
-        from research_analysis_layer.services.agent_llm_client import (
-            AnthropicAgentLlmClient,
-        )
-
+    def test_anthropic_provider_is_rejected(self):
         client = build_agent_llm_client(self._settings("anthropic"))
-        assert isinstance(client, AnthropicAgentLlmClient)
+        assert client is None
 
     def test_unknown_provider_returns_none(self):
         client = build_agent_llm_client(self._settings("unknown_llm"))

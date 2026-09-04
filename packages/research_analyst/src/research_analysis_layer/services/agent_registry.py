@@ -45,7 +45,7 @@ class AgentRegistry:
         self.config_path = config_path or self._default_config_path()
         self._agents: dict[str, AgentConfig] = {}
         self._rounds: list[RoundConfig] = []
-        self._default_model: str = "claude-haiku-4-20250514"
+        self._default_model: str = "gpt-5-mini"
         self._default_timeout: int = 60
         self._default_retry_count: int = 3
         self._load_config()

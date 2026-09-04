@@ -52,3 +52,15 @@ def test_validate_rejects_nonpositive_max_arguments(monkeypatch):
     s = Settings.from_env()
     errors = s.validate()
     assert any("analyst_max_debate_arguments" in e for e in errors)
+
+
+def test_validate_rejects_anthropic_provider(monkeypatch):
+    _base_env(
+        monkeypatch,
+        AGENT_EXECUTION_ENABLED="true",
+        AGENT_LLM_PROVIDER="anthropic",
+        AGENT_LLM_API_KEY="sk-test",
+    )
+    s = Settings.from_env()
+    errors = s.validate()
+    assert any("anthropic is no longer supported" in e for e in errors)

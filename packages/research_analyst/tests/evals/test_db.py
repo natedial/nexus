@@ -34,7 +34,7 @@ class TestEvalDatabase(unittest.TestCase):
             judge_scores={"thesis_clarity": 0.9},
             judge_reasoning="Good output",
             latency_ms=1500,
-            model_used="claude-sonnet",
+            model_used="gpt-5-mini",
             prompt_version="v1.0",
         )
 

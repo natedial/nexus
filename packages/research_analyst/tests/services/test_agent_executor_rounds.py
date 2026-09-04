@@ -329,7 +329,7 @@ class TestRoundExecutorIntegration(unittest.TestCase):
             parsed_output=None,
             tool_calls=[],
             token_usage=TokenUsage(),
-            model_used="claude-3-5-sonnet",
+            model_used="gpt-5-mini",
             stop_reason="end_turn",
             attempt_count=1,
         )
@@ -496,7 +496,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                     },
                     tool_calls=[],
                     token_usage=TokenUsage(),
-                    model_used="claude-sonnet-4-20250514",
+                    model_used="gpt-5-mini",
                     stop_reason="end_turn",
                     attempt_count=1,
                 )
@@ -510,7 +510,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                 },
                 tool_calls=[],
                 token_usage=TokenUsage(),
-                model_used="claude-sonnet-4-20250514",
+                model_used="gpt-5-mini",
                 stop_reason="end_turn",
                 attempt_count=1,
             )
@@ -618,7 +618,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                     },
                     tool_calls=[],
                     token_usage=TokenUsage(),
-                    model_used="claude-sonnet-4-20250514",
+                    model_used="gpt-5-mini",
                     stop_reason="end_turn",
                     attempt_count=1,
                 )
@@ -631,7 +631,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                 },
                 tool_calls=[],
                 token_usage=TokenUsage(),
-                model_used="claude-sonnet-4-20250514",
+                model_used="gpt-5-mini",
                 stop_reason="end_turn",
                 attempt_count=1,
             )

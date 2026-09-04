@@ -3,7 +3,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from research_analysis_layer.services.agent_llm_client import AnthropicAgentLlmClient
+from research_analysis_layer.services.agent_llm_client import OpenAICompatibleAgentLlmClient
 from research_analysis_layer.services.tools.registry import ToolRegistry
 from research_analysis_layer.services.tools.tholos_adapter import (
     TholosAdapter,
@@ -74,28 +74,46 @@ class TestTholosWorkflow:
         assert "text" not in result[0]
 
     def test_agent_tool_loop_invokes_tholos_search_handler(self):
-        """The Anthropic tool loop can call the Tholos-backed research_search tool."""
+        """The OpenAI tool loop can call the Tholos-backed research_search tool."""
         registry = ToolRegistry()
         adapter = TholosAdapter(base_url="http://localhost:8004")
         for name, handler in create_tholos_handlers(adapter).items():
             registry.register_handler(name, handler)
 
         first_response = {
-            "content": [
+            "choices": [
                 {
-                    "type": "tool_use",
-                    "id": "toolu_tholos_1",
-                    "name": "research_search",
-                    "input": {"query": "fed outlook", "limit": 3},
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_tholos_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "research_search",
+                                    "arguments": '{"query": "fed outlook", "limit": 3}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
                 }
             ],
-            "stop_reason": "tool_use",
-            "usage": {"input_tokens": 100, "output_tokens": 50},
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
         }
         second_response = {
-            "content": [{"type": "text", "text": '{"result": "done"}'}],
-            "stop_reason": "end_turn",
-            "usage": {"input_tokens": 120, "output_tokens": 60},
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"result": "done"}',
+                        "tool_calls": None,
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 120, "completion_tokens": 60},
         }
         captured_payloads = []
 
@@ -122,7 +140,7 @@ class TestTholosWorkflow:
                 ]
             }
         )
-        client = AnthropicAgentLlmClient(api_key="test-key", tool_registry=registry)
+        client = OpenAICompatibleAgentLlmClient(api_key="test-key", tool_registry=registry)
 
         with patch(
             "research_analysis_layer.services.tools.tholos_adapter.httpx.Client",
@@ -136,7 +154,7 @@ class TestTholosWorkflow:
                         registry.get_schema("research_search"),
                         registry.get_schema("research_corpus_info"),
                     ],
-                    model="claude-sonnet-4-20250514",
+                    model="gpt-5-mini",
                     max_tool_calls=4,
                     timeout_seconds=60,
                 )
@@ -146,6 +164,6 @@ class TestTholosWorkflow:
         assert result.tool_calls[0].name == "research_search"
         assert result.tool_calls[0].is_error is False
         second_messages = captured_payloads[1]["messages"]
-        tool_result_text = second_messages[-1]["content"][0]["content"]
+        tool_result_text = second_messages[-1]["content"]
         assert "untrusted data" in tool_result_text.lower()
         assert "IGNORE ALL PREVIOUS INSTRUCTIONS" in tool_result_text

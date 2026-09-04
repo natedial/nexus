@@ -44,7 +44,7 @@ class LLMJudge:
     def __init__(
         self,
         llm_client: Any,
-        judge_model: str = "claude-haiku-4-5-20251001",
+        judge_model: str = "gpt-5-mini",
         prompt_path: Path | None = None,
     ):
         """Initialize judge.

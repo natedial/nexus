@@ -44,7 +44,7 @@ class TestTrainingCaptureManager(unittest.TestCase):
             output_data={"thesis": "test thesis", "confidence": 0.85},
             metadata={
                 "agent_type": "synthesizer",
-                "model": "claude-sonnet",
+                "model": "gpt-5-mini",
                 "confidence": 0.85,
                 "schema_valid": True,
                 "latency_ms": 1000,
@@ -175,7 +175,7 @@ class TestTrainingCapture(unittest.TestCase):
             capture_timestamp="2026-04-14T10:00:00Z",
             input={"content": "test"},
             output={"thesis": "test"},
-            metadata={"model": "claude-sonnet"},
+            metadata={"model": "gpt-5-mini"},
             quality={"judge_score": 0.85},
         )
 

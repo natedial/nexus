@@ -43,9 +43,6 @@ jobs:
       - name: Run tool registry tests
         run: pytest tests/services/test_tool_registry.py -v --tb=short
 
-      - name: Run Anthropic provider tool-loop tests
-        run: pytest tests/services/test_anthropic_client_tools.py -v --tb=short
-
       - name: Run OpenAI provider tool-loop tests
         run: pytest tests/services/test_openai_client.py -v --tb=short
 

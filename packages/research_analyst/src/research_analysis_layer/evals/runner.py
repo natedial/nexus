@@ -201,7 +201,7 @@ class AgentEvalRunner:
         output_dir: Path,
         agent_registry: Any = None,
         judge_client: Any = None,
-        judge_model: str = "claude-haiku-4-5-20251001",
+        judge_model: str = "gpt-5-mini",
         llm_judge: "LLMJudge | None" = None,
         eval_db: "EvalDatabase | None" = None,
         training_capture: "TrainingCaptureManager | None" = None,
@@ -329,7 +329,7 @@ class AgentEvalRunner:
             config = self.agent_registry.get_agent(
                 "synthesizer"
             ) or self.agent_registry.get_agent(agent_types[0])
-            model_name = config.model if config else "claude-sonnet-4-20250514"
+            model_name = config.model if config else "gpt-5-mini"
 
             self.training_capture.capture(
                 document_id=document_id,
