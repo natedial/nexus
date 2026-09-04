@@ -19,6 +19,11 @@ from research_analysis_layer.models import (
     EvidenceUnitDraft,
     HydratedParsedDocument,
 )
+from research_analysis_layer.parsed_payload import (
+    full_text as payload_full_text,
+    identity_fields,
+    legacy_metadata,
+)
 
 
 def _truncate(value: str | None, limit: int) -> str | None:
@@ -62,12 +67,16 @@ class AgentInputBuilder:
         assertions: list[AssertionDraft],
     ) -> dict[str, object]:
         parsed_data = document.document.parsed_data
-        metadata = (
-            parsed_data.get("metadata", {}) if isinstance(parsed_data, dict) else {}
+        has_span_evidence = bool(
+            getattr(document, "retrieval_chunks", None)
+            or getattr(document, "spans", None)
         )
-        full_text = (
-            parsed_data.get("full_text") if isinstance(parsed_data, dict) else None
-        )
+        full_text_excerpt = None
+        if not has_span_evidence:
+            full_text_excerpt = _truncate(
+                payload_full_text(parsed_data) or None,
+                self.max_full_text_chars,
+            )
         payload = AgentInputPayload(
             agent_type=agent_type,
             document=AgentInputDocument(
@@ -85,11 +94,9 @@ class AgentInputBuilder:
                 document_link=document.document.document_link,
                 trade_count=document.document.trade_count,
                 theme_count=document.document.theme_count,
-                metadata=metadata,
-                full_text_excerpt=_truncate(
-                    full_text if isinstance(full_text, str) else None,
-                    self.max_full_text_chars,
-                ),
+                identity=identity_fields(parsed_data),
+                metadata=legacy_metadata(parsed_data),
+                full_text_excerpt=full_text_excerpt,
             ),
             themes=[
                 AgentInputTheme(
@@ -154,6 +161,8 @@ class AgentInputBuilder:
             "entity_tags": list(chunk.entity_tags),
             "horizon_tag": chunk.horizon_tag,
             "parser_theme_id": chunk.parser_theme_id,
+            "span_keys": list(chunk.span_keys),
+            "retrieval_chunk_key": chunk.retrieval_chunk_key,
         }
 
     def _evidence_dict(self, unit: EvidenceUnitDraft) -> dict[str, object]:

@@ -44,6 +44,50 @@ class ChunkerTest(unittest.TestCase):
         self.assertEqual(chunks[0].chunk_type, "forecast_block")
         self.assertEqual(chunks[0].title, "Cuts are delayed")
 
+    def test_creates_retrieval_chunk_with_span_keys(self) -> None:
+        from research_analysis_layer.models.document_models import (
+            ParsedRetrievalChunk,
+            ParsedSpan,
+        )
+
+        document = ParsedDocument(
+            id=1,
+            document_name="2026-08-31_GS_note.pdf",
+            source="Goldman Sachs",
+            source_date="2026-08-31",
+            parsed_data={"full_text": "x", "identity": {}, "parse": {}},
+            theme_count=0,
+            document_hash="hash",
+            document_id="drive-1",
+        )
+        hydrated = HydratedParsedDocument(
+            document=document,
+            themes=[],
+            file_id="drive-1",
+            spans=[
+                ParsedSpan(
+                    span_key="span:1:1",
+                    text="The Committee is on hold.",
+                    span_kind="paragraph",
+                    page_start=2,
+                )
+            ],
+            retrieval_chunks=[
+                ParsedRetrievalChunk(
+                    chunk_key="chunk:1:1",
+                    chunk_text="The Committee is on hold.",
+                    span_keys=["span:1:1"],
+                    heading_path=["Policy"],
+                )
+            ],
+        )
+        chunks = Chunker().chunk_document(hydrated)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].chunk_type, "retrieval_chunk")
+        self.assertEqual(chunks[0].span_keys, ["span:1:1"])
+        self.assertEqual(chunks[0].title, "Policy")
+        self.assertIsNone(chunks[0].parser_theme_id)
+
 
 if __name__ == "__main__":
     unittest.main()

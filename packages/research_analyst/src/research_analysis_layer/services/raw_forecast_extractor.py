@@ -6,6 +6,7 @@ from datetime import date
 import re
 
 from research_analysis_layer.models import ForecastCandidateDraft, ParsedDocument
+from research_analysis_layer.parsed_payload import full_text as payload_full_text
 
 
 class RawForecastExtractor:
@@ -59,7 +60,7 @@ class RawForecastExtractor:
         created_run_id: int | None,
     ) -> list[ForecastCandidateDraft]:
         parsed_data = document.parsed_data if isinstance(document.parsed_data, dict) else {}
-        raw_text = str(parsed_data.get("full_text") or "")
+        raw_text = payload_full_text(parsed_data)
         if not raw_text.strip():
             return []
 

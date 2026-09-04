@@ -25,6 +25,7 @@ class AgentInputDocument(BaseModel):
     document_link: str | None = None
     trade_count: int = 0
     theme_count: int = 0
+    identity: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
     full_text_excerpt: str | None = None
 
@@ -63,6 +64,8 @@ class AgentInputChunk(BaseModel):
     entity_tags: list[str] = Field(default_factory=list)
     horizon_tag: str | None = None
     parser_theme_id: int | None = None
+    span_keys: list[str] = Field(default_factory=list)
+    retrieval_chunk_key: str | None = None
 
 
 class AgentInputEvidenceUnit(BaseModel):
@@ -147,6 +150,7 @@ def render_payload_structure_markdown() -> str:
             "document_link": "<url or null>",
             "trade_count": <int>,
             "theme_count": <int>,
+            "identity": {"<key>": "<json-safe value>", "...": "..."},
             "metadata": {"<key>": "<json-safe value>", "...": "..."},
             "full_text_excerpt": "<up to 12k chars, may be truncated with ...>"
           },
@@ -182,7 +186,9 @@ def render_payload_structure_markdown() -> str:
                 "topic_tags": ["<tag>", "..."],
                 "entity_tags": ["<entity>", "..."],
                 "horizon_tag": "<string or null>",
-                "parser_theme_id": <int or null>
+                "parser_theme_id": <int or null>,
+                "span_keys": ["<span_key>", "..."],
+                "retrieval_chunk_key": "<string or null>"
               }
             ],
             "evidence_units": [
@@ -225,17 +231,18 @@ def render_payload_structure_markdown() -> str:
         }
         ```
 
-        **Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, authority, and stable `assertion_key`s — do not re-derive these from the excerpt. `themes[].directionality` and `themes[].strength` are your fastest path to the document's stance. Reach for `document.full_text_excerpt` only when the themes and assertions are silent on a point you need.
+        **Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, authority, and stable `assertion_key`s — do not re-derive these from the excerpt. Cite `span_key` from `chunks[].span_keys` or `evidence_units[].source_ref.span_key` — do not invent theme labels. `themes[]` is an optional extraction overlay and is often empty. Reach for `document.full_text_excerpt` only when assertions, chunks, and themes are silent on a point you need.
 
         ## Empty-payload fallback
 
         Not every parser run produces rich signal. Before working, check the payload and follow this ladder:
 
         1. If `deterministic_analysis.assertions[]` is non-empty, use it as your primary source.
-        2. Else if `themes[]` is non-empty, work from `themes[].excerpts[]` and `themes[].context`.
-        3. Else if `document.full_text_excerpt` is a non-empty string, read it directly.
-        4. Else — all three are empty — do not fabricate analysis. Return a single summary sentence stating that the document lacks analyzable content, leave `key_claims` empty, and set `confidence` to `0.0`. This is the correct, honest outcome; downstream consumers filter by confidence.
+        2. Else if `deterministic_analysis.chunks[]` is non-empty, work from chunk text and cite `span_keys` / `source_ref.span_key`.
+        3. Else if `themes[]` is non-empty, work from `themes[].excerpts[]` and `themes[].context`.
+        4. Else if `document.full_text_excerpt` is a non-empty string, read it directly.
+        5. Else — all four are empty — do not fabricate analysis. Return a single summary sentence stating that the document lacks analyzable content, leave `key_claims` empty, and set `confidence` to `0.0`. This is the correct, honest outcome; downstream consumers filter by confidence.
 
-        Do not mix ladder rungs. If rung 1 is available, do not also reach to rung 3 "for color" — it just adds noise and hurts reproducibility.
+        Do not mix ladder rungs. If rung 1 is available, do not also reach to rung 4 "for color" — it just adds noise and hurts reproducibility.
         """
     ).strip()

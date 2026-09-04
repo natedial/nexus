@@ -22,7 +22,10 @@ from .document_models import (
     HydratedParsedDocument,
     HydratedTheme,
     ParsedDocument,
+    ParsedDocumentArtifacts,
     ParsedExcerpt,
+    ParsedRetrievalChunk,
+    ParsedSpan,
     ParsedTheme,
 )
 from .forecast_models import (
@@ -75,7 +78,10 @@ __all__ = [
     "ForecastCandidateRecord",
     "ForecastExtractionSource",
     "ParsedDocument",
+    "ParsedDocumentArtifacts",
     "ParsedExcerpt",
+    "ParsedRetrievalChunk",
+    "ParsedSpan",
     "ParsedTheme",
     "ParserStateRecord",
     "RunItemResult",
