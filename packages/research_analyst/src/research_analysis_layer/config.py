@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
+
+_API_LLM_PROVIDERS = {"openai", "openai_compatible"}
+_CLI_LLM_PROVIDERS = {"codex"}
+_SUPPORTED_LLM_PROVIDERS = _API_LLM_PROVIDERS | _CLI_LLM_PROVIDERS
+_DEFAULT_CODEX_BINARIES = (
+    "/opt/homebrew/bin/codex",
+    "/usr/local/bin/codex",
+)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -47,6 +56,29 @@ def _path_has_processed_files(path: Path) -> bool:
     except sqlite3.Error:
         return False
     return row is not None
+
+
+def resolve_codex_bin(explicit: str | None = None) -> str | None:
+    """Return an executable Codex CLI path, or None if it cannot be found."""
+    if explicit and explicit.strip():
+        path = Path(explicit.strip())
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path.resolve())
+        return None
+    candidates: list[str] = []
+    found = shutil.which("codex")
+    if found:
+        candidates.append(found)
+    candidates.extend(_DEFAULT_CODEX_BINARIES)
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        path = Path(candidate)
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path.resolve())
+    return None
 
 
 def _resolve_state_db_path(raw_path: str) -> Path:
@@ -100,7 +132,10 @@ class Settings:
     agent_llm_provider: str | None = None
     agent_llm_api_key: str | None = None
     agent_llm_base_url: str | None = None
+    agent_llm_codex_bin: str | None = None
     agent_llm_timeout_seconds: int | None = None
+    agent_llm_max_output_tokens: int = 16384
+    agent_llm_reasoning_effort: str | None = None
     analyst_round_mode: str = "rounds"
     analyst_tools_enabled: bool = False
     distill_tool_module: str = "distill_tool.api"
@@ -114,11 +149,6 @@ class Settings:
     analyst_debate_judge_model: str | None = None
     analyst_max_debate_arguments: int = 8
 
-    @property
-    def anthropic_api_key(self) -> str | None:
-        """Legacy property for ANTHROPIC_API_KEY env var."""
-        return os.getenv("ANTHROPIC_API_KEY") or self.agent_llm_api_key
-
     @classmethod
     def from_env(cls) -> "Settings":
         parsed_db_url = os.getenv("PARSED_DB_URL") or os.getenv("SUPABASE_URL", "")
@@ -126,10 +156,12 @@ class Settings:
         calendar_match_source = os.getenv("CALENDAR_MATCH_SOURCE", "economic_events")
         calendar_db_url = os.getenv("CALENDAR_DB_URL") or parsed_db_url
         calendar_db_key = os.getenv("CALENDAR_DB_KEY") or parsed_db_key
+        agent_llm_provider = os.getenv("AGENT_LLM_PROVIDER")
         agent_llm_api_key = os.getenv("AGENT_LLM_API_KEY")
+        provider_name = (agent_llm_provider or "").strip().lower()
         agent_execution_enabled = _env_bool(
             "AGENT_EXECUTION_ENABLED",
-            bool(agent_llm_api_key),
+            bool(agent_llm_api_key) or provider_name in _CLI_LLM_PROVIDERS,
         )
         default_calendar_source_name = (
             "scrivener"
@@ -168,14 +200,20 @@ class Settings:
                 True,
             ),
             agent_execution_enabled=agent_execution_enabled,
-            agent_llm_provider=os.getenv("AGENT_LLM_PROVIDER"),
+            agent_llm_provider=agent_llm_provider,
             agent_llm_api_key=agent_llm_api_key,
             agent_llm_base_url=os.getenv("AGENT_LLM_BASE_URL"),
+            agent_llm_codex_bin=os.getenv("AGENT_LLM_CODEX_BIN") or None,
             agent_llm_timeout_seconds=(
                 _env_int("AGENT_LLM_TIMEOUT_SECONDS", 60)
                 if os.getenv("AGENT_LLM_TIMEOUT_SECONDS") is not None
                 else None
             ),
+            agent_llm_max_output_tokens=_env_int(
+                "AGENT_LLM_MAX_OUTPUT_TOKENS", 16384
+            ),
+            agent_llm_reasoning_effort=os.getenv("AGENT_LLM_REASONING_EFFORT")
+            or None,
             analyst_round_mode=os.getenv("ANALYST_ROUND_MODE", "rounds"),
             analyst_tools_enabled=_env_bool("ANALYST_TOOLS_ENABLED", False),
             distill_tool_module=os.getenv("DISTILL_TOOL_MODULE", "distill_tool.api"),
@@ -225,19 +263,33 @@ class Settings:
                 f"received {self.calendar_match_source!r}"
             )
         if self.agent_execution_enabled:
-            if not self.agent_llm_provider:
+            provider = (self.agent_llm_provider or "").strip().lower()
+            if not provider:
                 errors.append("missing agent llm provider: set AGENT_LLM_PROVIDER")
-            elif self.agent_llm_provider not in {
-                "anthropic",
-                "openai",
-                "openai_compatible",
-            }:
+            elif provider == "anthropic":
                 errors.append(
-                    "invalid agent llm provider: expected anthropic, openai, or openai_compatible, "
+                    "anthropic is no longer supported: set AGENT_LLM_PROVIDER "
+                    "to openai, openai_compatible, or codex"
+                )
+            elif provider not in _SUPPORTED_LLM_PROVIDERS:
+                errors.append(
+                    "invalid agent llm provider: expected openai, "
+                    "openai_compatible, or codex, "
                     f"received {self.agent_llm_provider!r}"
                 )
-            if not self.agent_llm_api_key:
+            if provider in _API_LLM_PROVIDERS and not self.agent_llm_api_key:
                 errors.append("missing agent llm api key: set AGENT_LLM_API_KEY")
+            if provider in _CLI_LLM_PROVIDERS:
+                binary = resolve_codex_bin(self.agent_llm_codex_bin)
+                if not binary:
+                    errors.append(
+                        "codex CLI not found: install `codex` or set AGENT_LLM_CODEX_BIN"
+                    )
+        if self.agent_llm_max_output_tokens <= 0:
+            errors.append(
+                "invalid agent llm max output tokens: must be positive, "
+                f"received {self.agent_llm_max_output_tokens}"
+            )
         if self.analyst_debate_mode not in {"off", "shadow", "on"}:
             errors.append(
                 "invalid analyst_debate_mode: expected off, shadow, or on, "

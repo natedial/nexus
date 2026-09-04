@@ -68,7 +68,8 @@ jobs:
             echo "No baseline found, skipping comparison"
           fi
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENT_LLM_PROVIDER: openai
+          AGENT_LLM_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
   alert-on-regression:
     runs-on: ubuntu-latest

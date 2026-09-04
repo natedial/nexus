@@ -103,6 +103,9 @@ Optional environment variables:
 - `BATCH_SIZE`
 - `ANALYSIS_VERSION`
 - `BACKFILL_REQUIRE_WARNING_FREE`
+- `AGENT_LLM_PROVIDER` (`openai`, `openai_compatible`, or `codex`)
+- `AGENT_LLM_API_KEY` (required for openai providers; omit for `codex`)
+- `AGENT_LLM_CODEX_BIN` (optional path to the `codex` CLI)
 
 ## Backfill safety
 

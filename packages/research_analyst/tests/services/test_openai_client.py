@@ -9,6 +9,7 @@ from research_analysis_layer.services.agent_llm_client import (
     AgentCallResult,
     TokenUsage,
     build_agent_llm_client,
+    _try_parse_json,
 )
 from research_analysis_layer.config import Settings
 
@@ -55,6 +56,14 @@ def _tool_call_resp(tool_calls: list[dict]) -> dict:
     }
 
 
+class TestTryParseJson:
+    def test_parses_fenced_json(self):
+        assert _try_parse_json('```json\n{"ok": true}\n```') == {"ok": True}
+
+    def test_returns_none_for_non_json(self):
+        assert _try_parse_json("not json") is None
+
+
 class TestOpenAIClientInit:
     def test_default_base_url(self):
         c = OpenAICompatibleAgentLlmClient(api_key="sk-test")
@@ -75,8 +84,35 @@ class TestOpenAIClientInit:
             model="gpt-5-mini",
             messages=[{"role": "user", "content": "hi"}],
         )
-        assert body["max_completion_tokens"] == 4096
+        assert body["max_completion_tokens"] == 16384
         assert "max_tokens" not in body
+        assert body["reasoning_effort"] == "low"
+
+    def test_gpt5_reasoning_effort_can_be_overridden(self):
+        c = OpenAICompatibleAgentLlmClient(
+            api_key="sk-test",
+            use_max_completion_tokens=True,
+            max_output_tokens=32768,
+            reasoning_effort="medium",
+        )
+        body = c._build_request_body(
+            model="gpt-5-mini",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        assert body["max_completion_tokens"] == 32768
+        assert body["reasoning_effort"] == "medium"
+
+    def test_non_gpt5_models_omit_reasoning_effort(self):
+        c = OpenAICompatibleAgentLlmClient(
+            api_key="sk-test",
+            use_max_completion_tokens=True,
+        )
+        body = c._build_request_body(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        assert "reasoning_effort" not in body
+        assert body["max_completion_tokens"] == 16384
 
 
 class TestOpenAIGenerateStructured:
@@ -321,6 +357,8 @@ class TestBuildAgentLlmClient:
         s.agent_llm_provider = provider
         s.agent_llm_api_key = key
         s.agent_llm_base_url = base_url
+        s.agent_llm_max_output_tokens = 16384
+        s.agent_llm_reasoning_effort = None
         return s
 
     def test_openai_provider_returns_openai_client(self):
@@ -333,17 +371,27 @@ class TestBuildAgentLlmClient:
         assert isinstance(client, OpenAICompatibleAgentLlmClient)
         assert client._use_max_completion_tokens is False
 
-    def test_anthropic_provider_still_works(self):
-        from research_analysis_layer.services.agent_llm_client import (
-            AnthropicAgentLlmClient,
-        )
-
+    def test_anthropic_provider_is_rejected(self):
         client = build_agent_llm_client(self._settings("anthropic"))
-        assert isinstance(client, AnthropicAgentLlmClient)
+        assert client is None
 
     def test_unknown_provider_returns_none(self):
         client = build_agent_llm_client(self._settings("unknown_llm"))
         assert client is None
+
+    def test_codex_provider_returns_codex_client_without_api_key(self):
+        s = self._settings("codex", key="")
+        s.agent_llm_codex_bin = "/opt/homebrew/bin/codex"
+        with patch(
+            "research_analysis_layer.services.agent_llm_client.resolve_codex_bin",
+            return_value="/opt/homebrew/bin/codex",
+        ):
+            from research_analysis_layer.services.agent_llm_client import (
+                CodexCliAgentLlmClient,
+            )
+
+            client = build_agent_llm_client(s)
+        assert isinstance(client, CodexCliAgentLlmClient)
 
     def test_disabled_returns_none(self):
         s = MagicMock(spec=Settings)

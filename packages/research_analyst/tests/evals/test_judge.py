@@ -88,9 +88,9 @@ class TestLLMJudge(unittest.TestCase):
         mock_client = MockJudgeLLMClient()
         judge = LLMJudge(
             llm_client=mock_client,
-            judge_model="claude-haiku-4-5-20251001",
+            judge_model="gpt-5-mini",
         )
-        self.assertEqual(judge.judge_model, "claude-haiku-4-5-20251001")
+        self.assertEqual(judge.judge_model, "gpt-5-mini")
 
     def test_judge_loads_prompt(self):
         mock_client = MockJudgeLLMClient()

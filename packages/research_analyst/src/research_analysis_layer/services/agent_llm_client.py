@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 import urllib.request
 
-from research_analysis_layer.config import Settings
+from research_analysis_layer.config import Settings, resolve_codex_bin
+
+_API_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "AGENT_LLM_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "CODEX_API_KEY",
+)
 
 logger = logging.getLogger(__name__)
 _MAX_TOOL_RESULT_TEXT_CHARS = 1_200
@@ -45,6 +56,31 @@ def _sanitize_tool_payload(value: Any) -> Any:
             compact = compact[:_MAX_TOOL_RESULT_TEXT_CHARS].rstrip() + "..."
         return compact.replace("```", "` ` `")
     return value
+
+
+def _try_parse_json(text: str) -> dict[str, Any] | None:
+    """Try to parse JSON from model text, including fenced blocks."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.startswith("json"):
+            text = text[4:].lstrip()
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                parsed, _ = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    return None
 
 
 @dataclass
@@ -108,396 +144,6 @@ class AgentLlmClient(Protocol):
         """Generate with tool use support."""
 
 
-class AnthropicAgentLlmClient:
-    """Anthropic Messages API wrapper with tool use support."""
-
-    UNTOOL_MODELS = {"claude-haiku-4-20250514", "claude-haiku-4-20250624"}
-
-    def __init__(
-        self,
-        *,
-        api_key: str,
-        base_url: str | None = None,
-        tool_registry: Any | None = None,
-    ):
-        self.api_key = api_key
-        self.base_url = (base_url or "https://api.anthropic.com").rstrip("/")
-        self._tool_registry = tool_registry
-
-    def generate_structured(
-        self,
-        *,
-        system_prompt: str,
-        user_payload: dict[str, object],
-        model: str,
-        timeout_seconds: int,
-    ) -> dict[str, object]:
-        body = {
-            "model": model,
-            "max_tokens": 4096,
-            "system": system_prompt,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps(
-                                user_payload,
-                                ensure_ascii=True,
-                                sort_keys=True,
-                            ),
-                        }
-                    ],
-                }
-            ],
-        }
-        payload = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.base_url}/v1/messages",
-            data=payload,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01",
-            },
-        )
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        return self._extract_json_object(data)
-
-    @staticmethod
-    def _translate_tool_schemas(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Translate registry format (parameters) to Anthropic wire format (input_schema)."""
-        result = []
-        for tool in tools:
-            translated = {k: v for k, v in tool.items() if k != "parameters"}
-            translated["input_schema"] = tool.get("parameters", {})
-            result.append(translated)
-        return result
-
-    def generate_with_tools(
-        self,
-        *,
-        system_prompt: str,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        model: str,
-        max_tool_calls: int = 4,
-        timeout_seconds: int = 120,
-    ) -> AgentCallResult:
-        """Generate with tool use support.
-
-        Implements the Anthropic tool_use loop with:
-        - Tool budget enforcement
-        - Token usage tracking including cache fields
-        - 429 exponential backoff
-        - Error handling
-        """
-        if not tools or model in self.UNTOOL_MODELS:
-            return self._generate_no_tools(
-                system_prompt=system_prompt,
-                messages=messages,
-                model=model,
-                timeout_seconds=timeout_seconds,
-            )
-
-        all_messages: list[dict[str, Any]] = []
-        if system_prompt:
-            all_messages.append({"role": "system", "content": system_prompt})
-        all_messages.extend(messages)
-
-        tool_call_count = 0
-        tool_calls: list[ToolCallTrace] = []
-        attempt = 0
-        max_attempts = 3
-
-        while attempt < max_attempts:
-            attempt += 1
-            body = {
-                "model": model,
-                "max_tokens": 4096,
-                "messages": all_messages,
-            }
-            if system_prompt:
-                body["system"] = system_prompt
-                all_messages = [m for m in all_messages if m.get("role") != "system"]
-            if tools:
-                body["tools"] = self._translate_tool_schemas(tools)
-
-            payload = json.dumps(body).encode("utf-8")
-            request = urllib.request.Request(
-                f"{self.base_url}/v1/messages",
-                data=payload,
-                method="POST",
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                },
-            )
-
-            try:
-                response_data = self._make_request(request, timeout_seconds)
-            except urllib.error.HTTPError as e:
-                if e.code == 429:
-                    wait_time = min(2**attempt, 30)
-                    logger.warning(
-                        "Rate limited, waiting %ds (attempt %d)", wait_time, attempt
-                    )
-                    time.sleep(wait_time)
-                    continue
-                raise
-
-            usage = response_data.get("usage", {})
-            token_usage = TokenUsage(
-                input_tokens=usage.get("input_tokens", 0),
-                output_tokens=usage.get("output_tokens", 0),
-                cache_read_input_tokens=usage.get("cache_read_input_tokens", 0),
-                cache_creation_input_tokens=usage.get("cache_creation_input_tokens", 0),
-            )
-
-            stop_reason = response_data.get("stop_reason", "")
-            content = response_data.get("content", [])
-
-            assistant_message = {"role": "assistant", "content": content}
-            all_messages.append(assistant_message)
-
-            if stop_reason != "tool_use":
-                raw_text = self._extract_text_from_content(content)
-                parsed = self._try_parse_json(raw_text)
-                return AgentCallResult(
-                    raw_text=raw_text,
-                    parsed_output=parsed,
-                    tool_calls=tool_calls,
-                    token_usage=token_usage,
-                    model_used=model,
-                    stop_reason=stop_reason,
-                    attempt_count=attempt,
-                )
-
-            tool_use_blocks = [
-                b
-                for b in content
-                if isinstance(b, dict) and b.get("type") == "tool_use"
-            ]
-            for tool_block in tool_use_blocks:
-                if tool_call_count >= max_tool_calls:
-                    all_messages.append(
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_block.get("id"),
-                                    "content": "Tool budget exhausted, answer from context",
-                                }
-                            ],
-                        }
-                    )
-                    continue
-
-                tool_name = tool_block.get("name", "")
-                tool_input = tool_block.get("input", {})
-                start_time = time.time()
-
-                result = self._invoke_tool(tool_name, tool_input)
-
-                duration_ms = int((time.time() - start_time) * 1000)
-                output_summary = str(result.get("content", ""))[:500]
-                is_error = result.get("is_error", False)
-
-                tool_calls.append(
-                    ToolCallTrace(
-                        name=tool_name,
-                        input=tool_input,
-                        output_summary=output_summary,
-                        duration_ms=duration_ms,
-                        is_error=is_error,
-                    )
-                )
-                tool_call_count += 1
-
-                all_messages.append(
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_block.get("id"),
-                                "content": _format_tool_result_content(
-                                    result.get("content", "")
-                                ),
-                                "is_error": is_error,
-                            }
-                        ],
-                    }
-                )
-
-        return AgentCallResult(
-            raw_text="",
-            parsed_output=None,
-            tool_calls=tool_calls,
-            token_usage=token_usage,
-            model_used=model,
-            stop_reason="max_attempts",
-            attempt_count=attempt,
-        )
-
-    def _generate_no_tools(
-        self,
-        *,
-        system_prompt: str,
-        messages: list[dict[str, Any]],
-        model: str,
-        timeout_seconds: int,
-    ) -> AgentCallResult:
-        """Generate without tool use."""
-        all_messages: list[dict[str, Any]] = []
-        if system_prompt:
-            all_messages.append({"role": "system", "content": system_prompt})
-        all_messages.extend(messages)
-
-        body = {
-            "model": model,
-            "max_tokens": 4096,
-            "messages": all_messages,
-        }
-
-        payload = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self.base_url}/v1/messages",
-            data=payload,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01",
-            },
-        )
-
-        response_data = self._make_request(request, timeout_seconds)
-
-        usage = response_data.get("usage", {})
-        token_usage = TokenUsage(
-            input_tokens=usage.get("input_tokens", 0),
-            output_tokens=usage.get("output_tokens", 0),
-            cache_read_input_tokens=usage.get("cache_read_input_tokens", 0),
-            cache_creation_input_tokens=usage.get("cache_creation_input_tokens", 0),
-        )
-
-        content = response_data.get("content", [])
-        raw_text = self._extract_text_from_content(content)
-        parsed = self._try_parse_json(raw_text)
-
-        return AgentCallResult(
-            raw_text=raw_text,
-            parsed_output=parsed,
-            tool_calls=[],
-            token_usage=token_usage,
-            model_used=model,
-            stop_reason=response_data.get("stop_reason", ""),
-            attempt_count=1,
-        )
-
-    def _make_request(
-        self, request: urllib.request.Request, timeout_seconds: int
-    ) -> dict[str, Any]:
-        """Make HTTP request with error handling."""
-        attempt = 0
-        max_retries = 3
-        while attempt < max_retries:
-            attempt += 1
-            try:
-                with urllib.request.urlopen(
-                    request, timeout=timeout_seconds
-                ) as response:
-                    return json.loads(response.read().decode("utf-8"))
-            except urllib.error.HTTPError as e:
-                if e.code == 429 and attempt < max_retries:
-                    wait_time = min(2**attempt, 30)
-                    logger.warning(
-                        "Rate limited, waiting %ds (attempt %d)", wait_time, attempt
-                    )
-                    time.sleep(wait_time)
-                else:
-                    raise
-        raise RuntimeError("Max retries exceeded")
-
-    def _invoke_tool(self, name: str, input_data: dict[str, Any]) -> dict[str, Any]:
-        """Invoke a registered tool."""
-        if self._tool_registry:
-            return self._tool_registry.invoke(name, input_data)
-        return {"is_error": True, "content": f"Tool {name} not available"}
-
-    @staticmethod
-    def _extract_text_from_content(content: list) -> str:
-        """Extract text from Anthropic response content."""
-        text_parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    text_parts.append(text)
-        return "\n".join(text_parts).strip()
-
-    @staticmethod
-    def _try_parse_json(text: str) -> dict[str, Any] | None:
-        """Try to parse JSON from text."""
-        text = text.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.startswith("json"):
-                text = text[4:].lstrip()
-        try:
-            parsed = json.loads(text)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            decoder = json.JSONDecoder()
-            for index, char in enumerate(text):
-                if char != "{":
-                    continue
-                try:
-                    parsed, _ = decoder.raw_decode(text[index:])
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(parsed, dict):
-                    return parsed
-        return None
-
-    @staticmethod
-    def _extract_json_object(response: dict[str, object]) -> dict[str, object]:
-        """Extract JSON object from response (legacy method)."""
-        content = response.get("content")
-        if not isinstance(content, list):
-            raise ValueError("anthropic response missing content list")
-        text_parts: list[str] = []
-        for block in content:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "text" and isinstance(block.get("text"), str):
-                text_parts.append(block["text"])
-        raw = "\n".join(text_parts).strip()
-        if raw.startswith("```"):
-            raw = raw.strip("`")
-            if raw.startswith("json"):
-                raw = raw[4:].lstrip()
-        parsed = json.loads(raw)
-        if not isinstance(parsed, dict):
-            raise ValueError("structured response must be a JSON object")
-        return parsed
-
-    @classmethod
-    def _format_tool_result_content(cls, content: Any) -> str:
-        return _format_tool_result_content(content)
-
-    @classmethod
-    def _sanitize_tool_payload(cls, value: Any) -> Any:
-        return _sanitize_tool_payload(value)
-
-
 class OpenAICompatibleAgentLlmClient:
     """OpenAI Chat Completions API wrapper.
 
@@ -518,11 +164,15 @@ class OpenAICompatibleAgentLlmClient:
         base_url: str | None = None,
         tool_registry: Any | None = None,
         use_max_completion_tokens: bool = False,
+        max_output_tokens: int = 16384,
+        reasoning_effort: str | None = None,
     ):
         self.api_key = api_key
         self.base_url = (base_url or "https://api.openai.com").rstrip("/")
         self._tool_registry = tool_registry
         self._use_max_completion_tokens = use_max_completion_tokens
+        self._max_output_tokens = max_output_tokens
+        self._reasoning_effort = reasoning_effort
 
     def _build_request_body(
         self,
@@ -540,10 +190,22 @@ class OpenAICompatibleAgentLlmClient:
             if self._use_max_completion_tokens
             else "max_tokens"
         )
-        body[token_limit_field] = 4096
+        body[token_limit_field] = self._max_output_tokens
+        reasoning_effort = self._reasoning_effort_for_model(model)
+        if reasoning_effort:
+            body["reasoning_effort"] = reasoning_effort
         if tools:
             body["tools"] = self._adapt_tools(tools)
         return body
+
+    def _reasoning_effort_for_model(self, model: str) -> str | None:
+        if self._reasoning_effort:
+            return self._reasoning_effort
+        # gpt-5* reasoning tokens share the completion budget. Default low so
+        # DocumentAnalysis JSON still fits instead of finishing with empty content.
+        if model.startswith("gpt-5"):
+            return "low"
+        return None
 
     def generate_structured(
         self,
@@ -648,7 +310,7 @@ class OpenAICompatibleAgentLlmClient:
 
             if finish_reason != "tool_calls":
                 raw_text = message.get("content") or ""
-                parsed = AnthropicAgentLlmClient._try_parse_json(raw_text)
+                parsed = _try_parse_json(raw_text)
                 return AgentCallResult(
                     raw_text=raw_text,
                     parsed_output=parsed,
@@ -763,10 +425,201 @@ class OpenAICompatibleAgentLlmClient:
         if not choices:
             raise ValueError("OpenAI response missing choices")
         content = choices[0].get("message", {}).get("content", "")
-        parsed = AnthropicAgentLlmClient._try_parse_json(content or "")
+        parsed = _try_parse_json(content or "")
         if parsed is None:
             raise ValueError(f"Could not parse JSON from OpenAI response: {content!r}")
         return parsed
+
+
+class CodexCliAgentLlmClient:
+    """Run analysis agents through local `codex exec` instead of an HTTP API.
+
+    Uses the signed-in Codex/ChatGPT CLI quota. API keys are stripped from the
+    child environment so Codex cannot fall back to Chat Completions.
+    """
+
+    _JSON_ONLY_INSTRUCTION = (
+        "You are a JSON-only analysis agent. Do not run shell commands, "
+        "edit files, or browse the workspace. Reply with a single JSON "
+        "object and nothing else. No markdown fences, no commentary."
+    )
+    _OUTPUT_SCHEMA = {"type": "object"}
+
+    def __init__(self, *, binary: str):
+        self.binary = binary
+
+    def generate_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_payload: dict[str, object],
+        model: str,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        messages = [
+            {
+                "role": "user",
+                "content": json.dumps(user_payload, ensure_ascii=True, sort_keys=True),
+            }
+        ]
+        raw_text = self._exec(
+            system_prompt=system_prompt,
+            messages=messages,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+        parsed = _try_parse_json(raw_text)
+        if parsed is None:
+            raise ValueError(
+                f"Could not parse JSON from Codex CLI response: {raw_text!r}"
+            )
+        return parsed
+
+    def generate_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+        max_tool_calls: int = 4,
+        timeout_seconds: int = 120,
+    ) -> AgentCallResult:
+        del max_tool_calls
+        if tools:
+            logger.warning(
+                "Codex CLI provider ignores tool schemas (%d tools); answering from the prompt only",
+                len(tools),
+            )
+        raw_text = self._exec(
+            system_prompt=system_prompt,
+            messages=messages,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+        parsed = _try_parse_json(raw_text)
+        return AgentCallResult(
+            raw_text=raw_text,
+            parsed_output=parsed,
+            tool_calls=[],
+            token_usage=TokenUsage(),
+            model_used=model,
+            stop_reason="stop" if parsed is not None else "parse_error",
+            attempt_count=1,
+        )
+
+    def _exec(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        model: str,
+        timeout_seconds: int,
+    ) -> str:
+        prompt = self._build_prompt(system_prompt, messages)
+        with tempfile.TemporaryDirectory(prefix="codex-agent-") as tmp:
+            tmp_path = Path(tmp)
+            last_message_path = tmp_path / "last_message.txt"
+            schema_path = tmp_path / "output_schema.json"
+            schema_path.write_text(
+                json.dumps(self._OUTPUT_SCHEMA),
+                encoding="utf-8",
+            )
+            command = [
+                self.binary,
+                "exec",
+                "--skip-git-repo-check",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--color",
+                "never",
+                "--output-schema",
+                str(schema_path),
+                "--output-last-message",
+                str(last_message_path),
+                "-C",
+                str(tmp_path),
+                "-m",
+                model,
+                "-",
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                    env=self._child_env(),
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(
+                    f"Codex CLI timed out after {timeout_seconds}s using {model}"
+                ) from exc
+            raw_text = self._read_last_message(last_message_path, completed.stdout)
+            if completed.returncode != 0 and not raw_text.strip():
+                stderr = (completed.stderr or "").strip()
+                raise RuntimeError(
+                    f"Codex CLI exited {completed.returncode}"
+                    + (f": {stderr[-2000:]}" if stderr else "")
+                )
+            if completed.returncode != 0:
+                logger.warning(
+                    "Codex CLI exited %s; using last message anyway. stderr=%s",
+                    completed.returncode,
+                    (completed.stderr or "").strip()[-500:],
+                )
+            return raw_text
+
+    @classmethod
+    def _build_prompt(
+        cls,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+    ) -> str:
+        sections = [cls._JSON_ONLY_INSTRUCTION]
+        if system_prompt:
+            sections.append(f"# System\n{system_prompt.strip()}")
+        for index, message in enumerate(messages, start=1):
+            role = str(message.get("role") or "user")
+            text = _flatten_message_content(message.get("content"))
+            if not text.strip():
+                continue
+            sections.append(f"# {role} {index}\n{text.strip()}")
+        return "\n\n".join(sections) + "\n"
+
+    @staticmethod
+    def _child_env() -> dict[str, str]:
+        env = os.environ.copy()
+        for key in _API_ENV_KEYS:
+            env.pop(key, None)
+        return env
+
+    @staticmethod
+    def _read_last_message(path: Path, stdout: str) -> str:
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            if text.strip():
+                return text
+        return stdout or ""
+
+
+def _flatten_message_content(content: Any) -> str:
+    """Flatten string or Anthropic-shaped message content into plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        if "text" in content:
+            return str(content["text"])
+        return json.dumps(content, ensure_ascii=True, sort_keys=True)
+    if isinstance(content, list):
+        parts = [_flatten_message_content(item) for item in content]
+        return "\n".join(part for part in parts if part)
+    return str(content)
 
 
 def build_agent_llm_client(
@@ -775,23 +628,32 @@ def build_agent_llm_client(
     """Construct the configured agent LLM client."""
     if not settings.agent_execution_enabled:
         return None
-    provider = settings.agent_llm_provider
+    provider = (settings.agent_llm_provider or "").strip().lower()
     api_key = settings.agent_llm_api_key
     base_url = settings.agent_llm_base_url
+    if provider == "codex":
+        binary = resolve_codex_bin(getattr(settings, "agent_llm_codex_bin", None))
+        if not binary:
+            logger.warning("codex CLI not found — agent execution disabled")
+            return None
+        return CodexCliAgentLlmClient(binary=binary)
     if not api_key:
         return None
-    if provider == "anthropic":
-        return AnthropicAgentLlmClient(
-            api_key=api_key,
-            base_url=base_url,
-            tool_registry=tool_registry,
-        )
     if provider in {"openai", "openai_compatible"}:
+        raw_max = getattr(settings, "agent_llm_max_output_tokens", 16384)
+        try:
+            max_output_tokens = int(raw_max)
+        except (TypeError, ValueError):
+            max_output_tokens = 16384
+        raw_effort = getattr(settings, "agent_llm_reasoning_effort", None)
+        reasoning_effort = raw_effort if isinstance(raw_effort, str) and raw_effort.strip() else None
         return OpenAICompatibleAgentLlmClient(
             api_key=api_key,
             base_url=base_url,
             tool_registry=tool_registry,
             use_max_completion_tokens=(provider == "openai"),
+            max_output_tokens=max_output_tokens if max_output_tokens > 0 else 16384,
+            reasoning_effort=reasoning_effort,
         )
     logger.warning("Unknown agent LLM provider %r — agent execution disabled", provider)
     return None

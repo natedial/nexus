@@ -51,7 +51,7 @@ def _make_agent_spec(*, tools: list[dict] | None = None) -> AgentSpec:
     agent_cfg = AgentConfig(
         name="synthesizer",
         prompt_path="prompts/agents/synthesizer.txt",
-        model="claude-sonnet-4-20250514",
+        model="gpt-5-mini",
         fallback_model="",
         temperature=0.0,
         max_tool_calls=4,
@@ -101,7 +101,7 @@ def _make_result(*, tool_calls: list[ToolCallTrace] | None = None) -> AgentCallR
             cache_read_input_tokens=100,
             cache_creation_input_tokens=50,
         ),
-        model_used="claude-sonnet-4-20250514",
+        model_used="gpt-5-mini",
         stop_reason="end_turn",
         attempt_count=1,
         agent_name="synthesizer",

@@ -334,7 +334,7 @@ class MockAgentRegistry:
     def __init__(self, prompt: str | None = None, config: dict | None = None):
         self._prompt = prompt
         self._config = config or {
-            "model": "claude-sonnet-4-20250514",
+            "model": "gpt-5-mini",
             "timeout_seconds": 120,
         }
 
@@ -497,7 +497,7 @@ This is test content about Fed policy.
         )
         mock_registry = MockAgentRegistry(
             prompt="Test prompt",
-            config={"model": "claude-haiku-4-20250514", "timeout_seconds": 60},
+            config={"model": "gpt-5-mini", "timeout_seconds": 60},
         )
 
         runner = AgentEvalRunner(
@@ -512,7 +512,7 @@ This is test content about Fed policy.
         )
 
         call = mock_client.calls[0]
-        self.assertEqual(call["model"], "claude-haiku-4-20250514")
+        self.assertEqual(call["model"], "gpt-5-mini")
 
 
 if __name__ == "__main__":

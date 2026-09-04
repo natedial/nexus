@@ -42,8 +42,8 @@ def test_load_prompt_resolves_sibling_include(tmp_path):
               thesis:
                 prompt_path: prompts/agents/thesis.md
                 model:
-                  primary: claude-sonnet-4-20250514
-                  fallback: claude-haiku-4-20250514
+                  primary: gpt-5-mini
+                  fallback: gpt-5-nano
                 output_schema: DocumentAngle
             """
         ).strip()
@@ -74,8 +74,8 @@ def test_load_prompt_missing_include_raises(tmp_path):
               thesis:
                 prompt_path: prompts/agents/thesis.md
                 model:
-                  primary: claude-sonnet-4-20250514
-                  fallback: claude-haiku-4-20250514
+                  primary: gpt-5-mini
+                  fallback: gpt-5-nano
                 output_schema: DocumentAngle
             """
         ).strip()
@@ -104,8 +104,8 @@ def test_load_prompt_resolves_multiple_includes(tmp_path):
               thesis:
                 prompt_path: prompts/agents/thesis.md
                 model:
-                  primary: claude-sonnet-4-20250514
-                  fallback: claude-haiku-4-20250514
+                  primary: gpt-5-mini
+                  fallback: gpt-5-nano
                 output_schema: DocumentAngle
             """
         ).strip()

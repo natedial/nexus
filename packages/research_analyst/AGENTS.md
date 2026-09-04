@@ -96,7 +96,7 @@ python -m research_analysis_layer.evals run \
   --golden evals/golden/ \
   --output evals/results/ \
   --judge \
-  --judge-model claude-haiku-4-5-20251001
+  --judge-model gpt-5-mini
 ```
 
 Compare to baseline:

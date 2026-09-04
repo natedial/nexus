@@ -329,7 +329,7 @@ class TestRoundExecutorIntegration(unittest.TestCase):
             parsed_output=None,
             tool_calls=[],
             token_usage=TokenUsage(),
-            model_used="claude-3-5-sonnet",
+            model_used="gpt-5-mini",
             stop_reason="end_turn",
             attempt_count=1,
         )
@@ -496,7 +496,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                     },
                     tool_calls=[],
                     token_usage=TokenUsage(),
-                    model_used="claude-sonnet-4-20250514",
+                    model_used="gpt-5-mini",
                     stop_reason="end_turn",
                     attempt_count=1,
                 )
@@ -510,7 +510,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                 },
                 tool_calls=[],
                 token_usage=TokenUsage(),
-                model_used="claude-sonnet-4-20250514",
+                model_used="gpt-5-mini",
                 stop_reason="end_turn",
                 attempt_count=1,
             )
@@ -618,7 +618,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                     },
                     tool_calls=[],
                     token_usage=TokenUsage(),
-                    model_used="claude-sonnet-4-20250514",
+                    model_used="gpt-5-mini",
                     stop_reason="end_turn",
                     attempt_count=1,
                 )
@@ -631,7 +631,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                 },
                 tool_calls=[],
                 token_usage=TokenUsage(),
-                model_used="claude-sonnet-4-20250514",
+                model_used="gpt-5-mini",
                 stop_reason="end_turn",
                 attempt_count=1,
             )
@@ -1131,6 +1131,53 @@ class TestArgumentMapCoercion(unittest.TestCase):
         # *different* value, so this also proves the stamp is not accidentally the payload version.
         assert analysis.argument_map_meta.extractor_version == ARGUMENT_MAP_VERSION
         assert analysis.argument_map_meta.extractor_version != "argmap-v1"
+
+    def test_build_document_analysis_truncates_overlong_trade_rationale(self):
+        executor = self._make_executor()
+        long_rationale = (
+            "Market breakevens are ~6bp too rich versus the bank's 2y inflation path, "
+            "so the trade is to fade 10Y TIPS breakevens while growth and labor data "
+            "keep shifting model inputs. " + ("x" * 80)
+        )
+        assert len(long_rationale) > 200
+        model_output = {
+            "thesis": "t",
+            "contrarian_view": "c",
+            "recommended_positioning": "p",
+            "confidence": 0.7,
+            "trading_opportunities": [
+                {
+                    "thesis": "Fade 10Y breakevens",
+                    "direction": "short",
+                    "instrument": "10Y TIPS breakevens",
+                    "timeframe": "weeks",
+                    "conviction": "medium",
+                    "rationale": long_rationale,
+                },
+                {
+                    "thesis": "bad direction",
+                    "direction": "sideways",
+                    "instrument": "USD",
+                    "timeframe": "weeks",
+                    "conviction": "low",
+                    "rationale": "invalid enum should drop",
+                },
+            ],
+        }
+        analysis = executor._build_document_analysis(
+            final_results=[self._final_result(model_output)],
+            document=self._make_document(research_id=1, document_hash="h"),
+            chunks=[],
+            evidence_units=[],
+            assertions=[],
+            run_id=1,
+            analysis_version="argmap-v1",
+            round_traces=[],
+        )
+        assert analysis is not None
+        assert len(analysis.trading_opportunities) == 1
+        assert len(analysis.trading_opportunities[0].rationale) == 200
+        assert analysis.trading_opportunities[0].rationale == long_rationale[:200]
 
 
 if __name__ == "__main__":

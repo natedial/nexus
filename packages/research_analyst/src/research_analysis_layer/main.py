@@ -15,7 +15,7 @@ if str(_WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(_WORKSPACE_ROOT))
 
 from research_pipeline_ops import PipelineOpsClient
-from research_analysis_layer.config import Settings
+from research_analysis_layer.config import Settings, resolve_codex_bin
 from research_analysis_layer.db import (
     AnalysisStore,
     CalendarDbClient,
@@ -224,6 +224,11 @@ def command_doctor(settings: Settings) -> int:
         "agent_execution": {
             "enabled": settings.agent_execution_enabled,
             "provider": settings.agent_llm_provider,
+            "codex_bin": (
+                resolve_codex_bin(settings.agent_llm_codex_bin)
+                if (settings.agent_llm_provider or "").strip().lower() == "codex"
+                else None
+            ),
             "configured_agent_count": len(registry.get_agent_names()),
             "prompt_resolution": prompt_status,
         },

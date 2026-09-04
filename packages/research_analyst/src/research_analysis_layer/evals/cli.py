@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--judge-model",
         type=str,
-        default="claude-haiku-4-5-20251001",
+        default="gpt-5-mini",
         help="Model to use for LLM judge",
     )
 
@@ -119,18 +119,17 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     print(f"Output: {output_dir}")
 
     from research_analysis_layer.services.agent_llm_client import (
-        AnthropicAgentLlmClient,
+        build_agent_llm_client,
     )
 
-    api_key = settings.agent_llm_api_key or settings.anthropic_api_key
-    if not api_key:
+    llm_client = build_agent_llm_client(settings)
+    if llm_client is None:
         print(
-            "Error: ANTHROPIC_API_KEY or AGENT_LLM_API_KEY environment variable required",
+            "Error: set AGENT_LLM_PROVIDER=openai (with AGENT_LLM_API_KEY) "
+            "or AGENT_LLM_PROVIDER=codex",
             file=sys.stderr,
         )
         return 1
-
-    llm_client = AnthropicAgentLlmClient(api_key=api_key)
 
     runner = AgentEvalRunner(
         llm_client=llm_client,
@@ -190,10 +189,10 @@ def cmd_compare(args: argparse.Namespace, settings: Settings) -> int:
         output_dir = Path("research_analyst/evals/results")
 
     from research_analysis_layer.services.agent_llm_client import (
-        AnthropicAgentLlmClient,
+        build_agent_llm_client,
     )
 
-    llm_client = AnthropicAgentLlmClient(api_key=settings.anthropic_api_key)
+    llm_client = build_agent_llm_client(settings)
 
     runner = AgentEvalRunner(
         llm_client=llm_client,

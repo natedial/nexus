@@ -9,13 +9,18 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic import ValidationError
+
 from research_analysis_layer.models.agent_outputs import (
     ARGUMENT_MAP_VERSION,
     AgentExecutionMetadata,
     DocumentAnalysis,
     DocumentAngle,
     RoundTrace,
+    ShortTimeHorizonInsight,
+    TalkingPoint,
     ToolCallTrace,
+    TradingOpportunity,
 )
 from research_analysis_layer.models.debate_models import (
     DebateArgument,
@@ -1247,13 +1252,28 @@ class RoundExecutor:
             parsed["assertions"] = parsed["payload_json"].get("assertions", [])
             parsed["world_nodes"] = parsed["payload_json"].get("world_nodes", [])
             parsed["world_edges"] = parsed["payload_json"].get("world_edges", [])
-            parsed["trading_opportunities"] = parsed["payload_json"].get(
-                "trading_opportunities", []
+            parsed["trading_opportunities"] = self._coerce_model_list(
+                TradingOpportunity,
+                parsed["payload_json"].get("trading_opportunities"),
+                "trading_opportunities",
             )
-            parsed["short_time_horizon_insights"] = parsed["payload_json"].get(
-                "short_time_horizon_insights", []
+            parsed["short_time_horizon_insights"] = self._coerce_model_list(
+                ShortTimeHorizonInsight,
+                parsed["payload_json"].get("short_time_horizon_insights"),
+                "short_time_horizon_insights",
             )
-            parsed["talking_points"] = parsed["payload_json"].get("talking_points", [])
+            parsed["talking_points"] = self._coerce_model_list(
+                TalkingPoint,
+                parsed["payload_json"].get("talking_points"),
+                "talking_points",
+            )
+            parsed["payload_json"]["trading_opportunities"] = parsed[
+                "trading_opportunities"
+            ]
+            parsed["payload_json"]["short_time_horizon_insights"] = parsed[
+                "short_time_horizon_insights"
+            ]
+            parsed["payload_json"]["talking_points"] = parsed["talking_points"]
             parsed["cross_document_references"] = parsed["payload_json"].get(
                 "cross_document_references", []
             )
@@ -1273,10 +1293,57 @@ class RoundExecutor:
         return None
 
     @staticmethod
+    def _field_max_length(field: Any) -> int | None:
+        for meta in getattr(field, "metadata", ()) or ():
+            max_length = getattr(meta, "max_length", None)
+            if max_length is not None:
+                return int(max_length)
+        return None
+
+    @classmethod
+    def _clamp_string_constraints(
+        cls, model_cls: Any, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        clamped = dict(item)
+        for name, field in model_cls.model_fields.items():
+            value = clamped.get(name)
+            if not isinstance(value, str):
+                continue
+            max_length = cls._field_max_length(field)
+            if max_length is not None and len(value) > max_length:
+                logger.warning(
+                    "%s.%s exceeds max_length=%s; truncating from %s chars",
+                    model_cls.__name__,
+                    name,
+                    max_length,
+                    len(value),
+                )
+                clamped[name] = value[:max_length]
+        return clamped
+
+    @classmethod
+    def _coerce_model_list(
+        cls, model_cls: Any, raw: object, label: str
+    ) -> list[dict[str, Any]]:
+        """Keep valid items; truncate over-long strings; drop the rest."""
+        if not isinstance(raw, list):
+            return []
+        kept: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                logger.warning("%s: dropping non-object item", label)
+                continue
+            clamped = cls._clamp_string_constraints(model_cls, item)
+            try:
+                kept.append(model_cls.model_validate(clamped).model_dump(mode="json"))
+            except ValidationError as e:
+                logger.warning("%s: dropping invalid item: %s", label, e)
+        return kept
+
+    @staticmethod
     def _coerce_argument_map(raw: object) -> list[dict]:
         """Keep well-formed ClaimNode dicts; log and drop the rest."""
         from research_analysis_layer.models.agent_outputs import ClaimNode
-        from pydantic import ValidationError
 
         if not isinstance(raw, list):
             return []
