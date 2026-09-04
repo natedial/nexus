@@ -75,8 +75,35 @@ class TestOpenAIClientInit:
             model="gpt-5-mini",
             messages=[{"role": "user", "content": "hi"}],
         )
-        assert body["max_completion_tokens"] == 4096
+        assert body["max_completion_tokens"] == 16384
         assert "max_tokens" not in body
+        assert body["reasoning_effort"] == "low"
+
+    def test_gpt5_reasoning_effort_can_be_overridden(self):
+        c = OpenAICompatibleAgentLlmClient(
+            api_key="sk-test",
+            use_max_completion_tokens=True,
+            max_output_tokens=32768,
+            reasoning_effort="medium",
+        )
+        body = c._build_request_body(
+            model="gpt-5-mini",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        assert body["max_completion_tokens"] == 32768
+        assert body["reasoning_effort"] == "medium"
+
+    def test_non_gpt5_models_omit_reasoning_effort(self):
+        c = OpenAICompatibleAgentLlmClient(
+            api_key="sk-test",
+            use_max_completion_tokens=True,
+        )
+        body = c._build_request_body(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        assert "reasoning_effort" not in body
+        assert body["max_completion_tokens"] == 16384
 
 
 class TestOpenAIGenerateStructured:
@@ -321,6 +348,8 @@ class TestBuildAgentLlmClient:
         s.agent_llm_provider = provider
         s.agent_llm_api_key = key
         s.agent_llm_base_url = base_url
+        s.agent_llm_max_output_tokens = 16384
+        s.agent_llm_reasoning_effort = None
         return s
 
     def test_openai_provider_returns_openai_client(self):

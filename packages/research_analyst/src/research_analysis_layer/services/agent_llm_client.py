@@ -518,11 +518,15 @@ class OpenAICompatibleAgentLlmClient:
         base_url: str | None = None,
         tool_registry: Any | None = None,
         use_max_completion_tokens: bool = False,
+        max_output_tokens: int = 16384,
+        reasoning_effort: str | None = None,
     ):
         self.api_key = api_key
         self.base_url = (base_url or "https://api.openai.com").rstrip("/")
         self._tool_registry = tool_registry
         self._use_max_completion_tokens = use_max_completion_tokens
+        self._max_output_tokens = max_output_tokens
+        self._reasoning_effort = reasoning_effort
 
     def _build_request_body(
         self,
@@ -540,10 +544,22 @@ class OpenAICompatibleAgentLlmClient:
             if self._use_max_completion_tokens
             else "max_tokens"
         )
-        body[token_limit_field] = 4096
+        body[token_limit_field] = self._max_output_tokens
+        reasoning_effort = self._reasoning_effort_for_model(model)
+        if reasoning_effort:
+            body["reasoning_effort"] = reasoning_effort
         if tools:
             body["tools"] = self._adapt_tools(tools)
         return body
+
+    def _reasoning_effort_for_model(self, model: str) -> str | None:
+        if self._reasoning_effort:
+            return self._reasoning_effort
+        # gpt-5* reasoning tokens share the completion budget. Default low so
+        # DocumentAnalysis JSON still fits instead of finishing with empty content.
+        if model.startswith("gpt-5"):
+            return "low"
+        return None
 
     def generate_structured(
         self,
@@ -787,11 +803,20 @@ def build_agent_llm_client(
             tool_registry=tool_registry,
         )
     if provider in {"openai", "openai_compatible"}:
+        raw_max = getattr(settings, "agent_llm_max_output_tokens", 16384)
+        try:
+            max_output_tokens = int(raw_max)
+        except (TypeError, ValueError):
+            max_output_tokens = 16384
+        raw_effort = getattr(settings, "agent_llm_reasoning_effort", None)
+        reasoning_effort = raw_effort if isinstance(raw_effort, str) and raw_effort.strip() else None
         return OpenAICompatibleAgentLlmClient(
             api_key=api_key,
             base_url=base_url,
             tool_registry=tool_registry,
             use_max_completion_tokens=(provider == "openai"),
+            max_output_tokens=max_output_tokens if max_output_tokens > 0 else 16384,
+            reasoning_effort=reasoning_effort,
         )
     logger.warning("Unknown agent LLM provider %r — agent execution disabled", provider)
     return None

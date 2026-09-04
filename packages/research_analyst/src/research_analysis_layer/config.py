@@ -101,6 +101,8 @@ class Settings:
     agent_llm_api_key: str | None = None
     agent_llm_base_url: str | None = None
     agent_llm_timeout_seconds: int | None = None
+    agent_llm_max_output_tokens: int = 16384
+    agent_llm_reasoning_effort: str | None = None
     analyst_round_mode: str = "rounds"
     analyst_tools_enabled: bool = False
     distill_tool_module: str = "distill_tool.api"
@@ -176,6 +178,11 @@ class Settings:
                 if os.getenv("AGENT_LLM_TIMEOUT_SECONDS") is not None
                 else None
             ),
+            agent_llm_max_output_tokens=_env_int(
+                "AGENT_LLM_MAX_OUTPUT_TOKENS", 16384
+            ),
+            agent_llm_reasoning_effort=os.getenv("AGENT_LLM_REASONING_EFFORT")
+            or None,
             analyst_round_mode=os.getenv("ANALYST_ROUND_MODE", "rounds"),
             analyst_tools_enabled=_env_bool("ANALYST_TOOLS_ENABLED", False),
             distill_tool_module=os.getenv("DISTILL_TOOL_MODULE", "distill_tool.api"),
@@ -238,6 +245,11 @@ class Settings:
                 )
             if not self.agent_llm_api_key:
                 errors.append("missing agent llm api key: set AGENT_LLM_API_KEY")
+        if self.agent_llm_max_output_tokens <= 0:
+            errors.append(
+                "invalid agent llm max output tokens: must be positive, "
+                f"received {self.agent_llm_max_output_tokens}"
+            )
         if self.analyst_debate_mode not in {"off", "shadow", "on"}:
             errors.append(
                 "invalid analyst_debate_mode: expected off, shadow, or on, "
