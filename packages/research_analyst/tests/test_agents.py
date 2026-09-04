@@ -221,8 +221,7 @@ class AgentsTest(unittest.TestCase):
 
 
 def test_synthesizer_prompt_mentions_key_contract_points():
-    """The debate synthesizer must consume adjudicated forum state, not raw
-    specialist summaries, and still describe the downstream output contract."""
+    """The synthesizer uses forum state when present, otherwise the base payload."""
     from research_analysis_layer.services.agent_registry import AgentRegistry
 
     registry = AgentRegistry()
@@ -232,6 +231,7 @@ def test_synthesizer_prompt_mentions_key_contract_points():
     assert "forum_context" in content
     assert "accepted/synthesized" in content
     assert "verdict" in content.lower()
+    assert "debate rounds were skipped" in content
 
     # It documents the sub-schemas for structured outputs.
     assert "TradingOpportunity" in content
@@ -242,7 +242,7 @@ def test_synthesizer_prompt_mentions_key_contract_points():
     assert "document_key" in content
     assert "orchestrator" in content.lower()
 
-    assert "Do not resolve raw disagreement yourself" in content
+    assert "Do not refuse" in content
 
 
 def test_payload_structure_component_matches_runtime_schema():
