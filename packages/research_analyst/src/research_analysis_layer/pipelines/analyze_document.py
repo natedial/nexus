@@ -36,6 +36,7 @@ class AnalyzeDocumentPipeline:
         round_executor=None,
         eval_trigger=None,
         referent_resolver=None,
+        claim_resolver=None,
     ):
         self.store = store
         self.chunker = chunker
@@ -49,6 +50,7 @@ class AnalyzeDocumentPipeline:
         self.round_executor = round_executor
         self._eval_trigger = eval_trigger
         self.referent_resolver = referent_resolver
+        self.claim_resolver = claim_resolver
 
     def run(
         self,
@@ -375,12 +377,13 @@ class AnalyzeDocumentPipeline:
         )
 
     def _resolve_argument_map(self, doc_analysis) -> None:
-        if self.referent_resolver is None:
-            return
         argument_map = getattr(doc_analysis, "argument_map", None)
         if not isinstance(argument_map, list) or not argument_map:
             return
-        self.referent_resolver.resolve_argument_map(argument_map)
+        if self.referent_resolver is not None:
+            self.referent_resolver.resolve_argument_map(argument_map)
+        if self.claim_resolver is not None:
+            self.claim_resolver.resolve_argument_map(argument_map)
 
     def _write_shadow_analysis(self, *, doc_analysis, debate_session_id: str) -> None:
         total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)

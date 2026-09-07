@@ -28,6 +28,7 @@ from research_analysis_layer.services import (
     AgentInputBuilder,
     AssertionExtractor,
     Chunker,
+    ClaimKeyResolver,
     EvidenceBuilder,
     EvidenceReferentResolver,
     ForecastExtractor,
@@ -43,6 +44,11 @@ from research_analysis_layer.services import (
     build_agent_llm_client,
 )
 from research_analysis_layer.services.agent_registry import get_registry
+from research_analysis_layer.services.claim_key_resolver import (
+    claim_resolution_stats,
+    load_claim_golden,
+    score_claim_golden,
+)
 from research_analysis_layer.services.evidence_referent_resolver import (
     load_referent_golden,
     referent_resolution_stats,
@@ -148,6 +154,7 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         referent_resolver=EvidenceReferentResolver(
             granularity=settings.referent_granularity,
         ),
+        claim_resolver=ClaimKeyResolver(),
     )
 
     ops = PipelineOpsClient.from_env(
@@ -218,6 +225,47 @@ def _referent_resolution_report(store: AnalysisStore, settings: Settings) -> dic
             payloads.append(payload)
     stats = referent_resolution_stats(payloads, resolver)
     return stats
+
+
+def _claim_resolution_report(store: AnalysisStore) -> dict:
+    resolver = ClaimKeyResolver()
+    try:
+        rows = store.list_document_analyses()
+    except Exception as exc:  # pragma: no cover
+        return {"error": str(exc)}
+    payloads = [
+        row["payload_json"]
+        for row in rows
+        if isinstance(row.get("payload_json"), dict)
+    ]
+    return claim_resolution_stats(payloads, resolver)
+
+
+def _write_resolved_payloads(store: AnalysisStore, rows: list[dict], mutate) -> int:
+    updated = 0
+    for row in rows:
+        payload = row.get("payload_json")
+        if not isinstance(payload, dict):
+            continue
+        mutate(payload)
+        store.write_document_analysis(
+            document_key=str(row["document_key"]),
+            research_id=int(row["research_id"]),
+            document_hash=str(row["document_hash"]),
+            analysis_version=str(row["analysis_version"]),
+            run_id=str(row["run_id"]),
+            payload_json=json.dumps(payload, sort_keys=True),
+            thesis=row.get("thesis") if isinstance(row.get("thesis"), str) else None,
+            confidence=(
+                float(row["confidence"]) if row.get("confidence") is not None else None
+            ),
+            total_input_tokens=int(row.get("total_input_tokens") or 0),
+            total_output_tokens=int(row.get("total_output_tokens") or 0),
+            total_tool_calls=int(row.get("total_tool_calls") or 0),
+            total_duration_ms=int(row.get("total_duration_ms") or 0),
+        )
+        updated += 1
+    return updated
 
 
 def command_resolve_referents(
@@ -295,6 +343,52 @@ def command_resolve_referents(
     return 0
 
 
+def command_resolve_claims(
+    settings: Settings,
+    *,
+    golden: str | None,
+    apply: bool,
+    limit: int | None,
+) -> int:
+    """Score the claim golden set and optionally backfill stored maps."""
+    resolver = ClaimKeyResolver()
+    golden_path = Path(golden) if golden else (
+        Path(__file__).resolve().parents[2] / "evals" / "golden" / "claims.jsonl"
+    )
+    report: dict[str, object] = {"golden_path": str(golden_path)}
+    if golden_path.exists():
+        report["golden"] = score_claim_golden(load_claim_golden(golden_path), resolver)
+    else:
+        report["golden"] = {"error": f"golden set not found: {golden_path}"}
+
+    store = AnalysisStore(settings.analysis_db_path)
+    stored_rows = store.list_document_analyses(limit=limit)
+    payloads = [
+        row["payload_json"]
+        for row in stored_rows
+        if isinstance(row.get("payload_json"), dict)
+    ]
+    report["store"] = claim_resolution_stats(payloads, resolver)
+    report["apply"] = apply
+    if apply:
+        report["updated_rows"] = _write_resolved_payloads(
+            store, stored_rows, resolver.resolve_payload
+        )
+        report["store_after"] = claim_resolution_stats(
+            [
+                row["payload_json"]
+                for row in store.list_document_analyses(limit=limit)
+                if isinstance(row.get("payload_json"), dict)
+            ],
+            resolver,
+        )
+    print(json.dumps(report, indent=2, sort_keys=True))
+    golden_report = report.get("golden")
+    if isinstance(golden_report, dict) and golden_report.get("false_merges"):
+        return 1
+    return 0
+
+
 def command_doctor(settings: Settings) -> int:
     """Run basic environment and connectivity checks."""
     errors = settings.validate()
@@ -341,6 +435,7 @@ def command_doctor(settings: Settings) -> int:
             "backfill_require_warning_free": settings.backfill_require_warning_free,
         },
         "referent_resolution": _referent_resolution_report(pipeline.store, settings),
+        "claim_resolution": _claim_resolution_report(pipeline.store),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
@@ -939,6 +1034,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override REFERENT_GRANULARITY (coarse|fine)",
     )
 
+    resolve_claims = subparsers.add_parser(
+        "resolve-claims",
+        help="Score the claim golden set and optionally backfill claim_key on stored maps",
+    )
+    resolve_claims.add_argument(
+        "--golden",
+        type=str,
+        default=None,
+        help="Path to claims.jsonl (default: evals/golden/claims.jsonl)",
+    )
+    resolve_claims.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write resolved claim_key values back into document_analysis.payload_json",
+    )
+    resolve_claims.add_argument("--limit", type=int, default=None)
+
     return parser
 
 
@@ -1050,6 +1162,13 @@ def main(argv: list[str] | None = None) -> int:
             apply=args.apply,
             limit=args.limit,
             granularity=args.granularity,
+        )
+    if args.command == "resolve-claims":
+        return command_resolve_claims(
+            settings,
+            golden=args.golden,
+            apply=args.apply,
+            limit=args.limit,
         )
     parser.error(f"unknown command: {args.command}")
     return 2

@@ -226,6 +226,7 @@ def test_pipeline_resolves_referent_keys_before_write():
         EvidenceRef,
         RoundTrace,
     )
+    from research_analysis_layer.services.claim_key_resolver import ClaimKeyResolver
     from research_analysis_layer.services.evidence_referent_resolver import (
         EvidenceReferentResolver,
     )
@@ -280,7 +281,8 @@ def test_pipeline_resolves_referent_keys_before_write():
         ),
         argument_map=[
             ClaimNode(
-                claim="Warsh's Jackson Hole speech was hawkish.",
+                claim="Chair Warsh's Jackson Hole speech was more hawkish than expected.",
+                stance="hawkish",
                 evidence=[
                     EvidenceRef(
                         text="Chair Warsh's Jackson Hole speech was more hawkish than expected.",
@@ -305,6 +307,7 @@ def test_pipeline_resolves_referent_keys_before_write():
         analysis_version="bootstrap-v1",
         round_executor=round_executor,
         referent_resolver=EvidenceReferentResolver(granularity="coarse"),
+        claim_resolver=ClaimKeyResolver(),
     )
 
     result = pipeline.run(
@@ -319,4 +322,8 @@ def test_pipeline_resolves_referent_keys_before_write():
     assert (
         payload["argument_map"][0]["evidence"][0]["referent_key"]
         == "event:jackson_hole_2026"
+    )
+    assert (
+        payload["argument_map"][0]["claim_key"]
+        == "claim:warsh_speech_tone:tone:up"
     )
