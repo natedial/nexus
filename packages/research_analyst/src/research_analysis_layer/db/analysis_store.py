@@ -1797,6 +1797,44 @@ class AnalysisStore:
             "debate_verdicts": debate_session["verdicts"] if debate_session else [],
         }
 
+    def list_document_analyses(
+        self,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, object]]:
+        """Return stored document_analysis rows, newest first."""
+        query = """
+            SELECT
+                document_key,
+                research_id,
+                document_hash,
+                analysis_version,
+                run_id,
+                payload_json,
+                thesis,
+                confidence,
+                total_input_tokens,
+                total_output_tokens,
+                total_tool_calls,
+                total_duration_ms
+            FROM document_analysis
+            ORDER BY updated_at DESC
+        """
+        params: list[object] = []
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        results: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            raw_payload = item.get("payload_json")
+            if isinstance(raw_payload, str):
+                item["payload_json"] = json.loads(raw_payload)
+            results.append(item)
+        return results
+
     def get_analysis_counts(self) -> dict[str, int]:
         with self._connect() as conn:
             tables = [

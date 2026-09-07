@@ -149,6 +149,7 @@ class Settings:
     analyst_debate_mode: str = "off"
     analyst_debate_judge_model: str | None = None
     analyst_max_debate_arguments: int = 8
+    referent_granularity: str = "coarse"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -230,6 +231,7 @@ class Settings:
             analyst_debate_mode=os.getenv("ANALYST_DEBATE_MODE", "off"),
             analyst_debate_judge_model=os.getenv("ANALYST_DEBATE_JUDGE_MODEL"),
             analyst_max_debate_arguments=_env_int("ANALYST_MAX_DEBATE_ARGUMENTS", 8),
+            referent_granularity=os.getenv("REFERENT_GRANULARITY", "coarse"),
         )
 
     @property
@@ -301,5 +303,10 @@ class Settings:
             errors.append(
                 "invalid analyst_max_debate_arguments: must be positive, "
                 f"received {self.analyst_max_debate_arguments}"
+            )
+        if self.referent_granularity not in {"coarse", "fine"}:
+            errors.append(
+                "invalid referent_granularity: expected coarse or fine, "
+                f"received {self.referent_granularity!r}"
             )
         return errors

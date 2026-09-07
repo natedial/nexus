@@ -35,6 +35,7 @@ class AnalyzeDocumentPipeline:
         analysis_version: str,
         round_executor=None,
         eval_trigger=None,
+        referent_resolver=None,
     ):
         self.store = store
         self.chunker = chunker
@@ -47,6 +48,7 @@ class AnalyzeDocumentPipeline:
         self.analysis_version = analysis_version
         self.round_executor = round_executor
         self._eval_trigger = eval_trigger
+        self.referent_resolver = referent_resolver
 
     def run(
         self,
@@ -217,6 +219,7 @@ class AnalyzeDocumentPipeline:
 
                 if shadow_analysis is not None and authoritative is not None:
                     self.round_executor.rollout_stats.shadow_runs_total += 1
+                    self._resolve_argument_map(shadow_analysis)
                     self._write_shadow_analysis(
                         doc_analysis=shadow_analysis,
                         debate_session_id=(
@@ -256,6 +259,7 @@ class AnalyzeDocumentPipeline:
                     agent_no_output_count=1,
                 )
             doc_analysis = authoritative
+            self._resolve_argument_map(doc_analysis)
             total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)
             total_output = sum(rt.output_tokens for rt in doc_analysis.round_traces)
             total_tool_calls = sum(
@@ -369,6 +373,14 @@ class AnalyzeDocumentPipeline:
                 "gate_reason": decision.reason,
             },
         )
+
+    def _resolve_argument_map(self, doc_analysis) -> None:
+        if self.referent_resolver is None:
+            return
+        argument_map = getattr(doc_analysis, "argument_map", None)
+        if not isinstance(argument_map, list) or not argument_map:
+            return
+        self.referent_resolver.resolve_argument_map(argument_map)
 
     def _write_shadow_analysis(self, *, doc_analysis, debate_session_id: str) -> None:
         total_input = sum(rt.input_tokens for rt in doc_analysis.round_traces)
