@@ -10,14 +10,26 @@ class _Prov:
 
 
 class _Item:
-    def __init__(self, label, text, page_no=1, bbox=None, level=None, table_md=None):
+    def __init__(
+        self,
+        label,
+        text,
+        page_no=1,
+        bbox=None,
+        level=None,
+        table_md=None,
+        require_doc=False,
+    ):
         self.label = label
         self.text = text
         self.level = level
         self.prov = [_Prov(page_no, bbox)]
         self._table_md = table_md
+        self._require_doc = require_doc
 
-    def export_to_markdown(self):
+    def export_to_markdown(self, *args, doc=None, **kwargs):
+        if self._require_doc and doc is None and not args:
+            raise AssertionError("export_to_markdown called without doc")
         return self._table_md
 
 
@@ -62,3 +74,15 @@ def test_blocks_from_docling_document_preserve_page_type_and_bbox():
 def test_blocks_from_docling_document_returns_empty_without_items():
     assert blocks_from_docling_document(None) == []
     assert blocks_from_docling_document(SimpleNamespace()) == []
+
+
+def test_table_export_passes_document_as_doc():
+    document = _Document(
+        [_Item("table", "", page_no=1, table_md="| a | b |\n| 1 | 2 |", require_doc=True)]
+    )
+
+    blocks = blocks_from_docling_document(document)
+
+    assert len(blocks) == 1
+    assert blocks[0].block_type == BlockType.TABLE
+    assert "| a | b |" in blocks[0].text

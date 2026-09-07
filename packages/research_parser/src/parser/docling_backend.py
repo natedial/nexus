@@ -499,34 +499,41 @@ def _caption_text(item, document) -> str:
     return ""
 
 
+def _call_with_doc(fn, document):
+    """Call a Docling export, preferring the current `doc=` signature."""
+    attempts = (
+        ((), {"doc": document}),
+        ((document,), {}),
+        ((), {}),
+    )
+    for args, kwargs in attempts:
+        try:
+            return fn(*args, **kwargs)
+        except TypeError:
+            continue
+    return None
+
+
 def _table_text(item, document) -> str:
     for attr in ("export_to_markdown", "to_markdown"):
         fn = getattr(item, attr, None)
         if not callable(fn):
             continue
-        for args in ((), (document,), (),):
-            try:
-                value = fn(*args) if args else fn()
-            except TypeError:
-                continue
-            except Exception:
-                value = None
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+        try:
+            value = _call_with_doc(fn, document)
+        except Exception:
+            value = None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
 
     for attr in ("export_to_dataframe", "to_dataframe"):
         fn = getattr(item, attr, None)
         if not callable(fn):
             continue
-        frame = None
-        for args in ((document,), ()):
-            try:
-                frame = fn(*args) if args else fn()
-                break
-            except TypeError:
-                continue
-            except Exception:
-                frame = None
+        try:
+            frame = _call_with_doc(fn, document)
+        except Exception:
+            frame = None
         to_markdown = getattr(frame, "to_markdown", None)
         if callable(to_markdown):
             try:
