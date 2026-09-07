@@ -7,6 +7,7 @@ from .chunker import Chunker
 from .debate_ranker import DebateRanker
 from .debate_session_builder import DebateSessionBuilder
 from .evidence_builder import EvidenceBuilder
+from .evidence_referent_resolver import EvidenceReferentResolver
 from .forecast_extractor import ForecastExtractor
 from .forecast_matcher import ForecastMatcher
 from .graph_updater import GraphUpdater
@@ -26,6 +27,7 @@ __all__ = [
     "DebateRanker",
     "DebateSessionBuilder",
     "EvidenceBuilder",
+    "EvidenceReferentResolver",
     "ForecastExtractor",
     "ForecastMatcher",
     "GraphUpdater",

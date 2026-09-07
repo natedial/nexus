@@ -213,3 +213,110 @@ def test_pipeline_succeeds_and_writes_document_analysis():
     assert call_kwargs["total_input_tokens"] == 100
     assert call_kwargs["total_output_tokens"] == 50
     assert call_kwargs["total_tool_calls"] == 0
+
+
+def test_pipeline_resolves_referent_keys_before_write():
+    import json
+    from datetime import datetime, timezone
+
+    from research_analysis_layer.models.agent_outputs import (
+        AgentExecutionMetadata,
+        ClaimNode,
+        DocumentAnalysis,
+        EvidenceRef,
+        RoundTrace,
+    )
+    from research_analysis_layer.services.evidence_referent_resolver import (
+        EvidenceReferentResolver,
+    )
+
+    store = MagicMock()
+    chunker = MagicMock()
+    chunker.chunk_document.return_value = []
+    evidence_builder = MagicMock()
+    evidence_builder.build_evidence.return_value = []
+    assertion_extractor = MagicMock()
+    quality_reviewer = MagicMock()
+    quality_report = DocumentQualityReport(score=0.95, blocking_issues=[])
+    quality_reviewer.review.return_value = quality_report
+    quality_reviewer.to_json.return_value = '{"score": 0.95, "passed": true}'
+
+    doc_analysis = DocumentAnalysis(
+        document_key="file:file-5246",
+        research_id=5246,
+        document_hash="hash-5246",
+        analysis_version="bootstrap-v1",
+        thesis="Test thesis",
+        contrarian_view="Test contrarian",
+        recommended_positioning="Test positioning",
+        trading_opportunities=[],
+        short_time_horizon_insights=[],
+        talking_points=[],
+        cross_document_references=[],
+        round_traces=[
+            RoundTrace(
+                round_name="synthesis",
+                duration_ms=100,
+                agent_count=1,
+                failed_agent_count=0,
+                tool_call_count=0,
+                input_tokens=100,
+                output_tokens=50,
+            )
+        ],
+        confidence=0.8,
+        metadata=AgentExecutionMetadata(
+            research_id=5246,
+            document_hash="hash-5246",
+            analysis_version="bootstrap-v1",
+            agent_type="synthesizer",
+            model_requested="gpt-5-mini",
+            model_used="gpt-5-mini",
+            prompt_path="prompts/agents/synthesizer.txt",
+            prompt_version="abc123",
+            run_id=99,
+            attempt_count=1,
+            analyzed_at=datetime.now(timezone.utc),
+        ),
+        argument_map=[
+            ClaimNode(
+                claim="Warsh's Jackson Hole speech was hawkish.",
+                evidence=[
+                    EvidenceRef(
+                        text="Chair Warsh's Jackson Hole speech was more hawkish than expected.",
+                        kind="quote",
+                    )
+                ],
+            )
+        ],
+    )
+    round_executor = MagicMock()
+    round_executor.run.return_value = doc_analysis
+
+    pipeline = AnalyzeDocumentPipeline(
+        store=store,
+        chunker=chunker,
+        evidence_builder=evidence_builder,
+        assertion_extractor=assertion_extractor,
+        resolver=MagicMock(resolve_nodes=MagicMock(return_value=[]), resolve_edges=MagicMock(return_value=[])),
+        graph_updater=MagicMock(),
+        lifecycle_service=MagicMock(),
+        quality_reviewer=quality_reviewer,
+        analysis_version="bootstrap-v1",
+        round_executor=round_executor,
+        referent_resolver=EvidenceReferentResolver(granularity="coarse"),
+    )
+
+    result = pipeline.run(
+        run_id=99,
+        parser_updated_at="2026-04-16T00:00:00+00:00",
+        document=_make_document(),
+        agent_only=True,
+    )
+
+    assert result.status == "success"
+    payload = json.loads(store.write_document_analysis.call_args[1]["payload_json"])
+    assert (
+        payload["argument_map"][0]["evidence"][0]["referent_key"]
+        == "event:jackson_hole_2026"
+    )

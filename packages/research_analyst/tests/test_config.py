@@ -91,6 +91,32 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(settings.calendar_db_key, "secret")
         self.assertEqual(settings.calendar_match_source, "economic_events")
 
+    def test_referent_granularity_defaults_coarse(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+            "REFERENT_GRANULARITY": "coarse",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertEqual(settings.referent_granularity, "coarse")
+        self.assertFalse(
+            any("referent_granularity" in error for error in settings.validate())
+        )
+
+    def test_invalid_referent_granularity_is_a_config_error(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+            "REFERENT_GRANULARITY": "medium",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertIn(
+            "invalid referent_granularity: expected coarse or fine, received 'medium'",
+            settings.validate(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

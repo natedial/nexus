@@ -29,6 +29,7 @@ from research_analysis_layer.services import (
     AssertionExtractor,
     Chunker,
     EvidenceBuilder,
+    EvidenceReferentResolver,
     ForecastExtractor,
     ForecastMatcher,
     GraphUpdater,
@@ -42,6 +43,11 @@ from research_analysis_layer.services import (
     build_agent_llm_client,
 )
 from research_analysis_layer.services.agent_registry import get_registry
+from research_analysis_layer.services.evidence_referent_resolver import (
+    load_referent_golden,
+    referent_resolution_stats,
+    score_referent_golden,
+)
 from research_analysis_layer.services.reconcile import reconcile_recent
 from research_analysis_layer.services.round_executor import RoundExecutor
 from research_analysis_layer.services.tools.registry import ToolRegistry
@@ -139,6 +145,9 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         analysis_version=settings.analysis_version,
         round_executor=round_executor,
         eval_trigger=eval_trigger,
+        referent_resolver=EvidenceReferentResolver(
+            granularity=settings.referent_granularity,
+        ),
     )
 
     ops = PipelineOpsClient.from_env(
@@ -193,6 +202,99 @@ def _print_rollout_stats(round_executor, *, settings: Settings | None = None) ->
     )
 
 
+def _referent_resolution_report(store: AnalysisStore, settings: Settings) -> dict:
+    resolver = EvidenceReferentResolver(granularity=settings.referent_granularity)
+    try:
+        rows = store.list_document_analyses()
+    except Exception as exc:  # pragma: no cover - doctor stays up if store is empty/unready
+        return {
+            "granularity": settings.referent_granularity,
+            "error": str(exc),
+        }
+    payloads = []
+    for row in rows:
+        payload = row.get("payload_json")
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    stats = referent_resolution_stats(payloads, resolver)
+    return stats
+
+
+def command_resolve_referents(
+    settings: Settings,
+    *,
+    golden: str | None,
+    apply: bool,
+    limit: int | None,
+    granularity: str | None,
+) -> int:
+    """Score the referent golden set and optionally backfill stored maps."""
+    resolved_granularity = (
+        granularity or settings.referent_granularity or "coarse"
+    ).strip().lower()
+    resolver = EvidenceReferentResolver(granularity=resolved_granularity)
+    golden_path = Path(golden) if golden else (
+        Path(__file__).resolve().parents[2] / "evals" / "golden" / "referents.jsonl"
+    )
+    report: dict[str, object] = {
+        "granularity": resolver.granularity,
+        "golden_path": str(golden_path),
+    }
+    if golden_path.exists():
+        rows = load_referent_golden(golden_path)
+        report["golden"] = score_referent_golden(rows, resolver)
+    else:
+        report["golden"] = {"error": f"golden set not found: {golden_path}"}
+
+    store = AnalysisStore(settings.analysis_db_path)
+    stored_rows = store.list_document_analyses(limit=limit)
+    payloads = []
+    for row in stored_rows:
+        payload = row.get("payload_json")
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    report["store"] = referent_resolution_stats(payloads, resolver)
+    report["apply"] = apply
+    updated = 0
+    if apply:
+        for row in stored_rows:
+            payload = row.get("payload_json")
+            if not isinstance(payload, dict):
+                continue
+            resolver.resolve_payload(payload)
+            store.write_document_analysis(
+                document_key=str(row["document_key"]),
+                research_id=int(row["research_id"]),
+                document_hash=str(row["document_hash"]),
+                analysis_version=str(row["analysis_version"]),
+                run_id=str(row["run_id"]),
+                payload_json=json.dumps(payload, sort_keys=True),
+                thesis=row.get("thesis") if isinstance(row.get("thesis"), str) else None,
+                confidence=(
+                    float(row["confidence"]) if row.get("confidence") is not None else None
+                ),
+                total_input_tokens=int(row.get("total_input_tokens") or 0),
+                total_output_tokens=int(row.get("total_output_tokens") or 0),
+                total_tool_calls=int(row.get("total_tool_calls") or 0),
+                total_duration_ms=int(row.get("total_duration_ms") or 0),
+            )
+            updated += 1
+        report["updated_rows"] = updated
+        report["store_after"] = referent_resolution_stats(
+            [
+                row["payload_json"]
+                for row in store.list_document_analyses(limit=limit)
+                if isinstance(row.get("payload_json"), dict)
+            ],
+            resolver,
+        )
+    print(json.dumps(report, indent=2, sort_keys=True))
+    golden_report = report.get("golden")
+    if isinstance(golden_report, dict) and golden_report.get("false_merges"):
+        return 1
+    return 0
+
+
 def command_doctor(settings: Settings) -> int:
     """Run basic environment and connectivity checks."""
     errors = settings.validate()
@@ -238,6 +340,7 @@ def command_doctor(settings: Settings) -> int:
             "min_usable_theme_ratio": settings.min_usable_theme_ratio,
             "backfill_require_warning_free": settings.backfill_require_warning_free,
         },
+        "referent_resolution": _referent_resolution_report(pipeline.store, settings),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
@@ -813,6 +916,29 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-orphans", type=str, default="true", choices=["true", "false"]
     )
 
+    resolve_referents = subparsers.add_parser(
+        "resolve-referents",
+        help="Score the referent golden set and optionally backfill referent_key on stored maps",
+    )
+    resolve_referents.add_argument(
+        "--golden",
+        type=str,
+        default=None,
+        help="Path to referents.jsonl (default: evals/golden/referents.jsonl)",
+    )
+    resolve_referents.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write resolved referent_key values back into document_analysis.payload_json",
+    )
+    resolve_referents.add_argument("--limit", type=int, default=None)
+    resolve_referents.add_argument(
+        "--granularity",
+        type=str,
+        default=None,
+        help="Override REFERENT_GRANULARITY (coarse|fine)",
+    )
+
     return parser
 
 
@@ -916,6 +1042,14 @@ def main(argv: list[str] | None = None) -> int:
             batch_key=args.batch_key,
             out=args.out,
             include_orphans=args.include_orphans == "true",
+        )
+    if args.command == "resolve-referents":
+        return command_resolve_referents(
+            settings,
+            golden=args.golden,
+            apply=args.apply,
+            limit=args.limit,
+            granularity=args.granularity,
         )
     parser.error(f"unknown command: {args.command}")
     return 2
