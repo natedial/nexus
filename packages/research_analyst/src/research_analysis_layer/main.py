@@ -31,6 +31,8 @@ from research_analysis_layer.services import (
     ClaimKeyResolver,
     EvidenceBuilder,
     EvidenceReferentResolver,
+    distinct_publishers,
+    source_diversity,
     ForecastExtractor,
     ForecastMatcher,
     GraphUpdater,
@@ -241,6 +243,19 @@ def _claim_resolution_report(store: AnalysisStore) -> dict:
     return claim_resolution_stats(payloads, resolver)
 
 
+def _publisher_diversity_report(store: AnalysisStore) -> dict:
+    try:
+        docs = store.list_analyzed_documents()
+    except Exception as exc:  # pragma: no cover
+        return {"error": str(exc)}
+    publishers = distinct_publishers(docs)
+    return {
+        "document_count": len(docs),
+        "source_diversity": source_diversity(docs),
+        "publishers": [item.label for item in publishers],
+    }
+
+
 def _write_resolved_payloads(store: AnalysisStore, rows: list[dict], mutate) -> int:
     updated = 0
     for row in rows:
@@ -436,6 +451,7 @@ def command_doctor(settings: Settings) -> int:
         },
         "referent_resolution": _referent_resolution_report(pipeline.store, settings),
         "claim_resolution": _claim_resolution_report(pipeline.store),
+        "publisher_diversity": _publisher_diversity_report(pipeline.store),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
