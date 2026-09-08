@@ -290,3 +290,57 @@ def test_build_document_review_surfaces_argument_map(tmp_path):
     assert argument_map[0]["support_strength"] == "evidenced"
     assert argument_map[1]["rationale"] == "median dot implies an earlier move"
     assert argument_map[1]["support_strength"] == "reasoned"
+
+
+def test_list_argument_maps_for_consensus_joins_house_fields(tmp_path):
+    store = AnalysisStore(tmp_path / "analysis.db")
+    with store._connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO analysis_documents (
+                research_id, file_id, document_hash, source, source_date,
+                document_name, title, publisher, area, region, asset_focus,
+                document_link, ingested_at, last_analyzed_at,
+                latest_analysis_version, latest_successful_run_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                19,
+                "file-19",
+                "hash-19",
+                "Citi",
+                "2026-08-22",
+                "note.pdf",
+                "Note",
+                None,
+                None,
+                None,
+                None,
+                None,
+                "2026-08-22T00:00:00+00:00",
+                "2026-08-22T00:00:00+00:00",
+                "argmap-v1",
+                11,
+            ),
+        )
+    store.write_document_analysis(
+        document_key="doc:19:hash-19",
+        research_id=19,
+        document_hash="hash-19",
+        analysis_version="argmap-v1",
+        run_id="11",
+        payload_json=_argument_map_analysis_payload(),
+        thesis="thesis",
+        confidence=0.8,
+        total_input_tokens=10,
+        total_output_tokens=5,
+        total_tool_calls=0,
+        total_duration_ms=250,
+    )
+
+    rows = store.list_argument_maps_for_consensus()
+    assert len(rows) == 1
+    assert rows[0]["source"] == "Citi"
+    assert rows[0]["publisher"] is None
+    assert rows[0]["research_id"] == 19
+    assert "argument_map" in rows[0]["payload_json"]

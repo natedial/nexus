@@ -29,6 +29,7 @@ from research_analysis_layer.services import (
     AssertionExtractor,
     Chunker,
     ClaimKeyResolver,
+    ConsensusClusterer,
     EvidenceBuilder,
     EvidenceReferentResolver,
     distinct_publishers,
@@ -256,6 +257,25 @@ def _publisher_diversity_report(store: AnalysisStore) -> dict:
     }
 
 
+def _consensus_report(store: AnalysisStore, settings: Settings) -> dict:
+    try:
+        maps = store.list_argument_maps_for_consensus()
+    except Exception as exc:  # pragma: no cover
+        return {"error": str(exc)}
+    snapshot = ConsensusClusterer(
+        min_publishers=settings.consensus_min_publishers
+    ).cluster_maps(maps)
+    return {
+        "min_publishers": snapshot.min_publishers,
+        "clustered_claim_count": snapshot.clustered_claim_count,
+        "skipped_unresolved_count": snapshot.skipped_unresolved_count,
+        "agreement_count": len(snapshot.agreements),
+        "disagreement_count": len(snapshot.disagreements),
+        "agreements": [item.point for item in snapshot.agreements],
+        "disagreements": [item.point for item in snapshot.disagreements],
+    }
+
+
 def _write_resolved_payloads(store: AnalysisStore, rows: list[dict], mutate) -> int:
     updated = 0
     for row in rows:
@@ -404,6 +424,21 @@ def command_resolve_claims(
     return 0
 
 
+def command_consensus(
+    settings: Settings,
+    *,
+    min_publishers: int | None,
+    limit: int | None,
+) -> int:
+    """Cluster stored argument maps into consensus and divergence points."""
+    n = min_publishers if min_publishers is not None else settings.consensus_min_publishers
+    store = AnalysisStore(settings.analysis_db_path)
+    maps = store.list_argument_maps_for_consensus(limit=limit)
+    snapshot = ConsensusClusterer(min_publishers=n).cluster_maps(maps)
+    print(json.dumps(snapshot.model_dump(), indent=2, sort_keys=True))
+    return 0
+
+
 def command_doctor(settings: Settings) -> int:
     """Run basic environment and connectivity checks."""
     errors = settings.validate()
@@ -452,6 +487,7 @@ def command_doctor(settings: Settings) -> int:
         "referent_resolution": _referent_resolution_report(pipeline.store, settings),
         "claim_resolution": _claim_resolution_report(pipeline.store),
         "publisher_diversity": _publisher_diversity_report(pipeline.store),
+        "consensus": _consensus_report(pipeline.store, settings),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
@@ -1067,6 +1103,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resolve_claims.add_argument("--limit", type=int, default=None)
 
+    consensus = subparsers.add_parser(
+        "consensus",
+        help="Cluster stored argument maps into consensus and divergence points",
+    )
+    consensus.add_argument(
+        "--min-publishers",
+        type=int,
+        default=None,
+        help="Override CONSENSUS_MIN_PUBLISHERS (default 2)",
+    )
+    consensus.add_argument("--limit", type=int, default=None)
+
     return parser
 
 
@@ -1184,6 +1232,12 @@ def main(argv: list[str] | None = None) -> int:
             settings,
             golden=args.golden,
             apply=args.apply,
+            limit=args.limit,
+        )
+    if args.command == "consensus":
+        return command_consensus(
+            settings,
+            min_publishers=args.min_publishers,
             limit=args.limit,
         )
     parser.error(f"unknown command: {args.command}")

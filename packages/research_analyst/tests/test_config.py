@@ -117,6 +117,31 @@ class ConfigTest(unittest.TestCase):
             settings.validate(),
         )
 
+    def test_consensus_min_publishers_defaults_to_two(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertEqual(settings.consensus_min_publishers, 2)
+        self.assertFalse(
+            any("consensus_min_publishers" in error for error in settings.validate())
+        )
+
+    def test_invalid_consensus_min_publishers_is_a_config_error(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+            "CONSENSUS_MIN_PUBLISHERS": "1",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertIn(
+            "invalid consensus_min_publishers: must be >= 2, received 1",
+            settings.validate(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
