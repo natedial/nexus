@@ -14,6 +14,13 @@ from .forecast_matcher import ForecastMatcher
 from .graph_updater import GraphUpdater
 from .hydrator import Hydrator
 from .lifecycle import LifecycleService
+from .publisher_diversity import (
+    Publisher,
+    canonical_publisher,
+    distinct_publishers,
+    publisher_for_document,
+    source_diversity,
+)
 from .quality import QualityReviewer
 from .raw_forecast_extractor import RawForecastExtractor
 from .review_harness import ReviewHarness
@@ -35,9 +42,14 @@ __all__ = [
     "GraphUpdater",
     "Hydrator",
     "LifecycleService",
+    "Publisher",
     "QualityReviewer",
     "RawForecastExtractor",
     "ReviewHarness",
     "Resolver",
     "Selector",
+    "canonical_publisher",
+    "distinct_publishers",
+    "publisher_for_document",
+    "source_diversity",
 ]
