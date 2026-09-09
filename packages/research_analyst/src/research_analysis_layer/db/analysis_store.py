@@ -1835,6 +1835,39 @@ class AnalysisStore:
             results.append(item)
         return results
 
+    def list_argument_maps_for_consensus(
+        self,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, object]]:
+        """Document maps joined to house fields for consensus clustering."""
+        query = """
+            SELECT
+                d.source,
+                d.publisher,
+                a.research_id,
+                a.document_hash,
+                a.payload_json
+            FROM document_analysis a
+            LEFT JOIN analysis_documents d
+                ON d.research_id = a.research_id
+            ORDER BY d.source_date DESC, a.research_id DESC
+        """
+        params: list[object] = []
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        results: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            raw_payload = item.get("payload_json")
+            if isinstance(raw_payload, str):
+                item["payload_json"] = json.loads(raw_payload)
+            results.append(item)
+        return results
+
     def get_analysis_counts(self) -> dict[str, int]:
         with self._connect() as conn:
             tables = [

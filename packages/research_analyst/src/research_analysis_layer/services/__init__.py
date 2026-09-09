@@ -5,6 +5,7 @@ from .agent_llm_client import build_agent_llm_client
 from .assertion_extractor import AssertionExtractor
 from .chunker import Chunker
 from .claim_key_resolver import ClaimKeyResolver
+from .consensus_cluster import ConsensusClusterer
 from .debate_ranker import DebateRanker
 from .debate_session_builder import DebateSessionBuilder
 from .evidence_builder import EvidenceBuilder
@@ -33,6 +34,7 @@ __all__ = [
     "build_agent_llm_client",
     "Chunker",
     "ClaimKeyResolver",
+    "ConsensusClusterer",
     "DebateRanker",
     "DebateSessionBuilder",
     "EvidenceBuilder",
