@@ -151,6 +151,7 @@ class Settings:
     analyst_max_debate_arguments: int = 8
     referent_granularity: str = "coarse"
     consensus_min_publishers: int = 2
+    consensus_shift_diversity_threshold: int = 3
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -234,6 +235,9 @@ class Settings:
             analyst_max_debate_arguments=_env_int("ANALYST_MAX_DEBATE_ARGUMENTS", 8),
             referent_granularity=os.getenv("REFERENT_GRANULARITY", "coarse"),
             consensus_min_publishers=_env_int("CONSENSUS_MIN_PUBLISHERS", 2),
+            consensus_shift_diversity_threshold=_env_int(
+                "CONSENSUS_SHIFT_DIVERSITY_THRESHOLD", 3
+            ),
         )
 
     @property
@@ -315,5 +319,10 @@ class Settings:
             errors.append(
                 "invalid consensus_min_publishers: must be >= 2, "
                 f"received {self.consensus_min_publishers}"
+            )
+        if self.consensus_shift_diversity_threshold < 2:
+            errors.append(
+                "invalid consensus_shift_diversity_threshold: must be >= 2, "
+                f"received {self.consensus_shift_diversity_threshold}"
             )
         return errors
