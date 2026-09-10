@@ -142,6 +142,34 @@ class ConfigTest(unittest.TestCase):
             settings.validate(),
         )
 
+    def test_consensus_shift_diversity_threshold_defaults_to_three(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertEqual(settings.consensus_shift_diversity_threshold, 3)
+        self.assertFalse(
+            any(
+                "consensus_shift_diversity_threshold" in error
+                for error in settings.validate()
+            )
+        )
+
+    def test_invalid_consensus_shift_diversity_threshold_is_a_config_error(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+            "CONSENSUS_SHIFT_DIVERSITY_THRESHOLD": "1",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertIn(
+            "invalid consensus_shift_diversity_threshold: must be >= 2, received 1",
+            settings.validate(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

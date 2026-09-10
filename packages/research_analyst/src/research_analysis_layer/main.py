@@ -30,6 +30,7 @@ from research_analysis_layer.services import (
     Chunker,
     ClaimKeyResolver,
     ConsensusClusterer,
+    ConsensusShiftDetector,
     EvidenceBuilder,
     EvidenceReferentResolver,
     distinct_publishers,
@@ -276,6 +277,29 @@ def _consensus_report(store: AnalysisStore, settings: Settings) -> dict:
     }
 
 
+def _consensus_shift_report(store: AnalysisStore, settings: Settings) -> dict:
+    try:
+        previous = store.list_consensus_cluster_state()
+        stored = store.list_consensus_shift_events()
+        maps = store.list_argument_maps_for_consensus()
+    except Exception as exc:  # pragma: no cover
+        return {"error": str(exc)}
+    snapshot = ConsensusClusterer(
+        min_publishers=settings.consensus_min_publishers
+    ).cluster_maps(maps)
+    pending = ConsensusShiftDetector(
+        diversity_threshold=settings.consensus_shift_diversity_threshold
+    ).detect(previous, snapshot)
+    last = stored[0].get("event_time") if stored else None
+    return {
+        "diversity_threshold": settings.consensus_shift_diversity_threshold,
+        "event_count": len(stored),
+        "cluster_state_count": len(previous),
+        "pending_shift_count": len(pending),
+        "last_event_time": last,
+    }
+
+
 def _write_resolved_payloads(store: AnalysisStore, rows: list[dict], mutate) -> int:
     updated = 0
     for row in rows:
@@ -439,6 +463,50 @@ def command_consensus(
     return 0
 
 
+def command_consensus_shift(
+    settings: Settings,
+    *,
+    min_publishers: int | None,
+    diversity_threshold: int | None,
+    limit: int | None,
+    apply: bool,
+) -> int:
+    """Detect source_consensus_shift events; persist them with --apply."""
+    n = min_publishers if min_publishers is not None else settings.consensus_min_publishers
+    threshold = (
+        diversity_threshold
+        if diversity_threshold is not None
+        else settings.consensus_shift_diversity_threshold
+    )
+    store = AnalysisStore(settings.analysis_db_path)
+    maps = store.list_argument_maps_for_consensus(limit=limit)
+    snapshot = ConsensusClusterer(min_publishers=n).cluster_maps(maps)
+    detector = ConsensusShiftDetector(diversity_threshold=threshold)
+    previous = store.list_consensus_cluster_state()
+    events = detector.detect(previous, snapshot)
+    inserted = 0
+    if apply:
+        inserted = store.insert_consensus_shift_events(events)
+        store.replace_consensus_cluster_state(detector.states_from_snapshot(snapshot))
+    print(
+        json.dumps(
+            {
+                "apply": apply,
+                "diversity_threshold": threshold,
+                "min_publishers": n,
+                "detected_count": len(events),
+                "inserted_count": inserted,
+                "cluster_state_count": len(detector.states_from_snapshot(snapshot)),
+                "stored_event_count": len(store.list_consensus_shift_events()),
+                "events": [item.model_dump() for item in events],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def command_doctor(settings: Settings) -> int:
     """Run basic environment and connectivity checks."""
     errors = settings.validate()
@@ -488,6 +556,7 @@ def command_doctor(settings: Settings) -> int:
         "claim_resolution": _claim_resolution_report(pipeline.store),
         "publisher_diversity": _publisher_diversity_report(pipeline.store),
         "consensus": _consensus_report(pipeline.store, settings),
+        "consensus_shift": _consensus_shift_report(pipeline.store, settings),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
@@ -1115,6 +1184,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     consensus.add_argument("--limit", type=int, default=None)
 
+    consensus_shift = subparsers.add_parser(
+        "consensus-shift",
+        help="Detect source_consensus_shift events from stored maps",
+    )
+    consensus_shift.add_argument(
+        "--min-publishers",
+        type=int,
+        default=None,
+        help="Override CONSENSUS_MIN_PUBLISHERS (default 2)",
+    )
+    consensus_shift.add_argument(
+        "--diversity-threshold",
+        type=int,
+        default=None,
+        help="Override CONSENSUS_SHIFT_DIVERSITY_THRESHOLD (default 3)",
+    )
+    consensus_shift.add_argument("--limit", type=int, default=None)
+    consensus_shift.add_argument(
+        "--apply",
+        action="store_true",
+        help="Persist cluster state and insert new shift events",
+    )
+
     return parser
 
 
@@ -1239,6 +1331,14 @@ def main(argv: list[str] | None = None) -> int:
             settings,
             min_publishers=args.min_publishers,
             limit=args.limit,
+        )
+    if args.command == "consensus-shift":
+        return command_consensus_shift(
+            settings,
+            min_publishers=args.min_publishers,
+            diversity_threshold=args.diversity_threshold,
+            limit=args.limit,
+            apply=args.apply,
         )
     parser.error(f"unknown command: {args.command}")
     return 2

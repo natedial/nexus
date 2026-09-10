@@ -6,6 +6,7 @@ from .assertion_extractor import AssertionExtractor
 from .chunker import Chunker
 from .claim_key_resolver import ClaimKeyResolver
 from .consensus_cluster import ConsensusClusterer
+from .consensus_shift import ConsensusShiftDetector
 from .debate_ranker import DebateRanker
 from .debate_session_builder import DebateSessionBuilder
 from .evidence_builder import EvidenceBuilder
@@ -35,6 +36,7 @@ __all__ = [
     "Chunker",
     "ClaimKeyResolver",
     "ConsensusClusterer",
+    "ConsensusShiftDetector",
     "DebateRanker",
     "DebateSessionBuilder",
     "EvidenceBuilder",

@@ -24,6 +24,10 @@ from research_analysis_layer.models import (
     NodeResolution,
     EdgeResolution,
 )
+from research_analysis_layer.models.consensus_shift_models import (
+    ClusterState,
+    ConsensusShiftEvent,
+)
 
 
 class AnalysisStore:
@@ -471,6 +475,33 @@ class AnalysisStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_shadow_doc_analysis_session
                     ON shadow_document_analysis(debate_session_id);
+
+                CREATE TABLE IF NOT EXISTS consensus_cluster_state (
+                    cluster_key TEXT PRIMARY KEY,
+                    subject TEXT NOT NULL,
+                    predicate TEXT NOT NULL,
+                    horizon_bucket TEXT NOT NULL,
+                    sign TEXT NOT NULL,
+                    source_diversity INTEGER NOT NULL,
+                    positions_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS consensus_shift_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_key TEXT NOT NULL UNIQUE,
+                    event_type TEXT NOT NULL,
+                    cluster_key TEXT NOT NULL,
+                    claim_key TEXT NULL,
+                    event_version TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    event_time TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_consensus_shift_events_type
+                    ON consensus_shift_events(event_type);
+                CREATE INDEX IF NOT EXISTS idx_consensus_shift_events_cluster
+                    ON consensus_shift_events(cluster_key);
                 """
             )
             self._ensure_column(
@@ -1868,6 +1899,110 @@ class AnalysisStore:
             results.append(item)
         return results
 
+    def list_consensus_cluster_state(self) -> dict[str, ClusterState]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT cluster_key, subject, predicate, horizon_bucket,
+                       sign, source_diversity, positions_json
+                FROM consensus_cluster_state
+                ORDER BY cluster_key
+                """
+            ).fetchall()
+        states: dict[str, ClusterState] = {}
+        for row in rows:
+            positions = json.loads(row["positions_json"])
+            state = ClusterState(
+                cluster_key=str(row["cluster_key"]),
+                subject=str(row["subject"]),
+                predicate=str(row["predicate"]),
+                horizon_bucket=str(row["horizon_bucket"]),
+                sign=row["sign"],
+                source_diversity=int(row["source_diversity"]),
+                positions=list(positions) if isinstance(positions, list) else [],
+            )
+            states[state.cluster_key] = state
+        return states
+
+    def replace_consensus_cluster_state(
+        self, states: dict[str, ClusterState]
+    ) -> None:
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute("DELETE FROM consensus_cluster_state")
+            for state in states.values():
+                conn.execute(
+                    """
+                    INSERT INTO consensus_cluster_state (
+                        cluster_key, subject, predicate, horizon_bucket,
+                        sign, source_diversity, positions_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        state.cluster_key,
+                        state.subject,
+                        state.predicate,
+                        state.horizon_bucket,
+                        state.sign,
+                        state.source_diversity,
+                        json.dumps(list(state.positions), sort_keys=True),
+                        now,
+                    ),
+                )
+
+    def insert_consensus_shift_events(
+        self, events: list[ConsensusShiftEvent]
+    ) -> int:
+        now = utc_now().isoformat()
+        inserted = 0
+        with self._connect() as conn:
+            for event in events:
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO consensus_shift_events (
+                        event_key, event_type, cluster_key, claim_key,
+                        event_version, payload_json, event_time, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.event_key,
+                        event.event_type,
+                        event.cluster_key,
+                        event.claim_key,
+                        event.event_version,
+                        json.dumps(event.payload or event.model_dump(), sort_keys=True),
+                        now,
+                        now,
+                    ),
+                )
+                inserted += cursor.rowcount
+        return inserted
+
+    def list_consensus_shift_events(
+        self, *, limit: int | None = None
+    ) -> list[dict[str, object]]:
+        query = """
+            SELECT event_key, event_type, cluster_key, claim_key,
+                   event_version, payload_json, event_time, created_at
+            FROM consensus_shift_events
+            ORDER BY event_time DESC, id DESC
+        """
+        params: list[object] = []
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        results: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            raw_payload = item.get("payload_json")
+            if isinstance(raw_payload, str):
+                item["payload"] = json.loads(raw_payload)
+                del item["payload_json"]
+            results.append(item)
+        return results
+
     def get_analysis_counts(self) -> dict[str, int]:
         with self._connect() as conn:
             tables = [
@@ -1881,6 +2016,8 @@ class AnalysisStore:
                 "analysis_reviews",
                 "world_nodes",
                 "world_edges",
+                "consensus_cluster_state",
+                "consensus_shift_events",
             ]
             counts: dict[str, int] = {}
             for table in tables:
