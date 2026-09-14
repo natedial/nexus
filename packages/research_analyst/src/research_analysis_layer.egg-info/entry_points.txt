@@ -1,0 +1,2 @@
+[console_scripts]
+research-analysis = research_analysis_layer.main:main

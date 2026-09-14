@@ -1,0 +1,17 @@
+{
+  "baseline_name": "main",
+  "created_at": "2026-04-14",
+  "note": "Threshold-floor baseline. Replace with a real eval run after first agent integration.",
+  "metrics": {
+    "schema_validity_rate": 0.95,
+    "confidence_avg": 0.70,
+    "latency_avg_ms": 45000,
+    "thesis": 0.70,
+    "key_claims_claim": 0.65,
+    "trading_opportunities_thesis": 0.65,
+    "trading_opportunities_direction": 0.85,
+    "talking_points_text": 0.65,
+    "confidence": 0.70
+  },
+  "golden_set_hash": "d8df2f23a98c0d14"
+}

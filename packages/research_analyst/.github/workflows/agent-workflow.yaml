@@ -1,0 +1,62 @@
+name: Agent Workflow Tests
+
+on:
+  pull_request:
+    paths:
+      - 'src/research_analysis_layer/services/**'
+      - 'src/research_analysis_layer/pipelines/**'
+      - 'src/research_analysis_layer/main.py'
+      - 'src/research_analysis_layer/models/**'
+      - 'tests/services/**'
+      - 'tests/integration/**'
+      - 'agent_config.yaml'
+      - 'prompts/agents/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/research_analysis_layer/services/**'
+      - 'src/research_analysis_layer/pipelines/**'
+      - 'src/research_analysis_layer/main.py'
+      - 'src/research_analysis_layer/models/**'
+      - 'tests/services/**'
+      - 'tests/integration/**'
+      - 'agent_config.yaml'
+      - 'prompts/agents/**'
+
+jobs:
+  agent-workflow-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest pytest-mock
+
+      - name: Run tool registry tests
+        run: pytest tests/services/test_tool_registry.py -v --tb=short
+
+      - name: Run OpenAI provider tool-loop tests
+        run: pytest tests/services/test_openai_client.py -v --tb=short
+
+      - name: Run Tholos workflow tests
+        run: pytest tests/services/test_tholos_workflow.py -v --tb=short
+
+      - name: Run round executor tests
+        run: pytest tests/services/test_agent_executor_rounds.py -v --tb=short
+
+      - name: Run budget enforcement tests
+        run: pytest tests/services/test_agent_executor_budgets.py -v --tb=short
+
+      - name: Run analyze-document integration test
+        run: pytest tests/integration/test_analyze_document_pipeline.py -v --tb=short
+
+      - name: Run round pipeline E2E tests
+        run: pytest tests/integration/test_round_pipeline_e2e.py -v --tb=short

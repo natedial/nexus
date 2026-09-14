@@ -1,0 +1,81 @@
+name: Agent Eval
+
+on:
+  pull_request:
+    paths:
+      - 'prompts/agents/**'
+      - 'prompts/evals/**'
+      - 'src/research_analysis_layer/agents/**'
+      - 'src/research_analysis_layer/evals/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'prompts/agents/**'
+      - 'prompts/evals/**'
+      - 'src/research_analysis_layer/agents/**'
+      - 'src/research_analysis_layer/evals/**'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install pytest
+          
+      - name: Run unit tests
+        run: pytest tests/evals/ -v --tb=short
+        
+      - name: Run golden dataset validation
+        run: pytest tests/evals/test_golden_dataset.py -v --tb=short
+        
+      - name: Run comparison tests
+        run: pytest tests/evals/test_comparison.py -v --tb=short
+
+  baseline-compare:
+    runs-on: ubuntu-latest
+    needs: eval
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          
+      - name: Compare to baseline
+        run: |
+          # Check if baseline exists
+          if [ -f "evals/baselines/main.json" ]; then
+            python -m research_analysis_layer.evals.cli compare \
+              --baseline evals/baselines/main.json \
+              --current evals/results/
+          else
+            echo "No baseline found, skipping comparison"
+          fi
+        env:
+          AGENT_LLM_PROVIDER: openai
+          AGENT_LLM_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+  alert-on-regression:
+    runs-on: ubuntu-latest
+    needs: baseline-compare
+    if: failure() && github.event_name == 'pull_request'
+    steps:
+      - name: Post regression alert
+        run: |
+          echo "::warning::Regression detected in agent eval. Please review the baseline comparison."

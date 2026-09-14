@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+data
+plans
+tests
+src/research_analysis_layer.egg-info

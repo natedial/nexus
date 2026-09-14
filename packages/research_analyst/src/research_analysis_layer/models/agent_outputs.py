@@ -1,0 +1,214 @@
+"""Pydantic models for agent analysis outputs."""
+
+from datetime import datetime, timezone
+from typing import Any, Literal
+from pydantic import BaseModel, Field, model_validator
+
+
+class AgentExecutionMetadata(BaseModel):
+    """Shared execution metadata for persisted agent outputs."""
+
+    research_id: int
+    document_hash: str
+    analysis_version: str
+    agent_type: str
+    model_requested: str
+    model_used: str
+    prompt_path: str
+    prompt_version: str
+    run_id: int
+    attempt_count: int
+    analyzed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class TradingOpportunity(BaseModel):
+    """A trading opportunity derived from document analysis."""
+
+    thesis: str = Field(..., max_length=100)
+    direction: str = Field(..., pattern="^(long|short|neutral)$")
+    instrument: str = Field(
+        ..., description="e.g., EUR/USD, 10Y Treasury, NASDAQ, Gold"
+    )
+    timeframe: str = Field(..., pattern="^(intraday|days|weeks)$")
+    conviction: str = Field(..., pattern="^(high|medium|low)$")
+    risk_reward_ratio: str | None = Field(None, description="e.g., 1:2")
+    key_levels: str | None = Field(None, description="entry/stop/target levels")
+    rationale: str = Field(..., max_length=200)
+    supporting_excerpts: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+
+class ShortTimeHorizonInsight(BaseModel):
+    """Insight relevant to short-term (days/weeks) positioning."""
+
+    theme: str = Field(..., max_length=50)
+    insight: str = Field(..., max_length=300)
+    timeframe_ref: str = Field(..., pattern="^(days|weeks|intraday)$")
+    confidence: str = Field(..., pattern="^(high|medium|low)$")
+    supporting_excerpt: str
+    relevance: list[str] = Field(default_factory=list)
+
+
+class TalkingPoint(BaseModel):
+    """A quotable, presentation-ready insight."""
+
+    text: str = Field(..., max_length=500)
+    context: str = Field(..., max_length=200)
+    source_theme: str | None = None
+    presentation_use: str = Field(..., pattern="^(headline|supporting|footnote)$")
+    target_audience: str | None = Field(None, pattern="^(internal|client|all)$")
+
+
+class ToolCallTrace(BaseModel):
+    """Trace of a single tool call during agent execution."""
+
+    name: str
+    input: dict[str, Any]
+    output_summary: str = Field(..., description="truncated ~500 chars")
+    duration_ms: int
+    is_error: bool
+
+
+class RoundTrace(BaseModel):
+    """Metrics for a single round of agent execution."""
+
+    round_name: str
+    duration_ms: int
+    agent_count: int
+    failed_agent_count: int
+    tool_call_count: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+
+
+class Claim(BaseModel):
+    """A claim made by a specialist agent."""
+
+    claim: str
+    supporting_evidence: str
+    confidence: float = Field(..., ge=0, le=1)
+
+
+class CorpusReference(BaseModel):
+    """Reference to content from the research corpus."""
+
+    chunk_id: str
+    source_path: str
+    source_date: str | None
+    text: str
+    relevance_score: float
+
+
+class DocumentAngle(BaseModel):
+    """Output from a specialist agent (thesis/contrarian/positioning)."""
+
+    angle: Literal["thesis", "contrarian", "positioning"]
+    summary: str
+    key_claims: list[Claim] = Field(default_factory=list)
+    cross_document_refs: list[CorpusReference] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    confidence: float = Field(..., ge=0, le=1)
+
+
+ARGUMENT_MAP_VERSION = "map-extractor-v1"  # bump when the extractor/prompt contract changes
+
+
+class EvidenceRef(BaseModel):
+    """Concrete support the author cites for a claim."""
+
+    text: str
+    kind: Literal["data", "quote", "citation", "chart", "prior_view"] = "data"
+    ref_key: str | None = None  # provenance (where it came from)
+    referent_key: str | None = None  # resolved canonical fact/event — Slice 2; LLM leaves null
+
+
+class ClaimNode(BaseModel):
+    """A single author claim with rationale, evidence, and support strength."""
+
+    claim: str
+    claim_type: (
+        Literal[
+            "observation",
+            "forecast",
+            "causal",
+            "market_impact",
+            "policy",
+            "risk",
+            "recommendation",
+        ]
+        | None
+    ) = None
+    stance: str | None = None  # polarity, for Slice 2 same/opposing-direction clustering
+    horizon: str | None = None  # e.g. "Q2 2026", "H2", "12m"
+    rationale: str = ""
+    evidence: list[EvidenceRef] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
+    support_strength: Literal["evidenced", "reasoned", "asserted"] = "asserted"
+    claim_key: str | None = None  # RESOLVED canonical claim identity — Slice 2; LLM leaves null
+
+    @model_validator(mode="after")
+    def _evidenced_requires_grounded_evidence(self) -> "ClaimNode":
+        # Honest labeling over rejection: an 'evidenced' claim with no grounded
+        # ref_key is downgraded, never dropped.
+        if self.support_strength == "evidenced" and not any(
+            e.ref_key for e in self.evidence
+        ):
+            self.support_strength = "reasoned"
+        return self
+
+
+class ArgumentMapMeta(BaseModel):
+    """Provenance stamp for an argument map. Orchestrator-authoritative."""
+
+    extractor_version: str
+    run_id: int | None = None  # stamped by the orchestrator, not the LLM
+    captured_at: str | None = None  # ISO8601 UTC, stamped by the orchestrator
+
+
+class DocumentAnalysis(BaseModel):
+    """Complete document analysis from the synthesizer agent."""
+
+    document_key: str
+    research_id: int
+    document_hash: str
+    analysis_version: str
+    payload_json: dict[str, Any] = Field(
+        default_factory=dict, description="Full JSON payload for downstream consumers"
+    )
+    thesis: str = Field(..., description="One-paragraph distilled view")
+    contrarian_view: str = Field(..., description="Contrarian perspective")
+    recommended_positioning: str = Field(..., description="Recommended positioning")
+    trading_opportunities: list[TradingOpportunity] = Field(default_factory=list)
+    short_time_horizon_insights: list[ShortTimeHorizonInsight] = Field(
+        default_factory=list
+    )
+    talking_points: list[TalkingPoint] = Field(default_factory=list)
+    cross_document_references: list[CorpusReference] = Field(default_factory=list)
+    round_traces: list[RoundTrace] = Field(default_factory=list)
+    confidence: float = Field(..., ge=0, le=1)
+    metadata: AgentExecutionMetadata
+    quality: dict[str, Any] = Field(
+        default_factory=dict, description="Quality assessment from quality reviewer"
+    )
+    themes: list[dict[str, Any]] = Field(
+        default_factory=list, description="Parsed themes from chunk phase"
+    )
+    trades: list[dict[str, Any]] = Field(
+        default_factory=list, description="Extracted trades from assertions"
+    )
+    assertions: list[dict[str, Any]] = Field(
+        default_factory=list, description="All extracted assertions"
+    )
+    world_nodes: list[dict[str, Any]] = Field(
+        default_factory=list, description="World graph nodes from resolution"
+    )
+    world_edges: list[dict[str, Any]] = Field(
+        default_factory=list, description="World graph edges from resolution"
+    )
+    forecast_candidates: list[dict[str, Any]] = Field(
+        default_factory=list, description="Forecast candidates extracted"
+    )
+    argument_map: list[ClaimNode] = Field(default_factory=list)
+    argument_map_meta: ArgumentMapMeta | None = None
