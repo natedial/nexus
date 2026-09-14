@@ -1,0 +1,184 @@
+# Design Genome Project inspired color scheme
+# Colors: Coral Red, Black, White, Light Gray
+
+# Font family configuration (structured for future TTF registration)
+FONT_FAMILY:
+  heading: Helvetica
+  body: Helvetica
+
+# Page margins (inches)
+PAGE_MARGINS:
+  left: 0.75
+  right: 0.75
+  top: 1.0
+  bottom: 0.75
+
+TITLE:
+  - font_size: 48
+    font_color: '#000000'
+    space_after: 40
+    font_weight: bold
+
+TITLE_BACKGROUND:
+  - color: '#FFFFFF'
+    space_after: 20
+    space_before: 20
+
+H1_HEADING:
+  - font_size: 28
+    font_color: '#FF4458'
+    space_after: 20
+    font_weight: bold
+    leading: 34
+
+H2_HEADING:
+  - font_size: 16
+    font_color: '#000000'
+    space_after: 10
+    space_before: 10
+    font_weight: bold
+    leading: 22
+
+H1_BACKGROUND:
+  - color: '#FFFFFF'
+    space_after: 12
+    space_before: 12
+
+H2_BACKGROUND:
+  - color: '#F5F5F5'
+    space_after: 12
+    space_before: 12
+
+ACCENT_COLOR:
+  - color: '#FF4458'
+
+TABLE_HEADER_BG:
+  - color: '#000000'
+
+TABLE_ROW_EVEN:
+  - color: '#FFFFFF'
+
+TABLE_ROW_ODD:
+  - color: '#F8F8F8'
+
+NORMAL_TEXT:
+  - font_size: 11
+    font_color: '#000000'
+    space_after: 10
+    space_before: 10
+    leading: 18
+
+ACCENT_TEXT:
+  - font_size: 9
+    font_color: '#FF4458'
+    space_after: 6
+    space_before: 0
+    font_weight: bold
+
+MINIMALIST_TEXT:
+  - font_size: 8
+    font_color: '#999999'
+    space_after: 6
+    space_before: 0
+
+# Theme header style (13pt bold for visual hierarchy)
+THEME_HEADER:
+  - font_size: 13
+    font_color: '#000000'
+    space_after: 4
+    space_before: 6
+    font_weight: bold
+
+# Callout quote style (italic, with generous leading)
+CALLOUT_QUOTE:
+  - font_size: 12
+    font_color: '#333333'
+    font_style: italic
+    leading: 20
+    space_after: 4
+
+# Callout attribution style (right-aligned, small)
+CALLOUT_ATTRIBUTION:
+  - font_size: 9
+    font_color: '#666666'
+    alignment: right
+
+# Feedback links style
+FEEDBACK_LINKS:
+  - font_size: 8
+    font_color: '#666666'
+    space_after: 8
+    space_before: 2
+
+# Indented body text (replaces &nbsp; hacks)
+INDENTED_BODY:
+  - font_size: 11
+    font_color: '#000000'
+    left_indent: 18
+    leading: 18
+    space_after: 6
+    space_before: 2
+
+# Conviction color coding for trades
+CONVICTION_HIGH:
+  - color: '#00875A'
+
+CONVICTION_MEDIUM:
+  - color: '#FF8B00'
+
+CONVICTION_LOW:
+  - color: '#999999'
+
+# Summary stats bar styles
+SUMMARY_STAT:
+  - font_size: 14
+    font_color: '#000000'
+    font_weight: bold
+
+SUMMARY_STAT_LABEL:
+  - font_size: 8
+    font_color: '#999999'
+
+# Through-line card background
+THROUGH_LINE_CARD:
+  - background_color: '#F9F9F9'
+
+# Theme card styling (lighter than through-line cards)
+THEME_CARD:
+  - background_color: '#FAFAFA'
+    left_padding: 14
+    right_padding: 14
+    top_padding: 10
+    bottom_padding: 10
+
+# Thin divider between themes
+THEME_DIVIDER:
+  - color: '#E8E8E8'
+    thickness: 0.5
+
+# Theme density bar (compact summary at top of Thematic Analysis)
+THEME_DENSITY_BAR:
+  - background_color: '#F5F5F5'
+    font_size: 10
+    label_font_size: 7
+    font_color: '#333333'
+    label_color: '#999999'
+
+# Theme source attribution (inline after context)
+THEME_SOURCE:
+  - font_size: 9
+    font_color: '#888888'
+    font_style: italic
+
+# Strength indicator colors
+STRENGTH_STRONG:
+  - color: '#FF4458'
+
+STRENGTH_MODERATE:
+  - color: '#FFB3BA'
+
+STRENGTH_WEAK:
+  - color: '#D0D0D0'
+
+# "Other Themes" cap — max items before collapsing
+OTHER_THEMES_CAP: 6
