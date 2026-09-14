@@ -1,0 +1,41 @@
+[
+  {
+    "name": "research_search",
+    "description": "Search the indexed research corpus for specific topics, data points, or market themes. Returns ranked text chunks with source attribution and dates. Use focused, narrow queries — not full analytical questions. For complex topics, call multiple times with different angles and combine the results yourself.",
+    "parameters": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "A focused search query targeting a specific concept, data point, or theme. Examples: 'CPI print January 2025', 'Fed dot plot rate expectations', 'labor market softening signals'. Do NOT pass full analytical questions."
+        },
+        "date_from": {
+          "type": "string",
+          "description": "ISO date lower bound, inclusive (e.g. '2025-01-01'). Omit to search all dates.",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "date_to": {
+          "type": "string",
+          "description": "ISO date upper bound, inclusive (e.g. '2025-01-31'). Omit to search all dates.",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max results to return. Default 8. Use 5 for narrow queries and 8 for broader sweeps.",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 8
+        }
+      }
+    }
+  },
+  {
+    "name": "research_corpus_info",
+    "description": "Returns metadata about the research corpus: total chunks, date range covered, and list of sources. Call this first to understand what data is available before searching.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+]

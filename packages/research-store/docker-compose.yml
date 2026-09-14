@@ -1,0 +1,54 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    environment:
+      PYTHONUNBUFFERED: "1"
+      RESEARCH_PROCESSING_ROOT: /workspace
+      HF_HOME: /cache/huggingface
+      TRANSFORMERS_CACHE: /cache/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /cache/sentence-transformers
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
+    volumes:
+      - .:/app
+      - ../research_pipeline_ops:/workspace/research_pipeline_ops:ro
+      - huggingface-cache:/cache/huggingface
+    stdin_open: true
+    tty: true
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      RESEARCH_PROCESSING_ROOT: /workspace
+      HF_HOME: /cache/huggingface
+      TRANSFORMERS_CACHE: /cache/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /cache/sentence-transformers
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
+    volumes:
+      - ./distill_out:/app/distill_out
+      - ../research_pipeline_ops:/workspace/research_pipeline_ops:ro
+      - huggingface-cache:/cache/huggingface
+    command:
+      - distill-index-supabase
+      - --continuous
+      - --poll-limit
+      - "25"
+      - --poll-interval-seconds
+      - "30"
+      - --error-backoff-seconds
+      - "60"
+      - --stale-processing-seconds
+      - "3600"
+      - --out-dir
+      - distill_out
+
+volumes:
+  huggingface-cache:

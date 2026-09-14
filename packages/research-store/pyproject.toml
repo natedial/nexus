@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "distill-tool"
+version = "0.1.0"
+description = "Markdown distillation tool for keyword extraction and embeddings"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "python-dotenv>=1.0.1",
+  "sentence-transformers>=2.6.0",
+]
+license = {text = "MIT"}
+
+[project.scripts]
+distill = "distill_tool.cli:main"
+distill-search = "distill_tool.search_cli:main"
+distill-search-eval = "distill_tool.eval_cli:main"
+distill-search-judge = "distill_tool.judge_cli:main"
+distill-backfill = "distill_tool.backfill_cli:main"
+distill-index-supabase = "distill_tool.index_supabase_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["distill_tool*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

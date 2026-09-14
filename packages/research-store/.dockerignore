@@ -1,0 +1,10 @@
+.git
+.gitignore
+.pytest_cache
+.venv
+__pycache__
+distill_out
+distill_tool/__pycache__
+distill_tool.egg-info
+logs
+tests/__pycache__
