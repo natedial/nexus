@@ -1,0 +1,68 @@
+services:
+  research-parser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: research-parser
+    restart: unless-stopped
+
+    # Load environment from .env file
+    env_file:
+      - .env
+
+    # Override specific env vars if needed
+    environment:
+      - STATE_DB_PATH=/app/data/state.db
+      - GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
+      - RESEARCH_PROCESSING_ROOT=/app
+
+    volumes:
+      # Persist SQLite state database
+      - ./data:/app/data
+
+      # Mount Google service account credentials (read-only)
+      - ./credentials:/app/credentials:ro
+
+      # Mount config (boilerplate rules)
+      - ./config:/app/config:ro
+
+      # Mount shared pipeline ops package (read-only)
+      - ../research_pipeline_ops:/app/research_pipeline_ops:ro
+
+    # Logging configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Resource limits for Raspberry Pi
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+# For local development with hot reload
+# Uncomment and use: docker compose --profile dev up
+  research-parser-dev:
+    profiles:
+      - dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: research-parser-dev
+    env_file:
+      - .env
+    environment:
+      - STATE_DB_PATH=/app/data/state.db
+      - GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
+      - RESEARCH_PROCESSING_ROOT=/app
+    volumes:
+      - ./data:/app/data
+      - ./credentials:/app/credentials:ro
+      - ./config:/app/config:ro
+      - ../research_pipeline_ops:/app/research_pipeline_ops:ro
+      - ./src:/app/src:ro  # Mount source for changes
+    command: ["python", "-m", "src.main"]

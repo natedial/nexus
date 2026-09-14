@@ -1,0 +1,235 @@
+# Warning Capture System
+
+The research parser automatically captures warnings to individual files for later review. This helps track issues with specific documents during parse and storage.
+
+## How It Works
+
+When any `logger.warning()` is called with document context (file_name and file_id), the system automatically:
+
+1. Creates a timestamped file in `data/warnings/`
+2. Stores the warning message and all context data
+3. Continues processing without interruption
+
+## Warning File Location
+
+```
+data/warnings/{document_name}_{timestamp}.txt
+```
+
+Example:
+```
+data/warnings/Goldman_Sachs_Research_Q4_20260101_123045.txt
+```
+
+## What Gets Captured
+
+Warnings are captured from parse and storage steps, including:
+
+- **Boilerplate stripping issues** - When text cleaning fails
+- **PDF parsing timeouts** - When a local parser times out
+- **Artifact write failures** - When local parse artifacts cannot be persisted
+
+## Warning File Format
+
+Each warning file contains:
+
+```
+================================================================================
+WARNING CAPTURED
+================================================================================
+
+Timestamp: 2026-01-01T12:30:45.123456
+
+Document Information:
+  File Name: Goldman_Sachs_Research_Q4.pdf
+  File ID:   abc123xyz789
+
+Warning: Failed to parse themes JSON
+
+Context:
+  error:
+    Invalid JSON format: Unexpected token at line 5
+  raw:
+    {"themes": [
+      {"label": "Equity Market Outlook"
+      // truncated invalid JSON...
+================================================================================
+```
+
+## Reviewing Warnings
+
+### List all warning files
+```bash
+ls -lh data/warnings/
+```
+
+### View a specific warning
+```bash
+cat data/warnings/My_Document_20260101_120000.txt
+```
+
+### Search warnings by document name
+```bash
+grep -l "Goldman_Sachs" data/warnings/*.txt
+```
+
+### Count warnings by date
+```bash
+ls data/warnings/ | cut -d_ -f-1 | sort | uniq -c
+```
+
+### View most recent warnings
+```bash
+ls -t data/warnings/ | head -5 | xargs -I {} cat "data/warnings/{}"
+```
+
+## Common Warning Patterns
+
+### Boilerplate stripping fallback
+
+**Cause**: Deterministic rules could not safely strip disclaimers
+
+**Example**:
+```
+Warning: Boilerplate stripping failed, using raw markdown
+Context:
+  error: low_legal_density
+```
+
+**Action**: Review `config/boilerplate_rules.yaml` and the stored `clean_text.md`
+
+### Parse artifact write failures
+
+**Cause**: Disk or path issues while writing `blocks.jsonl` / `clean_text.md`
+
+**Example**:
+```
+Warning: Artifact writing failed
+Context:
+  error: [Errno 28] No space left on device
+```
+
+**Action**: Check disk space under `data/artifacts/`
+
+### Parser timeout
+
+**Cause**: Docling or MinerU exceeded its timeout
+
+**Example**:
+```
+Warning: MinerU unavailable; parse will rely on Docling only
+```
+
+**Action**: Confirm the local parser binary and timeout settings
+
+## Integration with Pipeline
+
+The warning capture integrates with the processing pipeline:
+
+```python
+log = logger.bind(file_id=file_id, file_name=file_name)
+
+try:
+    write_artifacts(artifact_dir, parsed.text_result, parsed.figures)
+except Exception as exc:
+    log.warning("Artifact writing failed", error=str(exc))
+```
+
+## Configuration
+
+Warning capture is enabled by default. The processor is configured in `src/main.py`:
+
+```python
+structlog.configure(
+    processors=[
+        # ... other processors
+        warning_processor,  # Captures warnings to files
+        # ... remaining processors
+    ]
+)
+```
+
+### Change Warning Directory
+
+To customize the warnings directory, modify `src/storage/warnings.py`:
+
+```python
+# Default location
+WARNINGS_DIR = Path(__file__).parent.parent.parent / "data" / "warnings"
+
+# Or pass custom path
+capture = WarningCapture(warnings_dir=Path("/custom/path"))
+```
+
+## Cleanup
+
+Warning files accumulate over time. To manage storage:
+
+### Delete old warnings (older than 30 days)
+```bash
+find data/warnings -type f -mtime +30 -delete
+```
+
+### Archive warnings by month
+```bash
+# Create archive directory
+mkdir -p data/warnings/archive/2025-12
+
+# Move files
+mv data/warnings/*_202512*.txt data/warnings/archive/2025-12/
+```
+
+### Compress old warnings
+```bash
+tar -czf warnings-archive-2025-12.tar.gz data/warnings/archive/2025-12/
+rm -rf data/warnings/archive/2025-12/
+```
+
+## Testing
+
+Test the warning capture system:
+
+```bash
+python3 scripts/test_warning_capture.py
+```
+
+This will create sample warnings in `data/warnings/` to verify the system is working.
+
+## Troubleshooting
+
+### No warnings being captured
+
+**Check 1**: Ensure warnings have document context
+```python
+# ✗ Won't be captured (no context)
+logger.warning("Something failed")
+
+# ✓ Will be captured
+log = logger.bind(file_name="document.pdf", file_id="123")
+log.warning("Something failed")
+```
+
+**Check 2**: Verify processor is configured
+```bash
+grep -r "warning_processor" src/main.py
+```
+
+### Permission errors
+
+Ensure the warnings directory is writable:
+```bash
+chmod 755 data/warnings
+```
+
+### Disk space issues
+
+Check warning directory size:
+```bash
+du -sh data/warnings/
+```
+
+## Related Documentation
+
+- [State Database](./reviewing-state-database.md) - Track processing status
+- [Pipeline Architecture](../CLAUDE.md#architecture) - How extraction works
+- [Fault Tolerance](../CLAUDE.md#fault-tolerance-design) - Error handling design
