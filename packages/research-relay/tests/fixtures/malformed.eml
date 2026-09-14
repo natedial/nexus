@@ -1,0 +1,20 @@
+From: Alice Candidate <alice@candidates.edu>
+To: private.user@gmail.com
+Subject: =?utf-8?B?YmFkIG1pbWU=?=
+Date: not-a-real-date
+Message-ID: <broken@mail.gmail.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BROKEN"
+
+--BROKEN
+Content-Type: text/plain; charset="utf-8"
+
+Still recoverable body despite broken sibling parts.
+
+--BROKEN
+Content-Type: text/plain; charset="totally-bogus"
+Content-Transfer-Encoding: base64
+
+%%%not-valid-base64%%%
+
+--BROKEN--

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.researchrelay.email</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ncdial/devwork/research_relay/.venv/bin/python3</string>
+        <string>-m</string>
+        <string>research_relay</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>/Users/ncdial/.config/research-relay/config.toml</string>
+        <string>--live</string>
+        <string>--max-runtime</string>
+        <string>240</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ncdial/devwork/research_relay</string>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>ExitTimeOut</key>
+    <integer>20</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/ncdial/Library/Logs/research-relay/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ncdial/Library/Logs/research-relay/launchd.err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+    </dict>
+</dict>
+</plist>
