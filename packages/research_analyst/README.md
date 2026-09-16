@@ -64,49 +64,55 @@ Useful targets:
 The hourly container:
 
 - runs `doctor` on startup
-- wakes up every `POLL_INTERVAL_SECONDS` seconds, default `3600`
+- wakes up every `RESEARCH_ANALYST_POLL_INTERVAL_SECONDS` seconds, default `3600`
 - runs `python -m research_analysis_layer.main run --limit ...`
-- keeps draining additional batches within the same tick until the queue is exhausted or `MAX_BATCHES_PER_TICK` is reached
+- keeps draining additional batches within the same tick until the queue is exhausted or `RESEARCH_ANALYST_MAX_BATCHES_PER_TICK` is reached
 - runs `python -m research_analysis_layer.main sync-forecasts --upload-limit ...` after each tick to auto-upload only approved matched forecasts
 
-Expected env configuration:
+## Environment
 
-- `PARSED_DB_URL` and `PARSED_DB_KEY` for Proton Parser
-- `CALENDAR_DB_URL` and `CALENDAR_DB_KEY` for the calendar source
-- optional `CALENDAR_MATCH_SOURCE` (`economic_events` for legacy single-project mode, `release_dates` for Scrivener-backed matching)
-- optional `CALENDAR_SOURCE_NAME` (defaults to `scrivener` when using `release_dates`)
-- optional `STATE_DB_PATH`
-- optional `ANALYSIS_DB_URL`
-- optional `RUN_BATCH_LIMIT`
-- optional `MAX_BATCHES_PER_TICK`
-- optional `FORECAST_UPLOAD_LIMIT`
-- optional `POLL_INTERVAL_SECONDS`
+Configuration loads from the repo-root `.env` (shared credentials) and then this
+package's `.env` (analyst settings), which wins on conflicts. Copy both examples
+once per checkout:
+
+```bash
+cp ../../.env.example ../../.env
+cp .env.example .env
+```
+
+Shared, unprefixed, set at the repo root:
+
+- `SUPABASE_URL` and `SUPABASE_KEY` — back the parsed and calendar stores by default
+- `RESEARCH_PROCESSING_ROOT` — checkout root used to locate `research_pipeline_ops`
+
+Analyst-owned, prefixed `RESEARCH_ANALYST_`, set in this package's `.env`. The
+unprefixed forms (`PARSED_DB_URL`, `ANALYST_DEBATE_MODE`, ...) remain a
+deprecated fallback.
+
+- `RESEARCH_ANALYST_PARSED_DB_URL` / `_PARSED_DB_KEY` — override the shared Supabase project for parsed research
+- `RESEARCH_ANALYST_CALENDAR_DB_URL` / `_CALENDAR_DB_KEY` — the calendar source, defaulting to the parsed store
+- `RESEARCH_ANALYST_CALENDAR_MATCH_SOURCE` (`economic_events` for legacy single-project mode, `release_dates` for Scrivener-backed matching)
+- `RESEARCH_ANALYST_CALENDAR_SOURCE_NAME` (defaults to `scrivener` when using `release_dates`)
+- `RESEARCH_ANALYST_STATE_DB_PATH` — parser state DB, falling back to `RESEARCH_PARSER_STATE_DB_PATH`
+- `RESEARCH_ANALYST_ANALYSIS_DB_URL`
+- `RESEARCH_ANALYST_BATCH_SIZE`
+- `RESEARCH_ANALYST_ANALYSIS_VERSION`
+- `RESEARCH_ANALYST_BACKFILL_REQUIRE_WARNING_FREE`
+- `RESEARCH_ANALYST_AGENT_LLM_PROVIDER` (`openai`, `openai_compatible`, or `codex`)
+- `RESEARCH_ANALYST_AGENT_LLM_API_KEY` (required for openai providers; omit for `codex`)
+- `RESEARCH_ANALYST_AGENT_LLM_CODEX_BIN` (optional path to the `codex` CLI)
+- `RESEARCH_ANALYST_AGENT_LLM_CODEX_MODEL` (optional ChatGPT Codex slug; otherwise `gpt-5` maps to `gpt-5.6-terra` and `gpt-5-mini` to `gpt-5.6-luna`)
+- `RESEARCH_ANALYST_RUN_BATCH_LIMIT`, `_MAX_BATCHES_PER_TICK`, `_FORECAST_UPLOAD_LIMIT`, `_POLL_INTERVAL_SECONDS` — hourly runner pacing
+
+`.env.example` lists every supported variable with its default.
 
 The default container mounts `./data` to `/data` and uses:
 
 - host parser state DB: `../research_parser/data/state.db`
 - host analysis directory: `./data`
 - host shared ops package: `../research_pipeline_ops`
-- `STATE_DB_PATH=/parser-data/state.db`
-- `ANALYSIS_DB_URL=sqlite:////data/analysis.db`
-
-Optional environment variables:
-
-- `STATE_DB_PATH`
-- `PARSED_DB_URL`
-- `PARSED_DB_KEY`
-- `CALENDAR_DB_URL`
-- `CALENDAR_DB_KEY`
-- `CALENDAR_MATCH_SOURCE`
-- `CALENDAR_SOURCE_NAME`
-- `ANALYSIS_DB_URL`
-- `BATCH_SIZE`
-- `ANALYSIS_VERSION`
-- `BACKFILL_REQUIRE_WARNING_FREE`
-- `AGENT_LLM_PROVIDER` (`openai`, `openai_compatible`, or `codex`)
-- `AGENT_LLM_API_KEY` (required for openai providers; omit for `codex`)
-- `AGENT_LLM_CODEX_BIN` (optional path to the `codex` CLI)
-- `AGENT_LLM_CODEX_MODEL` (optional ChatGPT Codex slug; otherwise `gpt-5` maps to `gpt-5.6-terra` and `gpt-5-mini` to `gpt-5.6-luna`)
+- `RESEARCH_ANALYST_STATE_DB_PATH=/parser-data/state.db`
+- `RESEARCH_ANALYST_ANALYSIS_DB_URL=sqlite:////data/analysis.db`
 
 ## Backfill safety
 

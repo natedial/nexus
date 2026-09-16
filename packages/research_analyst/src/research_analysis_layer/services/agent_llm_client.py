@@ -17,6 +17,7 @@ from research_analysis_layer.config import Settings, resolve_codex_bin
 
 _API_ENV_KEYS = (
     "OPENAI_API_KEY",
+    "RESEARCH_ANALYST_AGENT_LLM_API_KEY",
     "AGENT_LLM_API_KEY",
     "ANTHROPIC_API_KEY",
     "CODEX_API_KEY",
