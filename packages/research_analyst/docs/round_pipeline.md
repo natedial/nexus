@@ -14,7 +14,7 @@ This document tracks the implementation of the debate-style multi-round agentic 
 
 **Supabase vs SQLite split:**
 - `research_dispatcher` reads `parsed_research` from Supabase PostgreSQL (legacy path). It never writes back.
-- `research_analyst` reads `parsed_research` from Supabase via `PARSED_DB_URL`/`PARSED_DB_KEY` and writes analysis results to a local SQLite file (`AnalysisStore`). It does **not** sync analysis results back to Supabase.
+- `research_analyst` reads `parsed_research` from Supabase via `RESEARCH_ANALYST_PARSED_DB_URL`/`RESEARCH_ANALYST_PARSED_DB_KEY` (defaulting to the shared `SUPABASE_URL`/`SUPABASE_KEY`) and writes analysis results to a local SQLite file (`AnalysisStore`). It does **not** sync analysis results back to Supabase.
 - The new `document_analysis` table lives in analyst SQLite only. Dispatcher consumes it **via the `AnalystBatchClient` JSON file bridge**, not via a Supabase sync.
 
 ## Research ID Audit
@@ -39,7 +39,7 @@ This confirms that all successful analysis runs have a non-null `research_id`, v
 - Removed deprecated wrapper classes: `TradingAnalysis`, `ShortTimeHorizonAnalysis`, `TalkingPointsAnalysis`
 - Removed legacy `AgentExecutor` - now uses `RoundExecutor` only
 - Removed diff mode from dispatcher
-- Default `ANALYST_ROUND_MODE` is now `rounds`
+- Default `RESEARCH_ANALYST_ROUND_MODE` is now `rounds`
 
 ### Removed Files:
 - `src/research_analysis_layer/services/agent_executor.py` (legacy executor)

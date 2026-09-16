@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
+
+from research_analysis_layer.env import ENV_PREFIX, env
 
 _API_LLM_PROVIDERS = {"openai", "openai_compatible"}
 _CLI_LLM_PROVIDERS = {"codex"}
@@ -17,22 +20,28 @@ _DEFAULT_CODEX_BINARIES = (
 )
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
+def _env_bool(
+    name: str, default: bool, *, legacy: str | Sequence[str] | None = None
+) -> bool:
+    value = env(name, legacy=legacy)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _env_int(name: str, default: int) -> int:
-    value = os.getenv(name)
+def _env_int(
+    name: str, default: int, *, legacy: str | Sequence[str] | None = None
+) -> int:
+    value = env(name, legacy=legacy)
     if value is None:
         return default
     return int(value)
 
 
-def _env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
+def _env_float(
+    name: str, default: float, *, legacy: str | Sequence[str] | None = None
+) -> float:
+    value = env(name, legacy=legacy)
     if value is None:
         return default
     return float(value)
@@ -155,13 +164,15 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        parsed_db_url = os.getenv("PARSED_DB_URL") or os.getenv("SUPABASE_URL", "")
-        parsed_db_key = os.getenv("PARSED_DB_KEY") or os.getenv("SUPABASE_KEY", "")
-        calendar_match_source = os.getenv("CALENDAR_MATCH_SOURCE", "economic_events")
-        calendar_db_url = os.getenv("CALENDAR_DB_URL") or parsed_db_url
-        calendar_db_key = os.getenv("CALENDAR_DB_KEY") or parsed_db_key
-        agent_llm_provider = os.getenv("AGENT_LLM_PROVIDER")
-        agent_llm_api_key = os.getenv("AGENT_LLM_API_KEY")
+        # The parsed and calendar stores default to the pipeline-wide Supabase
+        # project configured in the repo-root .env.
+        parsed_db_url = env("PARSED_DB_URL") or os.getenv("SUPABASE_URL", "")
+        parsed_db_key = env("PARSED_DB_KEY") or os.getenv("SUPABASE_KEY", "")
+        calendar_match_source = env("CALENDAR_MATCH_SOURCE", "economic_events")
+        calendar_db_url = env("CALENDAR_DB_URL") or parsed_db_url
+        calendar_db_key = env("CALENDAR_DB_KEY") or parsed_db_key
+        agent_llm_provider = env("AGENT_LLM_PROVIDER")
+        agent_llm_api_key = env("AGENT_LLM_API_KEY")
         provider_name = (agent_llm_provider or "").strip().lower()
         agent_execution_enabled = _env_bool(
             "AGENT_EXECUTION_ENABLED",
@@ -173,28 +184,33 @@ class Settings:
             else "economic_events"
         )
         return cls(
-            analysis_db_url=os.getenv("ANALYSIS_DB_URL", "sqlite:///data/analysis.db"),
+            analysis_db_url=env("ANALYSIS_DB_URL", "sqlite:///data/analysis.db"),
             parsed_db_url=parsed_db_url,
             parsed_db_key=parsed_db_key,
             calendar_db_url=calendar_db_url,
             calendar_db_key=calendar_db_key,
             calendar_match_source=calendar_match_source,
-            calendar_source_name=os.getenv(
+            calendar_source_name=env(
                 "CALENDAR_SOURCE_NAME",
                 default_calendar_source_name,
             ),
+            # Upstream artifact: falls back to the parser's own setting.
             state_db_path=_resolve_state_db_path(
-                os.getenv("STATE_DB_PATH", "../research_parser/data/state.db")
+                env(
+                    "STATE_DB_PATH",
+                    "../research_parser/data/state.db",
+                    legacy=("RESEARCH_PARSER_STATE_DB_PATH", "STATE_DB_PATH"),
+                )
             ),
             batch_size=_env_int("BATCH_SIZE", 25),
             cron_mode_enabled=_env_bool("CRON_MODE_ENABLED", True),
-            analysis_version=os.getenv("ANALYSIS_VERSION", "argmap-v1"),
-            chunker_version=os.getenv("CHUNKER_VERSION", "deterministic-theme-v1"),
-            assertion_extractor_version=os.getenv(
+            analysis_version=env("ANALYSIS_VERSION", "argmap-v1"),
+            chunker_version=env("CHUNKER_VERSION", "deterministic-theme-v1"),
+            assertion_extractor_version=env(
                 "ASSERTION_EXTRACTOR_VERSION",
                 "deterministic-theme-v1",
             ),
-            resolver_version=os.getenv("RESOLVER_VERSION", "bootstrap-v1"),
+            resolver_version=env("RESOLVER_VERSION", "bootstrap-v1"),
             request_timeout_seconds=_env_int("REQUEST_TIMEOUT_SECONDS", 30),
             min_full_text_chars=_env_int("MIN_FULL_TEXT_CHARS", 500),
             min_quality_score=_env_float("MIN_QUALITY_SCORE", 0.6),
@@ -206,34 +222,47 @@ class Settings:
             agent_execution_enabled=agent_execution_enabled,
             agent_llm_provider=agent_llm_provider,
             agent_llm_api_key=agent_llm_api_key,
-            agent_llm_base_url=os.getenv("AGENT_LLM_BASE_URL"),
-            agent_llm_codex_bin=os.getenv("AGENT_LLM_CODEX_BIN") or None,
-            agent_llm_codex_model=os.getenv("AGENT_LLM_CODEX_MODEL") or None,
+            agent_llm_base_url=env("AGENT_LLM_BASE_URL"),
+            agent_llm_codex_bin=env("AGENT_LLM_CODEX_BIN") or None,
+            agent_llm_codex_model=env("AGENT_LLM_CODEX_MODEL") or None,
             agent_llm_timeout_seconds=(
                 _env_int("AGENT_LLM_TIMEOUT_SECONDS", 60)
-                if os.getenv("AGENT_LLM_TIMEOUT_SECONDS") is not None
+                if env("AGENT_LLM_TIMEOUT_SECONDS") is not None
                 else None
             ),
             agent_llm_max_output_tokens=_env_int(
                 "AGENT_LLM_MAX_OUTPUT_TOKENS", 16384
             ),
-            agent_llm_reasoning_effort=os.getenv("AGENT_LLM_REASONING_EFFORT")
-            or None,
-            analyst_round_mode=os.getenv("ANALYST_ROUND_MODE", "rounds"),
-            analyst_tools_enabled=_env_bool("ANALYST_TOOLS_ENABLED", False),
-            distill_tool_module=os.getenv("DISTILL_TOOL_MODULE", "distill_tool.api"),
+            agent_llm_reasoning_effort=env("AGENT_LLM_REASONING_EFFORT") or None,
+            analyst_round_mode=env(
+                "ROUND_MODE", "rounds", legacy="ANALYST_ROUND_MODE"
+            ),
+            analyst_tools_enabled=_env_bool(
+                "TOOLS_ENABLED", False, legacy="ANALYST_TOOLS_ENABLED"
+            ),
+            distill_tool_module=env("DISTILL_TOOL_MODULE", "distill_tool.api"),
             analyst_batch_out_dir=Path(
-                os.getenv("ANALYST_BATCH_OUT_DIR", "/var/research/analyst")
+                env(
+                    "BATCH_OUT_DIR",
+                    "/var/research/analyst",
+                    legacy="ANALYST_BATCH_OUT_DIR",
+                )
             ),
             tholos_enabled=_env_bool("THOLOS_ENABLED", False),
-            tholos_base_url=os.getenv("THOLOS_BASE_URL", "http://localhost:8004"),
+            tholos_base_url=env("THOLOS_BASE_URL", "http://localhost:8004"),
             tholos_timeout_seconds=_env_int("THOLOS_TIMEOUT_SECONDS", 30),
             eval_capture_enabled=_env_bool("EVAL_CAPTURE_ENABLED", False),
-            eval_captures_dir=Path(os.getenv("EVAL_CAPTURES_DIR", "evals/captures")),
-            analyst_debate_mode=os.getenv("ANALYST_DEBATE_MODE", "off"),
-            analyst_debate_judge_model=os.getenv("ANALYST_DEBATE_JUDGE_MODEL"),
-            analyst_max_debate_arguments=_env_int("ANALYST_MAX_DEBATE_ARGUMENTS", 8),
-            referent_granularity=os.getenv("REFERENT_GRANULARITY", "coarse"),
+            eval_captures_dir=Path(env("EVAL_CAPTURES_DIR", "evals/captures")),
+            analyst_debate_mode=env(
+                "DEBATE_MODE", "off", legacy="ANALYST_DEBATE_MODE"
+            ),
+            analyst_debate_judge_model=env(
+                "DEBATE_JUDGE_MODEL", legacy="ANALYST_DEBATE_JUDGE_MODEL"
+            ),
+            analyst_max_debate_arguments=_env_int(
+                "MAX_DEBATE_ARGUMENTS", 8, legacy="ANALYST_MAX_DEBATE_ARGUMENTS"
+            ),
+            referent_granularity=env("REFERENT_GRANULARITY", "coarse"),
             consensus_min_publishers=_env_int("CONSENSUS_MIN_PUBLISHERS", 2),
             consensus_shift_diversity_threshold=_env_int(
                 "CONSENSUS_SHIFT_DIVERSITY_THRESHOLD", 3
@@ -260,13 +289,19 @@ class Settings:
                 f"state db missing processed_files table: {self.state_db_path}"
             )
         if not self.parsed_db_url:
-            errors.append("missing parsed db url: set PARSED_DB_URL or SUPABASE_URL")
+            errors.append(
+                "missing parsed db url: set "
+                f"{ENV_PREFIX}PARSED_DB_URL or SUPABASE_URL"
+            )
         if not self.parsed_db_key:
-            errors.append("missing parsed db key: set PARSED_DB_KEY or SUPABASE_KEY")
+            errors.append(
+                "missing parsed db key: set "
+                f"{ENV_PREFIX}PARSED_DB_KEY or SUPABASE_KEY"
+            )
         if not self.calendar_db_url:
-            errors.append("missing calendar db url: set CALENDAR_DB_URL")
+            errors.append(f"missing calendar db url: set {ENV_PREFIX}CALENDAR_DB_URL")
         if not self.calendar_db_key:
-            errors.append("missing calendar db key: set CALENDAR_DB_KEY")
+            errors.append(f"missing calendar db key: set {ENV_PREFIX}CALENDAR_DB_KEY")
         if self.calendar_match_source not in {"economic_events", "release_dates"}:
             errors.append(
                 "invalid calendar match source: expected economic_events or release_dates, "
@@ -275,10 +310,12 @@ class Settings:
         if self.agent_execution_enabled:
             provider = (self.agent_llm_provider or "").strip().lower()
             if not provider:
-                errors.append("missing agent llm provider: set AGENT_LLM_PROVIDER")
+                errors.append(
+                    f"missing agent llm provider: set {ENV_PREFIX}AGENT_LLM_PROVIDER"
+                )
             elif provider == "anthropic":
                 errors.append(
-                    "anthropic is no longer supported: set AGENT_LLM_PROVIDER "
+                    f"anthropic is no longer supported: set {ENV_PREFIX}AGENT_LLM_PROVIDER "
                     "to openai, openai_compatible, or codex"
                 )
             elif provider not in _SUPPORTED_LLM_PROVIDERS:
@@ -288,12 +325,15 @@ class Settings:
                     f"received {self.agent_llm_provider!r}"
                 )
             if provider in _API_LLM_PROVIDERS and not self.agent_llm_api_key:
-                errors.append("missing agent llm api key: set AGENT_LLM_API_KEY")
+                errors.append(
+                    f"missing agent llm api key: set {ENV_PREFIX}AGENT_LLM_API_KEY"
+                )
             if provider in _CLI_LLM_PROVIDERS:
                 binary = resolve_codex_bin(self.agent_llm_codex_bin)
                 if not binary:
                     errors.append(
-                        "codex CLI not found: install `codex` or set AGENT_LLM_CODEX_BIN"
+                        "codex CLI not found: install `codex` or set "
+                        f"{ENV_PREFIX}AGENT_LLM_CODEX_BIN"
                     )
         if self.agent_llm_max_output_tokens <= 0:
             errors.append(

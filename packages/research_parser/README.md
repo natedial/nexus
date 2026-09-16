@@ -53,34 +53,41 @@ pip install -e .
 
 ### 2. Configure Environment
 
-Copy the example env file and fill in your credentials:
+Settings load from two files: the repo-root `.env` (shared credentials) first,
+then this package's `.env` (parser-owned settings), which wins on conflicts.
 
 ```bash
+cp ../../.env.example ../../.env   # once per checkout
 cp .env.example .env
 ```
 
-Required environment variables:
+Shared credentials in the repo-root `.env`:
 
 ```env
-# Google Drive
 GOOGLE_CREDENTIALS_PATH=./credentials/service-account.json
 GOOGLE_DRIVE_FOLDER_ID=your_folder_id_here
-
-# Supabase
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_service_role_key
+```
 
+Parser-owned settings in `packages/research_parser/.env`, all prefixed
+`RESEARCH_PARSER_`:
+
+```env
 # Local paths (for development)
-STATE_DB_PATH=./data/state.db
-ARTIFACT_BASE_DIR=./data/artifacts
+RESEARCH_PARSER_STATE_DB_PATH=./data/state.db
+RESEARCH_PARSER_ARTIFACT_BASE_DIR=./data/artifacts
 
 # Optional local MinerU fallback after Docling
-MINERU_ENABLED=false
-MINERU_BIN_PATH=/opt/mineru-venv/bin/mineru
+RESEARCH_PARSER_MINERU_ENABLED=false
+RESEARCH_PARSER_MINERU_BIN_PATH=/opt/mineru-venv/bin/mineru
 
 # Catchup on startup (process files from the last N days, 0 disables)
-CATCHUP_DAYS=0
+RESEARCH_PARSER_CATCHUP_DAYS=0
 ```
+
+The unprefixed names (`STATE_DB_PATH`, `CATCHUP_DAYS`, …) are still read as a
+deprecated fallback, so existing deployments keep working during migration.
 
 ### 3. Set Up Google Drive
 
@@ -96,11 +103,12 @@ CATCHUP_DAYS=0
 python -m src.main
 ```
 
-To run in catchup mode, set `CATCHUP_DAYS` in `.env` before starting the service:
+To run in catchup mode, set `RESEARCH_PARSER_CATCHUP_DAYS` in `.env` before
+starting the service:
 
 ```bash
 # Example: process the last 7 days on startup, then continue polling
-export CATCHUP_DAYS=7
+export RESEARCH_PARSER_CATCHUP_DAYS=7
 python -m src.main
 ```
 
@@ -122,9 +130,9 @@ uv venv /opt/mineru-venv
 Then configure:
 
 ```env
-MINERU_ENABLED=true
-MINERU_BIN_PATH=/opt/mineru-venv/bin/mineru
-MINERU_BACKEND=pipeline
+RESEARCH_PARSER_MINERU_ENABLED=true
+RESEARCH_PARSER_MINERU_BIN_PATH=/opt/mineru-venv/bin/mineru
+RESEARCH_PARSER_MINERU_BACKEND=pipeline
 ```
 
 The parser order is:
@@ -179,7 +187,11 @@ services:
   research-parser:
     build: .
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: ../../.env    # shared credentials
+        required: false
+      - path: .env          # parser-owned settings
+        required: false
     volumes:
       - ./data:/app/data              # SQLite state
       - ./credentials:/app/credentials:ro  # Google service account
@@ -188,12 +200,15 @@ services:
 
 ### Environment for Docker
 
-Update `.env` for Docker paths:
+Update the env files for Docker paths:
 
 ```env
+# repo-root .env
 GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
-STATE_DB_PATH=/app/data/state.db
-ARTIFACT_BASE_DIR=/app/data/artifacts
+
+# packages/research_parser/.env
+RESEARCH_PARSER_STATE_DB_PATH=/app/data/state.db
+RESEARCH_PARSER_ARTIFACT_BASE_DIR=/app/data/artifacts
 ```
 
 ## Fault Tolerance

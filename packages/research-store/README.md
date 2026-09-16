@@ -138,7 +138,16 @@ distill-index-supabase \
   --index-version v1
 ```
 
-`distill-index-supabase` loads `.env` by default. Use `--env-file` to override.
+## Environment
+
+This package reads only variables shared across the pipeline, so it has no
+`.env` of its own: `SUPABASE_URL`, `SUPABASE_KEY`, and the optional
+`RESEARCH_PROCESSING_ROOT` all come from the repo-root `.env` (see
+`../../.env.example`). If this package ever needs its own settings, they belong
+in a `packages/research-store/.env` and must be prefixed `RESEARCH_STORE_`.
+
+`distill-index-supabase` loads this package's `.env` (if one exists) and then
+the repo-root `.env`. Use `--env-file` to load a specific file instead.
 
 Status behavior:
 - Claims work with `index_status='pending'` and moves rows to `processing`.

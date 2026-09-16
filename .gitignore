@@ -1,0 +1,6 @@
+# Real environment files never get committed; only `.env.example` does.
+.env
+.env.*
+!.env.example
+
+.DS_Store

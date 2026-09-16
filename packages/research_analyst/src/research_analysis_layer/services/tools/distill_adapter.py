@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
+
+from research_analysis_layer.env import env
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ class DistillAdapter:
 
 def _get_default_db_path() -> Path:
     """Get the default path to the distilled corpus database."""
-    env_path = os.getenv("DISTILL_DB_PATH")
+    env_path = env("DISTILL_DB_PATH")
     if env_path:
         return Path(env_path)
     return _DEFAULT_DB_PATH

@@ -5,15 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import signal
 import sys
 import time
 from contextlib import contextmanager
 from typing import Any
 
-from dotenv import load_dotenv
-
+from config import Config
 from src.llm import LLMClient, ModelConfig
 from src.synthesizer import Synthesizer, _clean_json_response, _dump_json_payload
 
@@ -171,8 +169,7 @@ def _wall_timeout(seconds: int):
 
 
 def _require_api_key() -> str:
-    load_dotenv()
-    api_key = os.getenv("DEEPINFRA_API_KEY")
+    api_key = Config.DEEPINFRA_API_KEY
     if not api_key:
         raise SystemExit("DEEPINFRA_API_KEY is missing from the environment.")
     return api_key

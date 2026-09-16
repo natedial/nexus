@@ -30,17 +30,22 @@ cd morning_research
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[supabase,dev]"   # drop `supabase` extra if you don't use it
+cp ../../.env.example ../../.env   # shared credentials, once per checkout
 cp .env.example .env
-# edit .env with real credentials
+# edit both files with real values
 ```
 
 You'll also need the [Codex CLI](https://github.com/openai/codex) installed
-and authenticated (`codex_bin` in `.env`, default `codex`), since
+and authenticated (`MORNING_RESEARCH_CODEX_BIN` in `.env`, default `codex`), since
 `codex_runner.py` shells out to `codex exec`.
 
 ### Environment variables
 
-See [`.env.example`](.env.example) for the full list. Key ones:
+Shared credentials live in the repo-root `.env`
+([`../../.env.example`](../../.env.example)) and keep their unprefixed names.
+Settings owned by this package live in this package's `.env`
+([`.env.example`](.env.example)) and are prefixed `MORNING_RESEARCH_`; the root
+file is loaded first, so package values win. Key variables:
 
 | Variable | Purpose |
 | --- | --- |
@@ -50,9 +55,9 @@ See [`.env.example`](.env.example) for the full list. Key ones:
 | `SUPABASE_URL` / `SUPABASE_KEY` | Optional — Supabase persistence is skipped (with a log message) if either is unset |
 | `MORNING_RESEARCH_STATE_PATH` | Where the run-state JSON lives (see Migration notes below) |
 | `MORNING_RESEARCH_WORK_DIR` | Scratch directory for per-run artifacts (manifest, PDFs, prior notes, draft, receipt) |
-| `CODEX_BIN` / `CODEX_TIMEOUT_SECONDS` / `CODEX_MODEL` | Codex CLI invocation settings |
-| `MIN_PDF_BYTES` | Prefilter threshold for suspiciously small PDFs |
-| `DRY_RUN` | `true` to exercise Drive pull, prior-note fetch, and QC without Codex/Notion publish; does **not** advance the durable state ledger |
+| `MORNING_RESEARCH_CODEX_BIN` / `_CODEX_TIMEOUT_SECONDS` / `_CODEX_MODEL` | Codex CLI invocation settings |
+| `MORNING_RESEARCH_MIN_PDF_BYTES` | Prefilter threshold for suspiciously small PDFs |
+| `MORNING_RESEARCH_DRY_RUN` | `true` to exercise Drive pull, prior-note fetch, and QC without Codex/Notion publish; does **not** advance the durable state ledger |
 
 ## Running
 
@@ -73,7 +78,7 @@ Each run creates `work/<run_id>/` containing:
 
 ### Dry run
 
-Set `DRY_RUN=true` in `.env` (or export it) to test Drive pull, prior-note
+Set `MORNING_RESEARCH_DRY_RUN=true` in `.env` (or export it) to test Drive pull, prior-note
 fetch, prefilter, and QC without invoking Codex or Notion publish. A stub
 `draft.md`/`receipt.json` is written for QC. Dry runs intentionally leave
 `processed_documents` / `last_successful_run` unchanged so real documents are

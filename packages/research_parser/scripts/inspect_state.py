@@ -33,6 +33,10 @@ def print_table(headers, rows, max_width=50):
     print()
 
 
+# Prefixed name first, then the deprecated pre-monorepo name.
+_STATE_DB_PATH_NAMES = ("RESEARCH_PARSER_STATE_DB_PATH", "STATE_DB_PATH")
+
+
 def _parse_env_file(env_path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
@@ -52,19 +56,26 @@ def resolve_db_path(cli_db_path: str | None) -> Path:
     if cli_db_path:
         return Path(cli_db_path).expanduser()
 
-    env_value = os.getenv("STATE_DB_PATH")
-    if env_value:
-        return Path(env_value).expanduser()
+    for name in _STATE_DB_PATH_NAMES:
+        env_value = os.getenv(name)
+        if env_value:
+            return Path(env_value).expanduser()
 
-    repo_root = Path(__file__).resolve().parents[1]
-    env_path = repo_root / ".env"
-    env_values = _parse_env_file(env_path)
-    env_db = env_values.get("STATE_DB_PATH")
+    package_root = Path(__file__).resolve().parents[1]
+    env_values = _parse_env_file(package_root / ".env")
+    env_db = next(
+        (env_values[name] for name in _STATE_DB_PATH_NAMES if env_values.get(name)),
+        None,
+    )
     if env_db:
         env_path_value = Path(env_db).expanduser()
-        return env_path_value if env_path_value.is_absolute() else repo_root / env_path_value
+        return (
+            env_path_value
+            if env_path_value.is_absolute()
+            else package_root / env_path_value
+        )
 
-    default_local = repo_root / "data" / "state.db"
+    default_local = package_root / "data" / "state.db"
     if default_local.exists():
         return default_local
 
@@ -75,7 +86,7 @@ def main():
     parser = argparse.ArgumentParser(description="Inspect state database")
     parser.add_argument(
         "--db",
-        help="Path to SQLite state database (overrides STATE_DB_PATH/.env)",
+        help="Path to SQLite state database (overrides RESEARCH_PARSER_STATE_DB_PATH/.env)",
     )
     parser.add_argument(
         "--status",
