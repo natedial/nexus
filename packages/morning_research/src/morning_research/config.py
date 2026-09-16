@@ -4,19 +4,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_PREFIX = "MORNING_RESEARCH_"
+
+_PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = _PACKAGE_ROOT.parents[1]
 
 _DEFAULT_STATE_PATH = Path(
     "/Users/ncdial/devwork/local_codex/state/research_digest_state.json"
 )
 
 
+def _env(name: str) -> AliasChoices:
+    """Accept the prefixed name, then the pre-monorepo unprefixed name."""
+    return AliasChoices(f"{ENV_PREFIX}{name}".lower(), name.lower())
+
+
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables (and `.env`)."""
+    """Application settings loaded from environment variables (and `.env`).
+
+    Shared credentials (Google Drive, Notion, Supabase) keep their unprefixed
+    names and come from the repo-root `.env`. Settings owned by this package are
+    `MORNING_RESEARCH_*` and come from this package's `.env`, which wins on
+    conflicts.
+    """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(_REPO_ROOT / ".env", _PACKAGE_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -39,12 +55,18 @@ class Settings(BaseSettings):
     morning_research_state_path: Path = Field(default=_DEFAULT_STATE_PATH)
     morning_research_work_dir: Path = Field(default=Path("./work"))
 
-    codex_bin: str = Field(default="codex")
-    codex_timeout_seconds: int = Field(default=3600, ge=1)
-    codex_model: str | None = Field(default=None)
+    codex_bin: str = Field(default="codex", validation_alias=_env("CODEX_BIN"))
+    codex_timeout_seconds: int = Field(
+        default=3600, ge=1, validation_alias=_env("CODEX_TIMEOUT_SECONDS")
+    )
+    codex_model: str | None = Field(
+        default=None, validation_alias=_env("CODEX_MODEL")
+    )
 
-    min_pdf_bytes: int = Field(default=2048, ge=0)
-    dry_run: bool = Field(default=False)
+    min_pdf_bytes: int = Field(
+        default=2048, ge=0, validation_alias=_env("MIN_PDF_BYTES")
+    )
+    dry_run: bool = Field(default=False, validation_alias=_env("DRY_RUN"))
 
     @property
     def package_root(self) -> Path:
