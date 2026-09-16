@@ -14,6 +14,21 @@ from distill_tool.supabase_indexer import IndexingStats, index_pending_documents
 
 logger = logging.getLogger(__name__)
 
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = _PACKAGE_ROOT.parents[1]
+
+
+def _env_files(explicit: str | None) -> list[str]:
+    """Env files to load, in order. Later files never override earlier ones.
+
+    This package only reads shared variables (SUPABASE_URL, SUPABASE_KEY,
+    RESEARCH_PROCESSING_ROOT), so the repo-root `.env` is the normal source. A
+    package-level `.env` is still honoured first if someone creates one.
+    """
+    if explicit:
+        return [explicit]
+    return [str(_PACKAGE_ROOT / ".env"), str(_REPO_ROOT / ".env")]
+
 
 def run_indexing_worker(
     args: argparse.Namespace,
@@ -91,11 +106,12 @@ def main() -> None:
     bootstrap.add_argument(
         "--env-file",
         type=str,
-        default=".env",
+        default=None,
         help=argparse.SUPPRESS,
     )
     bootstrap_args, _ = bootstrap.parse_known_args()
-    load_dotenv(dotenv_path=bootstrap_args.env_file)
+    for env_file in _env_files(bootstrap_args.env_file):
+        load_dotenv(dotenv_path=env_file)
 
     parser = argparse.ArgumentParser(
         description=(
@@ -141,8 +157,11 @@ def main() -> None:
     parser.add_argument(
         "--env-file",
         type=str,
-        default=".env",
-        help="Path to dotenv file loaded before reading SUPABASE_URL/SUPABASE_KEY.",
+        default=None,
+        help=(
+            "Path to a dotenv file loaded before reading SUPABASE_URL/SUPABASE_KEY. "
+            "Defaults to this package's .env then the repo-root .env."
+        ),
     )
     parser.add_argument("--dict", dest="dictionary", type=str, help="Path to dictionary file.")
     parser.add_argument("--out-dir", type=str, default="distill_out", help="Output directory.")

@@ -4,7 +4,7 @@ import os
 from argparse import Namespace
 from pathlib import Path
 
-from distill_tool.index_supabase_cli import main, run_indexing_worker
+from distill_tool.index_supabase_cli import _PACKAGE_ROOT, main, run_indexing_worker
 from distill_tool.supabase_indexer import IndexingStats
 
 
@@ -48,6 +48,32 @@ def test_main_loads_env_file_and_uses_values(monkeypatch, capsys) -> None:
     assert captured_kwargs["supabase_key"] == "from-env-file-key"
     assert captured_kwargs["poll_limit"] == 3
     assert "Supabase indexing complete (scanned=1, claimed=1, indexed=1, failed=0, reclaimed=0)" in out
+
+
+def test_main_defaults_to_package_then_root_env_file(monkeypatch, capsys) -> None:
+    loaded: list[str] = []
+
+    monkeypatch.setenv("SUPABASE_URL", "https://from-process-env.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "from-process-env-key")
+    monkeypatch.setattr(
+        "distill_tool.index_supabase_cli.load_dotenv",
+        lambda *, dotenv_path: loaded.append(dotenv_path),
+    )
+    monkeypatch.setattr(
+        "distill_tool.index_supabase_cli.index_pending_documents",
+        lambda **kwargs: IndexingStats(
+            scanned=0, claimed=0, indexed=0, failed=0, reclaimed=0
+        ),
+    )
+    monkeypatch.setattr("sys.argv", ["distill-index-supabase"])
+
+    main()
+    capsys.readouterr()
+
+    assert loaded == [
+        str(_PACKAGE_ROOT / ".env"),
+        str(_PACKAGE_ROOT.parents[1] / ".env"),
+    ]
 
 
 def test_run_indexing_worker_continuous_mode_aggregates_cycles_and_sleeps() -> None:
