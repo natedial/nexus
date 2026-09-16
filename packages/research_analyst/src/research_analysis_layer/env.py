@@ -32,8 +32,7 @@ def _load_file(path: Path) -> None:
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        if line.startswith("export "):
-            line = line[len("export ") :]
+        line = line.removeprefix("export ")
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
