@@ -66,9 +66,12 @@ python3 scripts/inspect_state.py --limit 10
 
 ## Configuration
 
-Parse-and-store is configured with environment variables (see `.env.example`).
+Parse-and-store is configured with environment variables. Shared credentials
+come from the repo-root `.env` (see `../../.env.example`); parser-owned settings
+come from this package's `.env` (see `.env.example`) and are prefixed
+`RESEARCH_PARSER_`.
 
-Required vars:
+Required vars, all shared and therefore set at the repo root:
 
 ```env
 GOOGLE_CREDENTIALS_PATH=./credentials/service-account.json

@@ -17,7 +17,7 @@ Use this checklist to validate quality before deploying a new branch to producti
 ## Drive Watcher
 - Run `scripts/test_drive.py --days N`.
 - Confirm Drive folder ID and service account permissions.
-- Verify `POLL_INTERVAL_MINUTES` and `CATCHUP_DAYS` behavior.
+- Verify `RESEARCH_PARSER_POLL_INTERVAL_MINUTES` and `RESEARCH_PARSER_CATCHUP_DAYS` behavior.
 
 ## Supabase Storage
 - Run `scripts/test_supabase.py`.

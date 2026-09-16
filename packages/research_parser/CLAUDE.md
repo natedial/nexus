@@ -33,7 +33,7 @@ Theme and trade extraction belongs in a separate service. This repo owns parse +
 The pipeline (`src/pipeline.py`) orchestrates this flow:
 
 1. **Drive Watcher** → polls Google Drive folder for new PDFs
-2. **Parser backends** → Docling digital text first (`do_ocr=False`). If the digital pass is gappy (missing PDF pages, thin text-per-page, stub figure captions, or `FALLBACK`), retry Docling with OCR (`EasyOcrOptions(force_full_page_ocr=False)`). Keep OCR only if it gains ≥15% text or +0.05 confidence. Optional MinerU CLI last if still `FALLBACK`. Set `DOCLING_OCR_RETRY=false` to disable the OCR branch.
+2. **Parser backends** → Docling digital text first (`do_ocr=False`). If the digital pass is gappy (missing PDF pages, thin text-per-page, stub figure captions, or `FALLBACK`), retry Docling with OCR (`EasyOcrOptions(force_full_page_ocr=False)`). Keep OCR only if it gains ≥15% text or +0.05 confidence. Optional MinerU CLI last if still `FALLBACK`. Set `RESEARCH_PARSER_DOCLING_OCR_RETRY=false` to disable the OCR branch.
 3. **Deterministic clean** → filename identity (`YYYY-MM-DD_GS_...`) + boilerplate rules (refuses cuts that remove more than `max_strip_fraction` unless confidence is high)
 4. **Source artifacts** → `document.md`, `blocks.jsonl`, `figures.jsonl`, `clean_text.md`
 5. **Supabase storage** → upsert `parsed_research` plus `research_document_artifacts`, `research_spans`, and `research_retrieval_chunks`
@@ -58,6 +58,10 @@ SQLite database (`src/storage/state.py`) tracks:
 
 ### Configuration
 
-All settings via environment variables, loaded through pydantic-settings (`src/config.py`). Required vars:
+All settings via environment variables, loaded through pydantic-settings (`src/config.py`) from the repo-root `.env` first and this package's `.env` second.
+
+Required vars (shared, unprefixed, set at the repo root):
 - `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID`
 - `SUPABASE_URL`, `SUPABASE_KEY`
+
+Parser-owned settings are prefixed `RESEARCH_PARSER_` and live in `packages/research_parser/.env`. The unprefixed forms remain a deprecated fallback.

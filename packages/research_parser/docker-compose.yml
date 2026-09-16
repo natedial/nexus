@@ -6,13 +6,17 @@ services:
     container_name: research-parser
     restart: unless-stopped
 
-    # Load environment from .env file
+    # Shared repo-root values first, package overrides second
     env_file:
-      - .env
+      - path: ../../.env
+        required: false
+      - path: .env
+        required: false
 
     # Override specific env vars if needed
     environment:
-      - STATE_DB_PATH=/app/data/state.db
+      - RESEARCH_PARSER_STATE_DB_PATH=/app/data/state.db
+      - RESEARCH_PARSER_ARTIFACT_BASE_DIR=/app/data/artifacts
       - GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
       - RESEARCH_PROCESSING_ROOT=/app
 
@@ -54,9 +58,13 @@ services:
       dockerfile: Dockerfile
     container_name: research-parser-dev
     env_file:
-      - .env
+      - path: ../../.env
+        required: false
+      - path: .env
+        required: false
     environment:
-      - STATE_DB_PATH=/app/data/state.db
+      - RESEARCH_PARSER_STATE_DB_PATH=/app/data/state.db
+      - RESEARCH_PARSER_ARTIFACT_BASE_DIR=/app/data/artifacts
       - GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
       - RESEARCH_PROCESSING_ROOT=/app
     volumes:
