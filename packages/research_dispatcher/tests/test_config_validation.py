@@ -48,7 +48,7 @@ class ConfigValidationTests(unittest.TestCase):
             Config.validate()
 
     def test_parse_dispatch_input_mode_rejects_invalid_mode(self):
-        with self.assertRaisesRegex(ValueError, "DISPATCH_INPUT_MODE"):
+        with self.assertRaisesRegex(ValueError, "RESEARCH_DISPATCHER_INPUT_MODE"):
             parse_dispatch_input_mode("legacy")
 
     def test_validate_allows_parser_mode_without_analyst_batch_path(self):
@@ -67,8 +67,21 @@ class ConfigValidationTests(unittest.TestCase):
             self.assertTrue(_bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True))
 
     def test_legacy_synthesized_updates_can_be_disabled_explicitly(self):
+        env = {"RESEARCH_DISPATCHER_LEGACY_SYNTHESIZED_UPDATES": "false"}
+        with patch.dict("os.environ", env, clear=True):
+            self.assertFalse(_bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True))
+
+    def test_unprefixed_name_remains_a_fallback(self):
         with patch.dict("os.environ", {"LEGACY_SYNTHESIZED_UPDATES": "false"}, clear=True):
             self.assertFalse(_bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True))
+
+    def test_prefixed_name_wins_over_unprefixed(self):
+        env = {
+            "LEGACY_SYNTHESIZED_UPDATES": "false",
+            "RESEARCH_DISPATCHER_LEGACY_SYNTHESIZED_UPDATES": "true",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            self.assertTrue(_bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True))
 
     def test_validate_requires_analyst_batch_path_in_analyst_mode(self):
         patchers = self._base_patches() + [

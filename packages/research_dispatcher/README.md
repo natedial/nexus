@@ -19,47 +19,60 @@ pip install -r requirements.txt
 
 ### 3. Configure environment
 
+Configuration comes from two files: the repo-root `.env` for credentials shared
+across the pipeline, then this package's `.env` for dispatcher settings, which
+wins on conflicts.
+
 ```bash
+cp ../../.env.example ../../.env   # once per checkout
 cp .env.example .env
 ```
 
-Edit `.env` with your credentials:
+Shared credentials in the repo-root `.env` (unprefixed):
 
 ```bash
-# Supabase
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your_supabase_anon_key
 
-# Gmail SMTP (requires App Password)
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your_email@gmail.com
-SMTP_PASSWORD=your_16_char_app_password
-EMAIL_FROM=your_email@gmail.com
-EMAIL_TO=recipient@example.com
-
-# Report
-REPORT_TITLE=Research Dispatch
-
-# Optional LLM providers for synthesis
+# LLM providers for synthesis
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 DEEPINFRA_API_KEY=
+OPENROUTER_API_KEY=
+```
+
+Dispatcher settings in `packages/research_dispatcher/.env`, all prefixed
+`RESEARCH_DISPATCHER_`:
+
+```bash
+# Gmail SMTP (requires App Password)
+RESEARCH_DISPATCHER_SMTP_SERVER=smtp.gmail.com
+RESEARCH_DISPATCHER_SMTP_PORT=587
+RESEARCH_DISPATCHER_SMTP_USERNAME=your_email@gmail.com
+RESEARCH_DISPATCHER_SMTP_PASSWORD=your_16_char_app_password
+RESEARCH_DISPATCHER_EMAIL_FROM=your_email@gmail.com
+RESEARCH_DISPATCHER_EMAIL_TO=recipient@example.com
+
+# Report
+RESEARCH_DISPATCHER_REPORT_TITLE=Research Dispatch
 
 # Mode: debug (no DB updates) or production (marks docs as synthesized)
-MODE=debug
+RESEARCH_DISPATCHER_MODE=debug
 
 # Parser-mode production safety.
 # Keeps parsed_research.synthesized in sync so parser-mode sends are not repeated.
-LEGACY_SYNTHESIZED_UPDATES=true
+RESEARCH_DISPATCHER_LEGACY_SYNTHESIZED_UPDATES=true
 
 # Filters (all optional - empty = no filter)
-DATE_RANGE_DAYS=7
-FILTER_SOURCES=
-FILTER_REGION=
-FILTER_ASSET_FOCUS=
-CALENDAR_COUNTRY=US
+RESEARCH_DISPATCHER_DATE_RANGE_DAYS=7
+RESEARCH_DISPATCHER_FILTER_SOURCES=
+RESEARCH_DISPATCHER_FILTER_REGION=
+RESEARCH_DISPATCHER_FILTER_ASSET_FOCUS=
+RESEARCH_DISPATCHER_CALENDAR_COUNTRY=US
 ```
+
+The unprefixed spellings (`MODE`, `SMTP_PASSWORD`, `FILTER_REGION`, ...) are
+still read as a deprecated fallback, so an existing `.env` keeps working.
 
 ### 4. Gmail App Password
 
@@ -69,7 +82,7 @@ Gmail requires an App Password (not your regular password):
 2. Enable 2-Step Verification
 3. Search for "App passwords" in account settings
 4. Create new app password for "Mail"
-5. Use the 16-character password in `SMTP_PASSWORD`
+5. Use the 16-character password in `RESEARCH_DISPATCHER_SMTP_PASSWORD`
 
 ## Usage
 
@@ -91,14 +104,14 @@ Set filters in `.env` to scope the report:
 
 ```bash
 # US rates research only
-FILTER_REGION=US
-FILTER_ASSET_FOCUS=rates
+RESEARCH_DISPATCHER_FILTER_REGION=US
+RESEARCH_DISPATCHER_FILTER_ASSET_FOCUS=rates
 
 # Specific sources
-FILTER_SOURCES=Goldman Sachs,JP Morgan
+RESEARCH_DISPATCHER_FILTER_SOURCES=Goldman Sachs,JP Morgan
 
 # Last 3 days only
-DATE_RANGE_DAYS=3
+RESEARCH_DISPATCHER_DATE_RANGE_DAYS=3
 ```
 
 To route synthesis through DeepInfra, set `DEEPINFRA_API_KEY` and change the target entries in [`config/models.yaml`](/Users/ncdial/devwork/research_dispatcher/config/models.yaml) to `provider: deepinfra` with a supported model id such as `moonshotai/Kimi-K2.5` or `MiniMaxAI/MiniMax-M2.5`.
@@ -139,10 +152,10 @@ For non-instruct / more agentic DeepInfra models such as `moonshotai/Kimi-K2.5` 
 For instruct models such as `moonshotai/Kimi-K2-Instruct-0905`, prefer `response_format: {type: json_object}` first, but do not force the extra agentic flags unless testing shows they help.
 
 Filter options:
-- `FILTER_REGION`: US, EU, UK, Japan, China, EM, Global
-- `FILTER_ASSET_FOCUS`: rates, credit, FX, equities, commodities, multi-asset
-- `FILTER_SOURCES`: Comma-separated list of source names
-- `DATE_RANGE_DAYS`: Number of days to look back
+- `RESEARCH_DISPATCHER_FILTER_REGION`: US, EU, UK, Japan, China, EM, Global
+- `RESEARCH_DISPATCHER_FILTER_ASSET_FOCUS`: rates, credit, FX, equities, commodities, multi-asset
+- `RESEARCH_DISPATCHER_FILTER_SOURCES`: Comma-separated list of source names
+- `RESEARCH_DISPATCHER_DATE_RANGE_DAYS`: Number of days to look back
 
 ### Production mode
 
@@ -151,13 +164,14 @@ also marks sent `parsed_research` rows as synthesized by default. That preserves
 the older mail-branch behavior where a successful production send removes those
 documents from the next parser-mode query.
 
-Set `MODE=production` for live sends. Keep `LEGACY_SYNTHESIZED_UPDATES=true`
-unless the run is intentionally ledger-only, such as analyst-batch dispatches
-that do not use parser-owned synthesized state.
+Set `RESEARCH_DISPATCHER_MODE=production` for live sends. Keep
+`RESEARCH_DISPATCHER_LEGACY_SYNTHESIZED_UPDATES=true` unless the run is
+intentionally ledger-only, such as analyst-batch dispatches that do not use
+parser-owned synthesized state.
 
 ```bash
-MODE=production
-LEGACY_SYNTHESIZED_UPDATES=true
+RESEARCH_DISPATCHER_MODE=production
+RESEARCH_DISPATCHER_LEGACY_SYNTHESIZED_UPDATES=true
 ```
 
 ## Scheduling

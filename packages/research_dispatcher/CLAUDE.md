@@ -23,8 +23,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Configure environment
-cp .env.example .env
-# Edit .env with your credentials
+cp ../../.env.example ../../.env   # shared credentials, once per checkout
+cp .env.example .env               # dispatcher settings
+# Edit both files with your values
 ```
 
 ### Running the Application
@@ -71,15 +72,15 @@ python3 test_query.py
 
 5. **Email Delivery** (`email_sender.py` → `EmailSender`)
    - Sends via Gmail SMTP (requires App Password)
-   - Supports multiple recipients (comma-separated EMAIL_TO)
+   - Supports multiple recipients (comma-separated RESEARCH_DISPATCHER_EMAIL_TO)
 
 6. **Database Update** (`database.py` → `mark_as_synthesized()`)
-   - Only in production mode (`MODE=production`)
+   - Only in production mode (`RESEARCH_DISPATCHER_MODE=production`)
    - Sets `synthesized=true` flag to prevent re-processing
 
 ### Key Design Patterns
 
-**Mode System**: `MODE` environment variable controls behavior
+**Mode System**: `RESEARCH_DISPATCHER_MODE` environment variable controls behavior
 - `debug` (default): Queries DB, runs synthesis, generates PDF, sends email, but DOES NOT mark documents as synthesized
 - `production`/`prod`/`active`: Full pipeline including database updates
 
@@ -89,13 +90,13 @@ python3 test_query.py
 - Lazy-loads clients only when needed
 
 **Filter System**: All filters are optional (empty = all)
-- `DATE_RANGE_DAYS`: Days to look back (default: 7)
-- `FILTER_SOURCES`: Comma-separated source names
-- `FILTER_REGION`: US, EU, UK, Japan, China, EM, Global
-- `FILTER_ASSET_FOCUS`: rates, credit, FX, equities, commodities, multi-asset
+- `RESEARCH_DISPATCHER_DATE_RANGE_DAYS`: Days to look back (default: 3)
+- `RESEARCH_DISPATCHER_FILTER_SOURCES`: Comma-separated source names
+- `RESEARCH_DISPATCHER_FILTER_REGION`: US, EU, UK, Japan, China, EM, Global
+- `RESEARCH_DISPATCHER_FILTER_ASSET_FOCUS`: rates, credit, FX, equities, commodities, multi-asset
 - Active filters are displayed in generated reports
 
-**Synthesis Toggle**: `ENABLE_SYNTHESIS=true/false` controls LLM synthesis
+**Synthesis Toggle**: `RESEARCH_DISPATCHER_ENABLE_SYNTHESIS=true/false` controls LLM synthesis
 - When enabled: Cross-document synthesis replaces per-document through-lines
 - When disabled: Falls back to aggregating per-document through-lines
 - Requires `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
@@ -123,9 +124,14 @@ Calendar queries use `_get_upcoming_week_range()` to fetch Monday-Friday of next
 
 ### Configuration Files
 
-**`.env`**: All runtime configuration (credentials, filters, mode)
+**Repo-root `.env`**: credentials shared across the pipeline (Supabase, LLM providers), unprefixed
+- See `../../.env.example` for template
+
+**`.env`** (this package): dispatcher runtime configuration (email, filters, mode), all prefixed `RESEARCH_DISPATCHER_`
+- Loaded after the root file, so it wins on conflicts
 - See `.env.example` for template
-- Never commit this file
+- The unprefixed names remain a deprecated fallback
+- Never commit either file
 
 **`format_rules.yaml`**: PDF styling (colors, fonts, spacing)
 - Based on Design Genome Project aesthetic (coral red, black, white)
@@ -146,11 +152,11 @@ Calendar queries use `_get_upcoming_week_range()` to fetch Monday-Friday of next
 Gmail requires an App Password (not regular password):
 1. Enable 2-Step Verification in Google Account
 2. Generate App Password for "Mail"
-3. Use 16-character password in `SMTP_PASSWORD`
+3. Use 16-character password in `RESEARCH_DISPATCHER_SMTP_PASSWORD`
 
 ### Production Deployment
 When deploying to production:
-- Set `MODE=production` to enable database updates
+- Set `RESEARCH_DISPATCHER_MODE=production` to enable database updates
 - Use scheduling (macOS launchd or Linux cron) - see `SCHEDULING.md`
 - Ensure virtual environment paths are absolute in scheduler config
 

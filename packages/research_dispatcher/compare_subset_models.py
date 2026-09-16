@@ -9,8 +9,6 @@ import sys
 import time
 from typing import Any
 
-from dotenv import load_dotenv
-
 from config import Config
 from src.database import DatabaseClient
 from src.llm import ModelConfig
@@ -306,7 +304,6 @@ def _run_stage1(
 
 def main() -> int:
     args = _parse_args()
-    load_dotenv()
 
     if not Config.SUPABASE_URL or not Config.SUPABASE_KEY:
         raise SystemExit("Supabase credentials are missing.")

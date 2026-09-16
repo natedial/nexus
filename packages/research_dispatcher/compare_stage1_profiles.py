@@ -8,8 +8,6 @@ import json
 import sys
 import time
 
-from dotenv import load_dotenv
-
 from config import Config
 from src.database import DatabaseClient
 from src.stage1_profiles import (
@@ -122,7 +120,6 @@ def _run_profile(
 
 def main() -> int:
     args = _parse_args()
-    load_dotenv()
 
     if not Config.SUPABASE_URL or not Config.SUPABASE_KEY:
         raise SystemExit("Supabase credentials are missing.")
