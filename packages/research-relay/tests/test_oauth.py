@@ -143,6 +143,42 @@ def test_pkce_challenge_is_s256() -> None:
     assert "=" not in challenge
 
 
+def test_oauth_callback_ignores_favicon() -> None:
+    from http.server import HTTPServer
+    from research_relay.oauth import _OAuthCallbackHandler
+
+    class _Req:
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self._chunks: list[bytes] = []
+
+        def makefile(self, *_args, **_kwargs):
+            import io
+
+            return io.BytesIO(b"GET " + self.path.encode("ascii") + b" HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+
+        def sendall(self, data: bytes) -> None:
+            self._chunks.append(data)
+
+        def close(self) -> None:
+            return None
+
+    httpd = HTTPServer(("127.0.0.1", 0), _OAuthCallbackHandler)
+    try:
+        req = _Req("/favicon.ico")
+        handler = _OAuthCallbackHandler(req, ("127.0.0.1", 1), httpd)
+        assert getattr(httpd, "auth_code", None) is None
+        assert getattr(httpd, "auth_state", None) is None
+        assert b"204" in b"".join(req._chunks)
+
+        req2 = _Req("/?code=abc&state=xyz")
+        _OAuthCallbackHandler(req2, ("127.0.0.1", 1), httpd)
+        assert httpd.auth_code == "abc"
+        assert httpd.auth_state == "xyz"
+    finally:
+        httpd.server_close()
+
+
 def test_authorization_url_includes_gmail_imap_scope() -> None:
     url = authorization_url(
         client_id="abc.apps.googleusercontent.com",

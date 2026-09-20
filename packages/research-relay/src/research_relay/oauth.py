@@ -5,6 +5,7 @@ import hashlib
 import json
 import secrets
 import ssl
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -199,11 +200,17 @@ def run_authorization_flow(
         print(url)
         if open_browser:
             webbrowser.open(url)
-        httpd.timeout = 300
-        httpd.handle_request()
-        error = getattr(httpd, "auth_error", None)
-        if error:
-            raise ConfigError(f"Google OAuth error: {error}")
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            httpd.timeout = max(1.0, deadline - time.monotonic())
+            httpd.handle_request()
+            error = getattr(httpd, "auth_error", None)
+            if error:
+                raise ConfigError(f"Google OAuth error: {error}")
+            if getattr(httpd, "auth_code", None) or getattr(httpd, "auth_state", None):
+                break
+        else:
+            raise ConfigError("OAuth callback timed out after 300s")
         if getattr(httpd, "auth_state", None) != state:
             raise ConfigError("OAuth state mismatch; refusing to continue")
         code = getattr(httpd, "auth_code", None)
@@ -240,6 +247,12 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+        # Chrome (and other browsers) often hit /favicon.ico first. Ignore
+        # those so handle_request() can wait for the real OAuth redirect.
+        if not (query.get("code") or query.get("state") or query.get("error")):
+            self.send_response(204)
+            self.end_headers()
+            return
         self.server.auth_code = (query.get("code") or [None])[0]
         self.server.auth_state = (query.get("state") or [None])[0]
         self.server.auth_error = (query.get("error") or [None])[0]
