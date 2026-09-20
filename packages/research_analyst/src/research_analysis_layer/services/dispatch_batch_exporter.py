@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,16 +18,31 @@ from research_analysis_layer.services.street_digest import render_street_digest
 
 logger = logging.getLogger(__name__)
 
+_VALID_MODES = {"off", "shadow", "on"}
+
 
 class DispatchBatchExporter:
     """Export DispatchBatch from document_analysis table.
 
     Produces a JSON file that the dispatcher can consume via AnalystBatchClient.
+    Street-agrees rendering is gated by digest_consensus_mode (off/shadow/on).
     """
 
-    def __init__(self, store: AnalysisStore, *, min_publishers: int = 2):
+    def __init__(
+        self,
+        store: AnalysisStore,
+        *,
+        min_publishers: int = 2,
+        consensus_mode: str = "off",
+    ):
+        if consensus_mode not in _VALID_MODES:
+            raise ValueError(
+                "digest consensus mode must be off, shadow, or on, "
+                f"received {consensus_mode!r}"
+            )
         self.store = store
         self.min_publishers = min_publishers
+        self.consensus_mode = consensus_mode
 
     def load_batch(self, scope: DispatchScope) -> dict[str, Any]:
         """Load a dispatch batch based on the given scope.
@@ -107,10 +123,11 @@ class DispatchBatchExporter:
             doc = self._row_to_document(row)
             documents.append(doc)
 
+        generated_at = datetime.now(timezone.utc).isoformat()
         return {
             "batch_key": scope.batch_key,
             "analysis_version": scope.analysis_version or "latest",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": generated_at,
             "scope": {
                 "date_from": scope.date_from.isoformat() if scope.date_from else None,
                 "date_to": scope.date_to.isoformat() if scope.date_to else None,
@@ -118,10 +135,22 @@ class DispatchBatchExporter:
                 "include_orphans": scope.include_orphans,
             },
             "documents": documents,
-            "cross_document_signals": self._cross_document_signals(documents),
+            "cross_document_signals": self._cross_document_signals(
+                documents,
+                batch_key=scope.batch_key,
+                generated_at=generated_at,
+            ),
         }
 
-    def _cross_document_signals(self, documents: list[dict[str, Any]]) -> dict[str, Any]:
+    def _cross_document_signals(
+        self,
+        documents: list[dict[str, Any]],
+        *,
+        batch_key: str,
+        generated_at: str,
+    ) -> dict[str, Any]:
+        if self.consensus_mode == "off":
+            return {}
         maps = [
             {
                 "source": document.get("source"),
@@ -132,7 +161,21 @@ class DispatchBatchExporter:
             for document in documents
         ]
         section = render_street_digest(maps, min_publishers=self.min_publishers)
-        return {"street_agrees_splits": section.to_payload()}
+        payload = section.to_payload()
+        if self.consensus_mode == "shadow":
+            self.store.write_shadow_street_digest(
+                batch_key=batch_key,
+                generated_at=generated_at,
+                mode=self.consensus_mode,
+                payload_json=json.dumps(payload),
+            )
+            _emit_shadow_log(
+                batch_key=batch_key,
+                generated_at=generated_at,
+                payload=payload,
+            )
+            return {}
+        return {"street_agrees_splits": payload}
 
     def _row_to_document(self, row: dict[str, Any]) -> dict[str, Any]:
         """Convert a database row to a dispatch document."""
@@ -223,3 +266,24 @@ class DispatchBatchExporter:
             len(batch["documents"]),
             output_path,
         )
+
+
+def _emit_shadow_log(
+    *,
+    batch_key: str,
+    generated_at: str,
+    payload: dict[str, Any],
+) -> None:
+    sys.stderr.write(
+        json.dumps(
+            {
+                "event": "shadow_street_digest_complete",
+                "batch_key": batch_key,
+                "generated_at": generated_at,
+                "agreement_count": payload.get("agreement_count", 0),
+                "disagreement_count": payload.get("disagreement_count", 0),
+                "reached_street_scale": payload.get("reached_street_scale", False),
+            }
+        )
+        + "\n"
+    )

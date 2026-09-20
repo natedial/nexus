@@ -170,6 +170,33 @@ class ConfigTest(unittest.TestCase):
             settings.validate(),
         )
 
+    def test_digest_consensus_mode_defaults_to_off(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("RESEARCH_ANALYST_DIGEST_CONSENSUS_MODE", None)
+            os.environ.pop("DIGEST_CONSENSUS_MODE", None)
+            settings = Settings.from_env()
+        self.assertEqual(settings.digest_consensus_mode, "off")
+        self.assertFalse(
+            any("digest_consensus_mode" in error for error in settings.validate())
+        )
+
+    def test_invalid_digest_consensus_mode_is_a_config_error(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+            "DIGEST_CONSENSUS_MODE": "maybe",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertIn(
+            "invalid digest_consensus_mode: expected off, shadow, or on, received 'maybe'",
+            settings.validate(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

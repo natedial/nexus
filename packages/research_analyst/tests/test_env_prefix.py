@@ -15,6 +15,8 @@ _CLEARED = (
     "ANALYST_DEBATE_MODE",
     "RESEARCH_ANALYST_BATCH_SIZE",
     "BATCH_SIZE",
+    "RESEARCH_ANALYST_DIGEST_CONSENSUS_MODE",
+    "DIGEST_CONSENSUS_MODE",
 )
 
 
@@ -52,6 +54,16 @@ class EnvPrefixTest(unittest.TestCase):
         settings = _settings(ANALYST_DEBATE_MODE="shadow")
 
         self.assertEqual(settings.analyst_debate_mode, "shadow")
+
+    def test_digest_consensus_mode_prefixed_name(self) -> None:
+        settings = _settings(RESEARCH_ANALYST_DIGEST_CONSENSUS_MODE="shadow")
+
+        self.assertEqual(settings.digest_consensus_mode, "shadow")
+
+    def test_digest_consensus_mode_legacy_name(self) -> None:
+        settings = _settings(DIGEST_CONSENSUS_MODE="on")
+
+        self.assertEqual(settings.digest_consensus_mode, "on")
 
     def test_shared_supabase_backs_the_parsed_store(self) -> None:
         settings = _settings(

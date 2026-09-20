@@ -215,6 +215,33 @@ def _print_rollout_stats(round_executor, *, settings: Settings | None = None) ->
     )
 
 
+def _digest_consensus_report(store: AnalysisStore, settings: Settings) -> dict:
+    consensus = _consensus_report(store, settings)
+    referents = _referent_resolution_report(store, settings)
+    return {
+        "mode": settings.digest_consensus_mode,
+        "min_publishers": settings.consensus_min_publishers,
+        "referent_granularity": settings.referent_granularity,
+        "shift_diversity_threshold": settings.consensus_shift_diversity_threshold,
+        "agreement_count": consensus.get("agreement_count", 0),
+        "disagreement_count": consensus.get("disagreement_count", 0),
+        "unresolved_referent_rate": referents.get("stored_unresolved_rate", 0.0),
+        "error": consensus.get("error") or referents.get("error"),
+    }
+
+
+def _print_digest_consensus_stats(settings: Settings, report: dict) -> None:
+    print(f"digest_consensus_mode={settings.digest_consensus_mode}")
+    if settings.digest_consensus_mode == "off":
+        return
+    print(
+        "digest_stats: "
+        f"agreements={report.get('agreement_count', 0)} "
+        f"disagreements={report.get('disagreement_count', 0)} "
+        f"unresolved_referent_rate={report.get('unresolved_referent_rate', 0.0):.3f}"
+    )
+
+
 def _referent_resolution_report(store: AnalysisStore, settings: Settings) -> dict:
     resolver = EvidenceReferentResolver(granularity=settings.referent_granularity)
     try:
@@ -638,10 +665,12 @@ def command_doctor(settings: Settings) -> int:
         "consensus": _consensus_report(pipeline.store, settings),
         "consensus_shift": _consensus_shift_report(pipeline.store, settings),
         "argument_graph": _argument_graph_report(pipeline.store, settings),
+        "digest_consensus": _digest_consensus_report(pipeline.store, settings),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
     _print_rollout_stats(pipeline.analyze_document.round_executor, settings=settings)
+    _print_digest_consensus_stats(settings, report["digest_consensus"])
     prompt_ok = (
         all(prompt_status.values())
         if settings.agent_execution_enabled and prompt_status
@@ -1058,7 +1087,9 @@ def command_export_dispatch_batch(
 
     store = AnalysisStore(settings.analysis_db_path)
     exporter = DispatchBatchExporter(
-        store, min_publishers=settings.consensus_min_publishers
+        store,
+        min_publishers=settings.consensus_min_publishers,
+        consensus_mode=settings.digest_consensus_mode,
     )
 
     try:

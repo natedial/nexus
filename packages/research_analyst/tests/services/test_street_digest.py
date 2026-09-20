@@ -192,7 +192,7 @@ class StreetDigestTest(unittest.TestCase):
 
 
 class StreetDigestExportTest(unittest.TestCase):
-    def test_dispatch_batch_includes_street_section(self) -> None:
+    def _seed_pair(self) -> tuple[AnalysisStore, TemporaryDirectory]:
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         store = AnalysisStore(Path(tmp.name) / "analysis.db")
@@ -275,8 +275,11 @@ class StreetDigestExportTest(unittest.TestCase):
                 total_tool_calls=0,
                 total_duration_ms=10,
             )
+        return store, tmp
 
-        batch = DispatchBatchExporter(store).load_batch(
+    def test_dispatch_batch_includes_street_section(self) -> None:
+        store, _ = self._seed_pair()
+        batch = DispatchBatchExporter(store, consensus_mode="on").load_batch(
             DispatchScope(document_keys=["doc:1", "doc:12"], batch_key="test")
         )
         street = batch["cross_document_signals"]["street_agrees_splits"]
@@ -284,6 +287,28 @@ class StreetDigestExportTest(unittest.TestCase):
         self.assertEqual(street["agreement_count"], 1)
         self.assertIn("(2 houses)", street["agreements"][0])
         self.assertIn("argument_map", batch["documents"][0])
+
+    def test_off_mode_omits_street_section(self) -> None:
+        store, _ = self._seed_pair()
+        batch = DispatchBatchExporter(store, consensus_mode="off").load_batch(
+            DispatchScope(document_keys=["doc:1", "doc:12"], batch_key="test")
+        )
+        self.assertEqual(batch["cross_document_signals"], {})
+        self.assertIsNone(store.load_shadow_street_digest(batch_key="test", generated_at=batch["generated_at"]))
+
+    def test_shadow_mode_persists_without_publishing(self) -> None:
+        store, _ = self._seed_pair()
+        batch = DispatchBatchExporter(store, consensus_mode="shadow").load_batch(
+            DispatchScope(document_keys=["doc:1", "doc:12"], batch_key="shadow-test")
+        )
+        self.assertEqual(batch["cross_document_signals"], {})
+        row = store.load_shadow_street_digest(
+            batch_key="shadow-test", generated_at=batch["generated_at"]
+        )
+        self.assertIsNotNone(row)
+        payload = json.loads(row["payload_json"])
+        self.assertEqual(payload["agreement_count"], 1)
+        self.assertEqual(row["mode"], "shadow")
 
 
 if __name__ == "__main__":

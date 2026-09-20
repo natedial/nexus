@@ -893,6 +893,25 @@ class PDFGenerator:
         elements.append(Spacer(1, 0.1 * inch))
         return elements
 
+    def _create_street_agrees_section(self, report_data: Dict[str, Any]) -> list:
+        """Render live street-agrees / splits lines when the analyst flag is on."""
+        street = report_data.get("street_agrees_splits")
+        if not isinstance(street, dict):
+            return []
+        lines = street.get("lines") or []
+        if not isinstance(lines, list):
+            lines = []
+        lines = [str(item).strip() for item in lines if str(item or "").strip()]
+        if not lines:
+            return []
+
+        elements = self._create_section_header("Where the Street Agrees / Splits", new_page=False)
+        for line in lines:
+            elements.append(Paragraph(escape(line), self.styles["Normal"]))
+            elements.append(Spacer(1, 0.06 * inch))
+        elements.append(Spacer(1, 0.1 * inch))
+        return elements
+
     def _create_document_digest_section(self, report_data: Dict[str, Any]) -> list:
         """Render a readable note-by-note digest grouped by source date."""
         digest_groups = report_data.get("document_digest", [])
@@ -1014,6 +1033,7 @@ class PDFGenerator:
         story.extend(self._create_executive_summary_section(report_data))
         story.extend(self._create_market_analysis_section(report_data))
         story.extend(self._create_delta_section(report_data))
+        story.extend(self._create_street_agrees_section(report_data))
 
         # Through Lines section — rendered as card blocks
         through_lines = report_data.get('through_lines', [])
