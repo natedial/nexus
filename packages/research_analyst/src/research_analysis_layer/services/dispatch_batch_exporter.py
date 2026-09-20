@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from research_analysis_layer.models.dispatch_scope import (
     DispatchScopeError,
 )
 from research_analysis_layer.db.analysis_store import AnalysisStore
+from research_analysis_layer.services.street_digest import render_street_digest
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,9 @@ class DispatchBatchExporter:
     Produces a JSON file that the dispatcher can consume via AnalystBatchClient.
     """
 
-    def __init__(self, store: AnalysisStore):
+    def __init__(self, store: AnalysisStore, *, min_publishers: int = 2):
         self.store = store
+        self.min_publishers = min_publishers
 
     def load_batch(self, scope: DispatchScope) -> dict[str, Any]:
         """Load a dispatch batch based on the given scope.
@@ -116,8 +118,21 @@ class DispatchBatchExporter:
                 "include_orphans": scope.include_orphans,
             },
             "documents": documents,
-            "cross_document_signals": {},
+            "cross_document_signals": self._cross_document_signals(documents),
         }
+
+    def _cross_document_signals(self, documents: list[dict[str, Any]]) -> dict[str, Any]:
+        maps = [
+            {
+                "source": document.get("source"),
+                "publisher": document.get("publisher"),
+                "research_id": document.get("research_id"),
+                "argument_map": document.get("argument_map") or [],
+            }
+            for document in documents
+        ]
+        section = render_street_digest(maps, min_publishers=self.min_publishers)
+        return {"street_agrees_splits": section.to_payload()}
 
     def _row_to_document(self, row: dict[str, Any]) -> dict[str, Any]:
         """Convert a database row to a dispatch document."""
@@ -177,6 +192,9 @@ class DispatchBatchExporter:
             or payload.get("short_time_horizon_insights", []),
             "talking_points": analysis_payload.get("talking_points")
             or payload.get("talking_points", []),
+            "argument_map": analysis_payload.get("argument_map")
+            or payload.get("argument_map")
+            or [],
         }
 
     def export_to_file(
@@ -205,6 +223,3 @@ class DispatchBatchExporter:
             len(batch["documents"]),
             output_path,
         )
-
-
-from datetime import timezone

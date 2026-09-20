@@ -108,6 +108,61 @@ class FormatterDispatchBatchTests(unittest.TestCase):
         self.assertEqual(report["document_digest"][0]["heading"], expected_heading)
         self.assertIn("Payrolls should miss consensus.", report["document_digest"][1]["entries"][0]["summary"])
 
+    def test_format_report_exposes_street_agrees_splits(self):
+        batch = DispatchBatch.from_dict(
+            {
+                "batch_key": "2026-08-22:us:rates",
+                "analysis_version": "argmap-v1",
+                "cross_document_signals": {
+                    "street_agrees_splits": {
+                        "agreements": [
+                            "GS and MS agree Fed hike path: on hold / no hike (September 2026) (2 houses)"
+                        ],
+                        "disagreements": [
+                            "GS A September Fed hike is very unlikely. because payrolls slowed; "
+                            "Barclays 25bp September hike most likely. because hawkish tone (contested)"
+                        ],
+                        "fallback": [],
+                        "lines": [
+                            "GS and MS agree Fed hike path: on hold / no hike (September 2026) (2 houses)",
+                            "GS A September Fed hike is very unlikely. because payrolls slowed; "
+                            "Barclays 25bp September hike most likely. because hawkish tone (contested)",
+                        ],
+                        "reached_street_scale": True,
+                        "agreement_count": 1,
+                        "disagreement_count": 1,
+                    }
+                },
+                "documents": [
+                    {
+                        "research_id": 1,
+                        "document_name": "Rates Daily",
+                        "source": "Goldman Sachs",
+                        "source_date": "2026-08-22",
+                        "publisher": "Goldman Sachs",
+                    },
+                    {
+                        "research_id": 16,
+                        "document_name": "Macro Weekly",
+                        "source": "Barclays",
+                        "source_date": "2026-08-22",
+                        "publisher": "Barclays",
+                    },
+                ],
+            }
+        )
+
+        report = self.formatter.format_report(batch)
+        street = report["street_agrees_splits"]
+        self.assertTrue(street["reached_street_scale"])
+        self.assertEqual(len(street["agreements"]), 1)
+        self.assertIn("(2 houses)", street["agreements"][0])
+        self.assertIn("GS and MS agree", street["agreements"][0])
+        self.assertEqual(len(street["disagreements"]), 1)
+        self.assertIn("contested", street["disagreements"][0])
+        self.assertIn("Barclays", street["disagreements"][0])
+        self.assertIn("because", street["disagreements"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -119,3 +119,4 @@ class TestDispatchBatchExporter:
         assert document["asset_focus"] == "rates"
         assert document["document_link"] == "https://example.com/doc.pdf"
         assert document["cross_document_references"][0]["chunk_id"] == "chunk-1"
+        assert document["argument_map"] == []

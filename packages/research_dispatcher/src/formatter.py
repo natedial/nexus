@@ -103,6 +103,9 @@ class ReportFormatter:
                 report["analysis_version"] = data.analysis_version
             if analyst_batch_path:
                 report["analyst_batch_path"] = analyst_batch_path
+            street = data.cross_document_signals.get("street_agrees_splits")
+            if isinstance(street, dict):
+                report["street_agrees_splits"] = street
         return report
 
     def _documents_for_reporting(
