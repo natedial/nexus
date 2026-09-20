@@ -6,7 +6,7 @@
     <string>com.researchrelay.email</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/ncdial/devwork/research_relay/.venv/bin/python3</string>
+        <string>/Users/ncdial/devwork/nexus/packages/research-relay/.venv/bin/python3</string>
         <string>-m</string>
         <string>research_relay</string>
         <string>run</string>
@@ -17,7 +17,7 @@
         <string>240</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/ncdial/devwork/research_relay</string>
+    <string>/Users/ncdial/devwork/nexus/packages/research-relay</string>
     <key>StartInterval</key>
     <integer>300</integer>
     <key>ExitTimeOut</key>
