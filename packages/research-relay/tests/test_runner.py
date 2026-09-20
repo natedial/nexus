@@ -177,6 +177,34 @@ def test_does_not_resend_when_smtp_succeeded_but_labels_need_retry(tmp_path: Pat
     assert "Relay/sent" in imap.labels["1001"]
 
 
+def test_retries_proton_labels_when_already_marked_updated(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, live=True)
+    ledger = Ledger(cfg.paths.ledger)
+    key = "proton:<native@proton.me>"
+    ledger.record_smtp_accepted(key)
+    ledger.record_labels_updated(key)
+    ledger.close()
+    gmail = FakeImap({})
+    proton = FakeProtonImap(
+        {key: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}}
+    )
+    smtp = FakeSmtp()
+    result = process_messages(
+        cfg,
+        imap=gmail,
+        smtp=smtp,
+        hmac_key=b"k",
+        dry_run=False,
+        extra_imaps=[proton],
+        sleeper=lambda _s: None,
+    )
+    assert smtp.sent == []
+    assert result.sent == 0
+    assert result.label_retries == 1
+    assert "Relay/sent" in proton.labels[key]
+    assert "Relay/pending" not in proton.labels[key]
+
+
 def test_temporary_smtp_failure_leaves_pending(tmp_path: Path) -> None:
     cfg = _config(tmp_path, live=True)
     imap = FakeImap({"1001": {"raw": _plain_raw(), "labels": {"Relay/pending"}}})
