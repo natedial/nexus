@@ -224,6 +224,9 @@ class ScriptedProtonImap:
         if verb == "FETCH":
             uid = str(args[0])
             spec = str(args[1]).upper()
+            selected_uids = self.mailboxes.get(self.selected, [])
+            if uid not in selected_uids:
+                return "OK", [(b"BODY[] {0}", b"")]
             if "HEADER" in spec:
                 return "OK", [(b"BODY[HEADER] {1}", self.headers[uid])]
             return "OK", [(b"BODY[] {1}", self.bodies.get(uid, b"hello\r\n"))]
@@ -290,6 +293,37 @@ def test_proton_search_returns_native_and_records_gmail_copies() -> None:
     assert dismissed == 1
     move_cmds = [c for c in scripted.commands if c[0] == "uid" and str(c[1]).upper() == "MOVE"]
     assert move_cmds
+
+
+def test_proton_fetch_after_apply_sent_selects_pending() -> None:
+    scripted = ScriptedProtonImap()
+    pending = quote_mailbox(r"Labels/Relay\/pending")
+    scripted.headers["3"] = (
+        b"From: Bob <bob@proton.me>\r\n"
+        b"Message-ID: <native2@proton.me>\r\n\r\n"
+    )
+    scripted.bodies["3"] = (
+        b"From: Bob <bob@proton.me>\r\n"
+        b"Message-ID: <native2@proton.me>\r\n\r\nsecond\r\n"
+    )
+    scripted.mailboxes[pending].append("3")
+    client = _proton_client(scripted)
+    found = client.search_pending()
+    assert "proton:<native2@proton.me>" in found
+    client.apply_sent("proton:<native@proton.me>")
+    raw = client.fetch_message("proton:<native2@proton.me>")
+    assert b"From: Bob <bob@proton.me>" in raw
+    assert scripted.selected == pending
+    fetch_cmds = [
+        c
+        for c in scripted.commands
+        if c[0] == "uid" and str(c[1]).upper() == "FETCH" and "HEADER" not in str(c[2][1]).upper()
+    ]
+    assert fetch_cmds
+    selects_before_last_fetch = [
+        c for c in scripted.commands[: scripted.commands.index(fetch_cmds[-1])] if c[0] == "select"
+    ]
+    assert selects_before_last_fetch[-1][1] == pending
 
 
 def test_proton_apply_sent_moves_pending_to_sent() -> None:
