@@ -61,6 +61,12 @@ from research_analysis_layer.services.evidence_referent_resolver import (
     score_referent_golden,
 )
 from research_analysis_layer.services.reconcile import reconcile_recent
+from research_analysis_layer.evals.rubric_metrics import (
+    RUBRIC_RATE_NAMES,
+    aggregate_rubric_metrics,
+    evaluate_promotion_gate,
+    load_rubric_baseline,
+)
 from research_analysis_layer.services.round_executor import RoundExecutor
 from research_analysis_layer.services.tools.registry import ToolRegistry
 from research_analysis_layer.services.tools.distill_adapter import (
@@ -213,6 +219,13 @@ def _print_rollout_stats(round_executor, *, settings: Settings | None = None) ->
         f"debate_avg_ms={stats.debate_duration_ms // max(1, stats.shadow_runs_total) if stats.shadow_runs_total > 0 else 0}, "
         f"baseline_avg_ms={stats.baseline_duration_ms // max(1, stats.shadow_runs_total) if stats.shadow_runs_total > 0 else 0}"
     )
+    rubric_bits = []
+    for name in RUBRIC_RATE_NAMES:
+        value = getattr(stats, name, None)
+        if isinstance(value, (int, float)):
+            rubric_bits.append(f"{name}={float(value):.3f}")
+    if rubric_bits:
+        print("rollout_stats_rubric: " + " ".join(rubric_bits))
 
 
 def _digest_consensus_report(store: AnalysisStore, settings: Settings) -> dict:
@@ -240,6 +253,60 @@ def _print_digest_consensus_stats(settings: Settings, report: dict) -> None:
         f"disagreements={report.get('disagreement_count', 0)} "
         f"unresolved_referent_rate={report.get('unresolved_referent_rate', 0.0):.3f}"
     )
+
+
+def _print_rubric_stats(report: dict) -> None:
+    if report.get("error"):
+        print(f"rubric_stats: error={report['error']}")
+        return
+    gate = report.get("promotion_gate") or {}
+    rates = report.get("rates") or {}
+    baseline = "present" if gate.get("baseline_present") else "missing"
+    print(
+        f"promotion_gate: mode={gate.get('mode', 'advisory')} "
+        f"action={gate.get('action', 'allow')} baseline={baseline}"
+    )
+    print(
+        "rubric_stats: "
+        f"claim_rationale_rate={float(rates.get('claim_rationale_rate', 0.0)):.3f} "
+        f"claim_evidenced_rate={float(rates.get('claim_evidenced_rate', 0.0)):.3f} "
+        f"divergence_grounded_rate={float(rates.get('divergence_grounded_rate', 0.0)):.3f} "
+        f"divergence_attributed_rate={float(rates.get('divergence_attributed_rate', 0.0)):.3f} "
+        f"consensus_multi_source_rate={float(rates.get('consensus_multi_source_rate', 0.0)):.3f}"
+    )
+
+
+def _apply_rubric_rates_to_rollout_stats(round_executor, rates: dict) -> None:
+    if round_executor is None:
+        return
+    stats = getattr(round_executor, "rollout_stats", None)
+    if stats is None:
+        return
+    for name in RUBRIC_RATE_NAMES:
+        if hasattr(stats, name) and isinstance(rates.get(name), (int, float)):
+            setattr(stats, name, float(rates[name]))
+
+
+def _rubric_metrics_report(store: AnalysisStore, settings: Settings) -> dict:
+    try:
+        maps = store.list_argument_maps_for_consensus()
+    except Exception as exc:  # pragma: no cover - doctor stays up if store is unready
+        return {"error": str(exc)}
+    snapshot = ConsensusClusterer(
+        min_publishers=settings.consensus_min_publishers
+    ).cluster_maps(maps)
+    rates = aggregate_rubric_metrics(maps, snapshot)
+    baseline = load_rubric_baseline(settings.resolve_promotion_gate_baseline_path())
+    gate = evaluate_promotion_gate(
+        rates,
+        floors=settings.promotion_gate_floors,
+        baseline=baseline,
+        mode=settings.promotion_gate_mode,
+    )
+    return {
+        "rates": rates.as_dict(),
+        "promotion_gate": gate.as_dict(),
+    }
 
 
 def _referent_resolution_report(store: AnalysisStore, settings: Settings) -> dict:
@@ -666,17 +733,26 @@ def command_doctor(settings: Settings) -> int:
         "consensus_shift": _consensus_shift_report(pipeline.store, settings),
         "argument_graph": _argument_graph_report(pipeline.store, settings),
         "digest_consensus": _digest_consensus_report(pipeline.store, settings),
+        "rubric_metrics": _rubric_metrics_report(pipeline.store, settings),
     }
+    _apply_rubric_rates_to_rollout_stats(
+        pipeline.analyze_document.round_executor,
+        (report["rubric_metrics"].get("rates") or {}),
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
     _print_rollout_stats(pipeline.analyze_document.round_executor, settings=settings)
     _print_digest_consensus_stats(settings, report["digest_consensus"])
+    _print_rubric_stats(report["rubric_metrics"])
     prompt_ok = (
         all(prompt_status.values())
         if settings.agent_execution_enabled and prompt_status
         else True
     )
-    return 0 if not errors and parsed_ok and calendar_ok and prompt_ok else 1
+    gate_blocked = (
+        (report["rubric_metrics"].get("promotion_gate") or {}).get("action") == "block"
+    )
+    return 0 if not errors and parsed_ok and calendar_ok and prompt_ok and not gate_blocked else 1
 
 
 def command_run(

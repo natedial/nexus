@@ -85,3 +85,52 @@ def test_print_digest_consensus_stats_emitted_when_shadow(capsys):
     assert "agreements=2" in out
     assert "disagreements=1" in out
     assert "unresolved_referent_rate=0.250" in out
+
+
+def test_print_rubric_stats_includes_gate_and_rates(capsys):
+    from research_analysis_layer import main as m
+
+    m._print_rubric_stats(
+        {
+            "rates": {
+                "claim_rationale_rate": 1.0,
+                "claim_evidenced_rate": 0.5,
+                "divergence_grounded_rate": 0.75,
+                "divergence_attributed_rate": 1.0,
+                "consensus_multi_source_rate": 0.0,
+            },
+            "promotion_gate": {
+                "mode": "advisory",
+                "action": "warn",
+                "baseline_present": True,
+                "failures": ["consensus_multi_source_rate"],
+            },
+        }
+    )
+    out = capsys.readouterr().out
+    assert "promotion_gate: mode=advisory action=warn baseline=present" in out
+    assert "claim_rationale_rate=1.000" in out
+    assert "claim_evidenced_rate=0.500" in out
+    assert "consensus_multi_source_rate=0.000" in out
+
+
+def test_print_rollout_stats_includes_rubric_rates_when_numeric(capsys):
+    from research_analysis_layer import main as m
+    from research_analysis_layer.services.round_executor import RolloutStats
+
+    executor = MagicMock()
+    executor.debate_mode = "shadow"
+    stats = RolloutStats(
+        shadow_runs_total=1,
+        claim_rationale_rate=0.9,
+        claim_evidenced_rate=0.8,
+        divergence_grounded_rate=0.7,
+        divergence_attributed_rate=0.6,
+        consensus_multi_source_rate=1.0,
+    )
+    executor.rollout_stats = stats
+    m._print_rollout_stats(executor)
+    out = capsys.readouterr().out
+    assert "rollout_stats_rubric:" in out
+    assert "claim_rationale_rate=0.900" in out
+    assert "divergence_attributed_rate=0.600" in out
