@@ -26,6 +26,7 @@ from research_analysis_layer.logging import configure_logging
 from research_analysis_layer.pipelines import AnalyzeDocumentPipeline, RunBatchPipeline
 from research_analysis_layer.services import (
     AgentInputBuilder,
+    ArgumentGraph,
     AssertionExtractor,
     Chunker,
     ClaimKeyResolver,
@@ -277,6 +278,27 @@ def _consensus_report(store: AnalysisStore, settings: Settings) -> dict:
     }
 
 
+def _argument_graph_report(store: AnalysisStore, settings: Settings) -> dict:
+    try:
+        maps = store.list_argument_maps_for_consensus()
+    except Exception as exc:  # pragma: no cover
+        return {"error": str(exc)}
+    snapshot = ArgumentGraph(
+        min_publishers=settings.consensus_min_publishers
+    ).query_maps(maps)
+    return {
+        "min_publishers": snapshot.min_publishers,
+        "clustered_claim_count": snapshot.clustered_claim_count,
+        "skipped_unresolved_count": snapshot.skipped_unresolved_count,
+        "interpretation_gap_count": len(snapshot.interpretation_gaps),
+        "robust_count": sum(1 for item in snapshot.independence if item.kind == "robust"),
+        "herding_count": sum(1 for item in snapshot.independence if item.kind == "herding"),
+        "mixed_count": sum(1 for item in snapshot.independence if item.kind == "mixed"),
+        "contradiction_count": len(snapshot.contradictions),
+        "backed_vs_asserted_count": len(snapshot.backed_vs_asserted),
+    }
+
+
 def _consensus_shift_report(store: AnalysisStore, settings: Settings) -> dict:
     try:
         previous = store.list_consensus_cluster_state()
@@ -463,6 +485,48 @@ def command_consensus(
     return 0
 
 
+def command_argument_graph(
+    settings: Settings,
+    *,
+    min_publishers: int | None,
+    limit: int | None,
+    claim_key: str | None,
+    query: str | None,
+) -> int:
+    """Run argument-graph queries over stored maps."""
+    n = min_publishers if min_publishers is not None else settings.consensus_min_publishers
+    store = AnalysisStore(settings.analysis_db_path)
+    maps = store.list_argument_maps_for_consensus(limit=limit)
+    snapshot = ArgumentGraph(min_publishers=n).query_maps(maps, claim_key=claim_key)
+    payload = snapshot.model_dump()
+    if query:
+        wanted = query.strip().lower().replace("-", "_")
+        aliases = {
+            "same_evidence": "interpretation_gaps",
+            "interpretation_gaps": "interpretation_gaps",
+            "independence": "independence",
+            "herding": "independence",
+            "contradicts": "contradictions",
+            "contradictions": "contradictions",
+            "backed": "backed_vs_asserted",
+            "backed_vs_asserted": "backed_vs_asserted",
+        }
+        field = aliases.get(wanted)
+        if field is None:
+            print(json.dumps({"error": f"unknown query: {query}"}, indent=2))
+            return 2
+        payload = {
+            "query": field,
+            "claim_key": claim_key,
+            field: payload[field],
+            "min_publishers": snapshot.min_publishers,
+            "clustered_claim_count": snapshot.clustered_claim_count,
+            "skipped_unresolved_count": snapshot.skipped_unresolved_count,
+        }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def command_consensus_shift(
     settings: Settings,
     *,
@@ -557,6 +621,7 @@ def command_doctor(settings: Settings) -> int:
         "publisher_diversity": _publisher_diversity_report(pipeline.store),
         "consensus": _consensus_report(pipeline.store, settings),
         "consensus_shift": _consensus_shift_report(pipeline.store, settings),
+        "argument_graph": _argument_graph_report(pipeline.store, settings),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
@@ -1207,6 +1272,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Persist cluster state and insert new shift events",
     )
 
+    argument_graph = subparsers.add_parser(
+        "argument-graph",
+        help="Query interpretation gaps, herding vs robust consensus, and backing splits",
+    )
+    argument_graph.add_argument(
+        "--min-publishers",
+        type=int,
+        default=None,
+        help="Override RESEARCH_ANALYST_CONSENSUS_MIN_PUBLISHERS (default 2)",
+    )
+    argument_graph.add_argument("--limit", type=int, default=None)
+    argument_graph.add_argument(
+        "--claim-key",
+        type=str,
+        default=None,
+        help="Restrict to one claim_key or family (claim:subject:predicate)",
+    )
+    argument_graph.add_argument(
+        "--query",
+        type=str,
+        default=None,
+        help="Optional slice: same_evidence | independence | contradicts | backed",
+    )
+
     return parser
 
 
@@ -1339,6 +1428,14 @@ def main(argv: list[str] | None = None) -> int:
             diversity_threshold=args.diversity_threshold,
             limit=args.limit,
             apply=args.apply,
+        )
+    if args.command == "argument-graph":
+        return command_argument_graph(
+            settings,
+            min_publishers=args.min_publishers,
+            limit=args.limit,
+            claim_key=args.claim_key,
+            query=args.query,
         )
     parser.error(f"unknown command: {args.command}")
     return 2
