@@ -47,6 +47,7 @@ from research_analysis_layer.services import (
     Resolver,
     Selector,
     build_agent_llm_client,
+    render_street_digest,
 )
 from research_analysis_layer.services.agent_registry import get_registry
 from research_analysis_layer.services.claim_key_resolver import (
@@ -524,6 +525,21 @@ def command_argument_graph(
             "skipped_unresolved_count": snapshot.skipped_unresolved_count,
         }
     print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def command_street_digest(
+    settings: Settings,
+    *,
+    min_publishers: int | None,
+    limit: int | None,
+) -> int:
+    """Render the street-agrees / street-splits digest from stored maps."""
+    n = min_publishers if min_publishers is not None else settings.consensus_min_publishers
+    store = AnalysisStore(settings.analysis_db_path)
+    maps = store.list_argument_maps_for_consensus(limit=limit)
+    section = render_street_digest(maps, min_publishers=n)
+    print(json.dumps(section.to_payload(), indent=2, sort_keys=True))
     return 0
 
 
@@ -1041,7 +1057,9 @@ def command_export_dispatch_batch(
         return 1
 
     store = AnalysisStore(settings.analysis_db_path)
-    exporter = DispatchBatchExporter(store)
+    exporter = DispatchBatchExporter(
+        store, min_publishers=settings.consensus_min_publishers
+    )
 
     try:
         output_path = Path(out)
@@ -1249,6 +1267,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     consensus.add_argument("--limit", type=int, default=None)
 
+    street_digest = subparsers.add_parser(
+        "street-digest",
+        help="Render the dispatcher street-agrees / street-splits digest",
+    )
+    street_digest.add_argument(
+        "--min-publishers",
+        type=int,
+        default=None,
+        help="Override RESEARCH_ANALYST_CONSENSUS_MIN_PUBLISHERS (default 2)",
+    )
+    street_digest.add_argument("--limit", type=int, default=None)
+
     consensus_shift = subparsers.add_parser(
         "consensus-shift",
         help="Detect source_consensus_shift events from stored maps",
@@ -1417,6 +1447,12 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "consensus":
         return command_consensus(
+            settings,
+            min_publishers=args.min_publishers,
+            limit=args.limit,
+        )
+    if args.command == "street-digest":
+        return command_street_digest(
             settings,
             min_publishers=args.min_publishers,
             limit=args.limit,
