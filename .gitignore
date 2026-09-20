@@ -3,4 +3,7 @@
 .env.*
 !.env.example
 
+# OAuth Desktop client JSON (research-relay). Never commit.
+credentials/
+
 .DS_Store
