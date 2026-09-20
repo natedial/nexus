@@ -430,6 +430,13 @@ class ArgumentGraphTest(unittest.TestCase):
             ArgumentGraph(min_publishers=1)
 
     def test_doctor_report_counts_hits(self) -> None:
+        import sys
+        import types
+
+        if "research_pipeline_ops" not in sys.modules:
+            stub = types.ModuleType("research_pipeline_ops")
+            stub.PipelineOpsClient = MagicMock
+            sys.modules["research_pipeline_ops"] = stub
         from research_analysis_layer.main import _argument_graph_report
 
         store = MagicMock()
