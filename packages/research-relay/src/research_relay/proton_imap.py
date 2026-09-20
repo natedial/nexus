@@ -279,10 +279,10 @@ class ProtonImap:
         return raw
 
     def apply_sent(self, gmail_msgid: str) -> None:
-        self._copy_and_leave_pending(gmail_msgid, self._cfg.proton.folder_sent)
+        self._move_pending_to(gmail_msgid, self._cfg.proton.folder_sent)
 
     def apply_error(self, gmail_msgid: str) -> None:
-        self._copy_and_leave_pending(gmail_msgid, self._cfg.proton.folder_error)
+        self._move_pending_to(gmail_msgid, self._cfg.proton.folder_error)
 
     def list_mailbox_names(self) -> list[str]:
         imap = self._require()
@@ -300,23 +300,70 @@ class ProtonImap:
     def noop(self) -> None:
         self._require().noop()
 
-    def _copy_and_leave_pending(self, key: str, dest_folder: str) -> None:
-        uid = self._uids.get(key)
-        if uid is None:
-            raise TemporaryRelayError("unknown Proton message id for label update")
+    def _move_pending_to(self, key: str, dest_folder: str) -> None:
+        """Move a pending message onto another Proton *label* folder.
+
+        Bridge treats labels as IMAP folders. COPY into a label adds it;
+        MOVE from one label to another adds the destination and removes the
+        source. COPY-then-MOVE-to-INBOX was returning OK while Relay/pending
+        stayed put, so we MOVE pending → sent/error and verify both sides.
+        """
+        message_id = _rfc822_id_from_key(key)
+        uid = self._resolve_pending_uid(key, message_id)
         imap = self._require()
         self._select(self._cfg.proton.folder_pending)
         try:
-            typ, _ = imap.uid("COPY", uid, quote_mailbox(dest_folder))
+            typ, _ = imap.uid("MOVE", uid, quote_mailbox(dest_folder))
             if typ != "OK":
-                raise TemporaryRelayError("failed to copy Proton label folder")
-            typ, _ = imap.uid("MOVE", uid, quote_mailbox(self._cfg.proton.folder_inbox))
-            if typ != "OK":
-                raise TemporaryRelayError("failed to remove Proton pending label")
+                raise TemporaryRelayError(f"failed to move Proton message to {dest_folder}")
         except TimeoutError as exc:
             raise imap_timeout(exc) from exc
         except (OSError, imaplib.IMAP4.error) as exc:
-            raise TemporaryRelayError(f"Proton IMAP STORE failed: {exc.__class__.__name__}") from exc
+            raise TemporaryRelayError(f"Proton IMAP MOVE failed: {exc.__class__.__name__}") from exc
+        self._uids.pop(key, None)
+        if message_id and self._uids_for_message_id(self._cfg.proton.folder_pending, message_id):
+            raise TemporaryRelayError("Proton pending label still present after MOVE")
+        if message_id and not self._uids_for_message_id(dest_folder, message_id):
+            raise TemporaryRelayError(f"Proton message missing from {dest_folder} after MOVE")
+
+    def _resolve_pending_uid(self, key: str, message_id: str) -> str:
+        uid = self._uids.get(key)
+        if uid:
+            return uid
+        if message_id:
+            found = self._uids_for_message_id(self._cfg.proton.folder_pending, message_id)
+            if found:
+                self._uids[key] = found[0]
+                return found[0]
+        raise TemporaryRelayError("unknown Proton message id for label update")
+
+    def _uids_for_message_id(self, folder: str, message_id: str) -> list[str]:
+        text = (message_id or "").strip()
+        if not text:
+            return []
+        variants = [text]
+        if text.startswith("<") and text.endswith(">"):
+            variants.append(text[1:-1])
+        else:
+            variants.append(f"<{text}>")
+        imap = self._require()
+        self._select(folder)
+        found: list[str] = []
+        try:
+            for variant in variants:
+                typ, data = imap.uid("SEARCH", None, "HEADER", "Message-ID", variant)
+                if typ != "OK":
+                    continue
+                payload = data[0] if data else b""
+                uids = payload.decode("ascii", errors="ignore").split() if payload else []
+                for uid in uids:
+                    if uid not in found:
+                        found.append(uid)
+        except TimeoutError as exc:
+            raise imap_timeout(exc) from exc
+        except (OSError, imaplib.IMAP4.error) as exc:
+            raise TemporaryRelayError(f"Proton IMAP search failed: {exc.__class__.__name__}") from exc
+        return found
 
     def _move_to_inbox(self, key: str) -> None:
         uid = self._uids.get(key)
@@ -409,6 +456,15 @@ def _header_is_own_relay(cfg: object, header: bytes) -> bool:
     relay = getattr(cfg, "relay", None)
     mid = str(parsed.get("Message-ID") or "").strip() or _message_id(header)
     return message_id_from_domain(mid, str(getattr(relay, "message_id_domain", "") or ""))
+
+
+def _rfc822_id_from_key(key: str) -> str:
+    text = (key or "").strip()
+    if text.startswith("proton:"):
+        text = text[7:]
+    if not text or text.startswith("uid-"):
+        return ""
+    return text
 
 
 def _message_id(header: bytes) -> str:

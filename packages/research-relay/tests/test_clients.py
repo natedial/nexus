@@ -183,6 +183,16 @@ class ScriptedProtonImap:
                 b"Message-ID: <native@proton.me>\r\n\r\nhello\r\n"
             ),
         }
+        pending = quote_mailbox(r"Labels/Relay\/pending")
+        sent = quote_mailbox(r"Labels/Relay\/sent")
+        error = quote_mailbox(r"Labels/Relay\/error")
+        inbox = quote_mailbox("INBOX")
+        self.mailboxes = {
+            pending: ["1", "2"],
+            sent: [],
+            error: [],
+            inbox: [],
+        }
 
     def select(self, mailbox: str, readonly: bool = False) -> tuple[str, list]:
         self.selected = mailbox
@@ -193,14 +203,46 @@ class ScriptedProtonImap:
         self.commands.append(("uid", command, args))
         verb = command.upper()
         if verb == "SEARCH":
-            return "OK", [getattr(self, "search_uids", b"1 2")]
+            override = getattr(self, "search_uids", None)
+            if override is not None and not (
+                "HEADER" in " ".join(str(a) for a in args).upper()
+            ):
+                return "OK", [override]
+            uids = list(self.mailboxes.get(self.selected, []))
+            joined = " ".join(str(a) for a in args).upper()
+            if "HEADER" in joined and "MESSAGE-ID" in joined:
+                needle = str(args[-1]).strip()
+                matched = []
+                for uid in uids:
+                    header = self.headers.get(uid, b"")
+                    if needle.encode("utf-8") in header or needle.strip("<>").encode("utf-8") in header:
+                        matched.append(uid)
+                payload = " ".join(matched).encode("ascii") if matched else b""
+                return "OK", [payload]
+            payload = " ".join(uids).encode("ascii") if uids else b""
+            return "OK", [payload]
         if verb == "FETCH":
             uid = str(args[0])
             spec = str(args[1]).upper()
             if "HEADER" in spec:
                 return "OK", [(b"BODY[HEADER] {1}", self.headers[uid])]
             return "OK", [(b"BODY[] {1}", self.bodies.get(uid, b"hello\r\n"))]
-        if verb in {"COPY", "MOVE"}:
+        if verb == "COPY":
+            uid = str(args[0])
+            dest = str(args[1])
+            bucket = self.mailboxes.setdefault(dest, [])
+            if uid not in bucket:
+                bucket.append(uid)
+            return "OK", [b""]
+        if verb == "MOVE":
+            uid = str(args[0])
+            dest = str(args[1])
+            current = self.mailboxes.get(self.selected, [])
+            if uid in current:
+                current.remove(uid)
+            bucket = self.mailboxes.setdefault(dest, [])
+            if uid not in bucket:
+                bucket.append(uid)
             return "OK", [b""]
         return "OK", [b""]
 
@@ -250,14 +292,36 @@ def test_proton_search_returns_native_and_records_gmail_copies() -> None:
     assert move_cmds
 
 
-def test_proton_apply_sent_copies_then_moves() -> None:
+def test_proton_apply_sent_moves_pending_to_sent() -> None:
     scripted = ScriptedProtonImap()
     client = _proton_client(scripted)
     client.search_pending()
     client.apply_sent("proton:<native@proton.me>")
-    verbs = [str(c[1]).upper() for c in scripted.commands if c[0] == "uid"]
-    assert "COPY" in verbs
-    assert "MOVE" in verbs
+    move_cmds = [c for c in scripted.commands if c[0] == "uid" and str(c[1]).upper() == "MOVE"]
+    assert move_cmds
+    assert move_cmds[-1][2][1] == quote_mailbox(r"Labels/Relay\/sent")
+    copy_cmds = [c for c in scripted.commands if c[0] == "uid" and str(c[1]).upper() == "COPY"]
+    assert copy_cmds == []
+    pending = quote_mailbox(r"Labels/Relay\/pending")
+    sent = quote_mailbox(r"Labels/Relay\/sent")
+    assert "1" not in scripted.mailboxes[pending]
+    assert "1" in scripted.mailboxes[sent]
+
+
+def test_proton_apply_sent_fails_if_still_pending() -> None:
+    from research_relay.exceptions import TemporaryRelayError
+
+    class Sticky(ScriptedProtonImap):
+        def uid(self, command: str, *args) -> tuple[str, list]:
+            if str(command).upper() == "MOVE":
+                self.commands.append(("uid", command, args))
+                return "OK", [b""]
+            return super().uid(command, *args)
+
+    client = _proton_client(Sticky())
+    client.search_pending()
+    with pytest.raises(TemporaryRelayError, match="pending label still present"):
+        client.apply_sent("proton:<native@proton.me>")
 
 
 def test_proton_apply_sent_timeout_is_temporary() -> None:

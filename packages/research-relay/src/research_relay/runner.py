@@ -103,10 +103,11 @@ def process_messages(
                 and callable(counter)
             ):
                 pending_after = int(counter())
-                if pending_after >= pending_before:
+                sent_this_source = result.sent - sent_before
+                if pending_after > pending_before - sent_this_source:
                     reason = (
-                        f"proton pending did not shrink before={pending_before} after={pending_after} "
-                        f"sent={result.sent - sent_before}"
+                        f"proton pending did not drop by sends before={pending_before} "
+                        f"after={pending_after} sent={sent_this_source}"
                     )
                     ledger.trip_circuit(reason)
                     result.circuit_tripped = True
@@ -131,7 +132,21 @@ def _process_one(
 ) -> None:
     row = ledger.get(gmail_msgid)
     if row and row.status == "labels_updated":
-        result.skipped += 1
+        if dry_run:
+            result.skipped += 1
+            return
+        try:
+            imap.apply_sent(gmail_msgid)
+            ledger.record_labels_updated(gmail_msgid)
+            result.label_retries += 1
+            log.info("retried labels for already-sent msgid=%s", _short(gmail_msgid))
+        except Exception as exc:
+            result.operational_failures += 1
+            log.warning(
+                "label retry failed for already-sent msgid=%s error=%s",
+                _short(gmail_msgid),
+                exc.__class__.__name__,
+            )
         return
     if row and row.status == STATUS_SMTP_ACCEPTED:
         if dry_run:
