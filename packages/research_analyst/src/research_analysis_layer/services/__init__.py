@@ -2,6 +2,7 @@
 
 from .agent_input_builder import AgentInputBuilder
 from .agent_llm_client import build_agent_llm_client
+from .argument_graph import ArgumentGraph
 from .assertion_extractor import AssertionExtractor
 from .chunker import Chunker
 from .claim_key_resolver import ClaimKeyResolver
@@ -32,6 +33,7 @@ from .street_digest import StreetDigestSection, render_street_digest, short_publ
 
 __all__ = [
     "AgentInputBuilder",
+    "ArgumentGraph",
     "AssertionExtractor",
     "build_agent_llm_client",
     "Chunker",
