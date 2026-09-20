@@ -161,6 +161,7 @@ class Settings:
     referent_granularity: str = "coarse"
     consensus_min_publishers: int = 2
     consensus_shift_diversity_threshold: int = 3
+    digest_consensus_mode: str = "off"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -267,6 +268,7 @@ class Settings:
             consensus_shift_diversity_threshold=_env_int(
                 "CONSENSUS_SHIFT_DIVERSITY_THRESHOLD", 3
             ),
+            digest_consensus_mode=env("DIGEST_CONSENSUS_MODE", "off"),
         )
 
     @property
@@ -364,5 +366,10 @@ class Settings:
             errors.append(
                 "invalid consensus_shift_diversity_threshold: must be >= 2, "
                 f"received {self.consensus_shift_diversity_threshold}"
+            )
+        if self.digest_consensus_mode not in {"off", "shadow", "on"}:
+            errors.append(
+                "invalid digest_consensus_mode: expected off, shadow, or on, "
+                f"received {self.digest_consensus_mode!r}"
             )
         return errors

@@ -84,6 +84,31 @@ class PDFGeneratorTests(unittest.TestCase):
         self.assertIn("https://example.com/viewer?", links)
         self.assertIn("token=", links)
 
+    def test_street_agrees_section_omitted_without_payload(self):
+        elements = self.generator._create_street_agrees_section({})
+        self.assertEqual(elements, [])
+
+    def test_street_agrees_section_renders_lines(self):
+        elements = self.generator._create_street_agrees_section(
+            {
+                "street_agrees_splits": {
+                    "lines": [
+                        "GS and MS agree Fed hike path: on hold (2 houses)",
+                        "Barclays 25bp hike most likely because hawkish tone (contested)",
+                    ]
+                }
+            }
+        )
+        texts = [
+            element.getPlainText()
+            for element in elements
+            if isinstance(element, Paragraph)
+        ]
+        self.assertEqual(texts[0], "Where the Street Agrees / Splits")
+        self.assertIn("GS and MS agree", texts[1])
+        self.assertIn("contested", texts[2])
+        self.assertFalse(any(isinstance(element, PageBreak) for element in elements[:2]))
+
 
 if __name__ == "__main__":
     unittest.main()

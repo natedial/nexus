@@ -498,6 +498,17 @@ class AnalysisStore:
                     event_time TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS shadow_street_digest (
+                    batch_key TEXT NOT NULL,
+                    generated_at TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (batch_key, generated_at)
+                );
+                CREATE INDEX IF NOT EXISTS ix_shadow_street_digest_batch
+                    ON shadow_street_digest(batch_key);
                 CREATE INDEX IF NOT EXISTS idx_consensus_shift_events_type
                     ON consensus_shift_events(event_type);
                 CREATE INDEX IF NOT EXISTS idx_consensus_shift_events_cluster
@@ -2211,6 +2222,45 @@ class AnalysisStore:
                   AND analysis_version = ? AND run_id = ? AND variant = ?
                 """,
                 (research_id, document_hash, analysis_version, run_id, variant),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def write_shadow_street_digest(
+        self,
+        *,
+        batch_key: str,
+        generated_at: str,
+        mode: str,
+        payload_json: str,
+    ) -> None:
+        """Persist a shadow street-digest payload. Idempotent on (batch_key, generated_at)."""
+        now = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO shadow_street_digest (
+                    batch_key, generated_at, mode, payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(batch_key, generated_at) DO UPDATE SET
+                    mode = excluded.mode,
+                    payload_json = excluded.payload_json
+                """,
+                (batch_key, generated_at, mode, payload_json, now),
+            )
+
+    def load_shadow_street_digest(
+        self,
+        *,
+        batch_key: str,
+        generated_at: str,
+    ) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM shadow_street_digest
+                WHERE batch_key = ? AND generated_at = ?
+                """,
+                (batch_key, generated_at),
             ).fetchone()
         return dict(row) if row else None
 

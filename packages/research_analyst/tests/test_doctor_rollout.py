@@ -1,4 +1,11 @@
 from unittest.mock import MagicMock
+import sys
+import types
+
+if "research_pipeline_ops" not in sys.modules:
+    stub = types.ModuleType("research_pipeline_ops")
+    stub.PipelineOpsClient = MagicMock
+    sys.modules["research_pipeline_ops"] = stub
 
 
 def test_print_rollout_stats_omitted_when_off(capsys):
@@ -49,3 +56,32 @@ def test_print_rollout_stats_none_executor_with_settings_prints_mode(capsys):
     out = capsys.readouterr().out
     assert "debate_mode=shadow" in out
     assert "rollout_stats" not in out
+
+
+def test_print_digest_consensus_stats_mode_only_when_off(capsys):
+    from research_analysis_layer import main as m
+
+    settings = MagicMock(digest_consensus_mode="off")
+    m._print_digest_consensus_stats(settings, {"agreement_count": 2})
+    out = capsys.readouterr().out
+    assert "digest_consensus_mode=off" in out
+    assert "digest_stats" not in out
+
+
+def test_print_digest_consensus_stats_emitted_when_shadow(capsys):
+    from research_analysis_layer import main as m
+
+    settings = MagicMock(digest_consensus_mode="shadow")
+    m._print_digest_consensus_stats(
+        settings,
+        {
+            "agreement_count": 2,
+            "disagreement_count": 1,
+            "unresolved_referent_rate": 0.25,
+        },
+    )
+    out = capsys.readouterr().out
+    assert "digest_consensus_mode=shadow" in out
+    assert "agreements=2" in out
+    assert "disagreements=1" in out
+    assert "unresolved_referent_rate=0.250" in out
