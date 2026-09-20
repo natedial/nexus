@@ -28,6 +28,7 @@ from .raw_forecast_extractor import RawForecastExtractor
 from .review_harness import ReviewHarness
 from .resolver import Resolver
 from .selector import Selector
+from .street_digest import StreetDigestSection, render_street_digest, short_publisher_label
 
 __all__ = [
     "AgentInputBuilder",
@@ -52,8 +53,11 @@ __all__ = [
     "ReviewHarness",
     "Resolver",
     "Selector",
+    "StreetDigestSection",
     "canonical_publisher",
     "distinct_publishers",
     "publisher_for_document",
+    "render_street_digest",
+    "short_publisher_label",
     "source_diversity",
 ]
