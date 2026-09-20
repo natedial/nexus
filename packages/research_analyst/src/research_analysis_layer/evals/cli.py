@@ -98,6 +98,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output JSONL file path",
     )
 
+    rubric_parser = subparsers.add_parser(
+        "rubric-report",
+        help="Lint/judge golden argument maps and consensus points vs a previous run",
+    )
+    rubric_parser.add_argument(
+        "--golden",
+        type=Path,
+        default=Path("evals/golden"),
+        help="Path to golden dataset directory",
+    )
+    rubric_parser.add_argument(
+        "--previous",
+        type=Path,
+        default=None,
+        help="Previous rubric report JSON to diff against",
+    )
+    rubric_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Optional path to write the current report JSON",
+    )
+
     return parser
 
 
@@ -252,6 +275,28 @@ def cmd_export(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_rubric_report(args: argparse.Namespace) -> int:
+    """Run the Slice 3 rubric regression report (no live agent calls)."""
+    from research_analysis_layer.evals.rubric_regression import (
+        build_rubric_regression_report,
+    )
+
+    golden_path = args.golden
+    if not golden_path.exists():
+        print(f"Error: Golden path not found: {golden_path}", file=sys.stderr)
+        return 1
+    report = build_rubric_regression_report(
+        golden_path,
+        previous=args.previous,
+    )
+    payload = report.as_dict()
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return 1 if payload.get("regressions") else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -259,6 +304,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 1
+
+    if args.command == "rubric-report":
+        return cmd_rubric_report(args)
 
     settings = Settings()
 

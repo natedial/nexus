@@ -114,6 +114,29 @@ class TestGoldenDataset(unittest.TestCase):
                 self.assertGreaterEqual(conf, 0.0, f"{doc_id}: confidence {conf} < 0")
                 self.assertLessEqual(conf, 1.0, f"{doc_id}: confidence {conf} > 1")
 
+    def test_some_annotations_include_argument_maps(self):
+        annotations = load_golden_annotations(self.golden_path)
+        mapped = [
+            doc_id
+            for doc_id, ann in annotations.items()
+            if (ann.get("expected") or {}).get("argument_map")
+        ]
+        self.assertGreaterEqual(len(mapped), 2, "Need at least two labeled argument maps")
+
+    def test_consensus_points_file_exists_and_has_both_kinds(self):
+        path = self.golden_path / "consensus.jsonl"
+        self.assertTrue(path.exists(), "consensus.jsonl must exist")
+        kinds = set()
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                item = json.loads(line)
+                kinds.add(item.get("kind"))
+        self.assertIn("consensus", kinds)
+        self.assertIn("divergence", kinds)
+
 
 if __name__ == "__main__":
     unittest.main()
