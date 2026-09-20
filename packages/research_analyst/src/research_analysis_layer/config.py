@@ -162,6 +162,10 @@ class Settings:
     consensus_min_publishers: int = 2
     consensus_shift_diversity_threshold: int = 3
     digest_consensus_mode: str = "off"
+    argument_judge_weight_rationale_fidelity: float = 0.25
+    argument_judge_weight_substantive: float = 0.25
+    argument_judge_weight_groundedness: float = 0.25
+    argument_judge_weight_phantom: float = 0.25
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -269,6 +273,18 @@ class Settings:
                 "CONSENSUS_SHIFT_DIVERSITY_THRESHOLD", 3
             ),
             digest_consensus_mode=env("DIGEST_CONSENSUS_MODE", "off"),
+            argument_judge_weight_rationale_fidelity=_env_float(
+                "ARGUMENT_JUDGE_WEIGHT_RATIONALE_FIDELITY", 0.25
+            ),
+            argument_judge_weight_substantive=_env_float(
+                "ARGUMENT_JUDGE_WEIGHT_SUBSTANTIVE", 0.25
+            ),
+            argument_judge_weight_groundedness=_env_float(
+                "ARGUMENT_JUDGE_WEIGHT_GROUNDEDNESS", 0.25
+            ),
+            argument_judge_weight_phantom=_env_float(
+                "ARGUMENT_JUDGE_WEIGHT_PHANTOM", 0.25
+            ),
         )
 
     @property
@@ -372,4 +388,34 @@ class Settings:
                 "invalid digest_consensus_mode: expected off, shadow, or on, "
                 f"received {self.digest_consensus_mode!r}"
             )
+        for label, value in (
+            (
+                "argument_judge_weight_rationale_fidelity",
+                self.argument_judge_weight_rationale_fidelity,
+            ),
+            (
+                "argument_judge_weight_substantive",
+                self.argument_judge_weight_substantive,
+            ),
+            (
+                "argument_judge_weight_groundedness",
+                self.argument_judge_weight_groundedness,
+            ),
+            (
+                "argument_judge_weight_phantom",
+                self.argument_judge_weight_phantom,
+            ),
+        ):
+            if value < 0:
+                errors.append(f"invalid {label}: must be >= 0, received {value}")
         return errors
+
+    @property
+    def argument_judge_weights(self) -> dict[str, float]:
+        """Rubric weights for `ArgumentJudge`. Not pass/fail cutoffs."""
+        return {
+            "rationale_fidelity": self.argument_judge_weight_rationale_fidelity,
+            "substantive_vs_framing": self.argument_judge_weight_substantive,
+            "groundedness": self.argument_judge_weight_groundedness,
+            "phantom_counterparty": self.argument_judge_weight_phantom,
+        }
