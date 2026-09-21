@@ -266,6 +266,7 @@ class ProtonImap:
         if uid is None:
             raise TemporaryRelayError("unknown Proton message id for fetch")
         imap = self._require()
+        self._select(self._cfg.proton.folder_pending)
         try:
             typ, data = imap.uid("FETCH", uid, "(BODY.PEEK[])")
         except TimeoutError as exc:
@@ -325,6 +326,8 @@ class ProtonImap:
             raise TemporaryRelayError("Proton pending label still present after MOVE")
         if message_id and not self._uids_for_message_id(dest_folder, message_id):
             raise TemporaryRelayError(f"Proton message missing from {dest_folder} after MOVE")
+        # Verification SELECTs dest_folder. Later fetches must run against pending.
+        self._select(self._cfg.proton.folder_pending)
 
     def _resolve_pending_uid(self, key: str, message_id: str) -> str:
         uid = self._uids.get(key)
