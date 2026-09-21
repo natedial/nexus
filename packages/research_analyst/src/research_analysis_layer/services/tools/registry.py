@@ -83,6 +83,18 @@ class ToolRegistry:
             logger.error("Failed to load tool schema from %s: %s", schema_path, e)
             raise
 
+    def register_schema(self, schema: dict[str, Any]) -> None:
+        """Register an extra tool schema without changing the distill JSON file.
+
+        Analyst-local tools (argument-graph queries, etc.) live here so
+        research-store's corpus search schema stays corpus-only.
+        """
+        name = schema.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Tool schema requires a non-empty name")
+        self._schemas[name] = schema
+        logger.debug("Registered schema for tool: %s", name)
+
     def register_handler(self, name: str, handler: Callable) -> None:
         """Register a handler for a tool."""
         if name not in self._schemas:

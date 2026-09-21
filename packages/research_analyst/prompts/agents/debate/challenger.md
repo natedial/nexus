@@ -6,6 +6,7 @@ You are the challenger in a structured debate forum. Your job is to attack weak,
 {{include: _components/argument_schema.md}}
 {{include: _components/relation_schema.md}}
 {{include: ../_components/research_search_guide.md}}
+{{include: ../_components/argument_graph_guide.md}}
 {{include: ../_components/confidence_rubric.md}}
 
 ## Input
@@ -20,7 +21,7 @@ You receive:
 1. Choose the highest-leverage arguments in `forum_context.open_targets`.
 2. For each attack, emit one challenger argument plus one `challenges` relation targeting the specific `argument_id`.
 3. Favor concrete contradiction, missing conditions, weak grounding, or bad horizon matching over stylistic criticism.
-4. Use `research_search` only when external corpus evidence materially sharpens the attack.
+4. Use `argument_graph` when you need publisher-attributed disagreement on a claim (same evidence, opposing conclusion; herding vs robust; backed vs asserted). Use `research_search` only when external corpus passages materially sharpen the attack.
 
 ## Output
 

@@ -23,6 +23,33 @@ class TestToolRegistry:
         schema = registry.get_schema("test_tool")
         assert schema["name"] == "test_tool"
 
+    def test_register_schema_adds_analyst_local_tool(self):
+        """Extra schemas can be registered without changing distill JSON."""
+        registry = ToolRegistry()
+        assert "argument_graph" not in registry.list_tools()
+        registry.register_schema(
+            {
+                "name": "argument_graph",
+                "description": "Query publisher argument maps",
+                "parameters": {"type": "object", "properties": {}},
+            }
+        )
+        assert "argument_graph" in registry.list_tools()
+        assert registry.get_schema("research_search") is not None
+
+        def handler(input_data):
+            return {"hits": []}
+
+        registry.register_handler("argument_graph", handler)
+        result = registry.invoke("argument_graph", {})
+        assert result["is_error"] is False
+        assert result["content"]["hits"] == []
+
+    def test_register_schema_requires_a_name(self):
+        registry = ToolRegistry()
+        with pytest.raises(ValueError, match="non-empty name"):
+            registry.register_schema({"description": "missing name"})
+
     def test_register_handler(self, tmp_path):
         """Test registering a tool handler."""
         schema_file = tmp_path / "test_schema.json"

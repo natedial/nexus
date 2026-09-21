@@ -73,7 +73,7 @@ agents:
             primary: gpt-5-mini
             fallback: gpt-5-nano
         output_schema: DocumentAngle
-        tools: [research_search]
+        tools: [research_search, argument_graph]
         max_tool_calls: 6
         timeout_seconds: 120
         retry_count: 2
@@ -125,7 +125,7 @@ agents:
             primary: gpt-5-mini
             fallback: gpt-5-nano
         output_schema: DebateRoundOutput
-        tools: [research_search]
+        tools: [research_search, argument_graph]
         max_tool_calls: 4
         timeout_seconds: 120
         retry_count: 2

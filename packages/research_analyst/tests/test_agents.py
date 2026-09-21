@@ -288,6 +288,39 @@ def test_contrarian_prompt_uses_shared_components_and_search_strategy():
     # Contrarian-specific: explicit tool budget guidance.
     assert "6" in content  # 6 tool calls budget from agent_config.yaml
     assert '"angle": "contrarian"' in content or "angle=\"contrarian\"" in content
+    assert "argument_graph" in content
+    assert "publisher" in content.lower()
+
+
+def test_contrarian_and_challenger_config_tools_match_prompt_documentation():
+    """Tools granted to the pressure-test agents must be documented in-prompt."""
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    for agent_name in ("contrarian", "challenger"):
+        cfg = registry.get_agent(agent_name)
+        assert cfg is not None
+        prompt = registry.load_prompt(agent_name)
+        assert prompt is not None
+        assert "argument_graph" in (cfg.tools or [])
+        assert "research_search" in (cfg.tools or [])
+        for tool in cfg.tools or []:
+            assert tool in prompt, (
+                f"{agent_name} config grants tool {tool!r} but the prompt does "
+                f"not document when/how to use it"
+            )
+
+
+def test_thesis_does_not_get_argument_graph_tool():
+    from research_analysis_layer.services.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    thesis = registry.get_agent("thesis")
+    synthesizer = registry.get_agent("synthesizer")
+    assert thesis is not None
+    assert "argument_graph" not in (thesis.tools or [])
+    assert synthesizer is not None
+    assert synthesizer.tools == []
 
 
 def test_positioning_prompt_uses_assertions_and_has_no_tools():
