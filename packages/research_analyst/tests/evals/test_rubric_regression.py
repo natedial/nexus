@@ -71,11 +71,55 @@ def test_rubric_regression_report_shape_over_golden_set():
     assert payload["total_points"] >= 2
     assert payload["map_violation_rate"] == 0.0
     assert payload["map_violation_counts"] == {}
+    assert payload["point_violation_rate"] == 0.0
+    assert payload["point_violation_counts"] == {}
+    assert payload["point_linter"] == "lint_consensus_divergence"
     assert payload["judge_scores"] is not None
     assert "rationale_fidelity" in payload["judge_scores"]
     assert payload["delta_vs_previous"] == {}
     assert payload["regressions"] == []
-    assert payload["point_linter"] in {"lint_consensus_divergence", "unavailable"}
+
+
+def test_golden_consensus_points_pass_the_cross_author_linter():
+    from research_analysis_layer.evals.comparison import lint_consensus_divergence
+
+    points = load_golden_consensus_points(GOLDEN)
+    assert lint_consensus_divergence(points) == []
+
+
+def test_rubric_regression_averages_argument_judge_score_bundles():
+    from research_analysis_layer.evals.judge import (
+        DEFAULT_ARGUMENT_JUDGE_WEIGHTS,
+        ArgumentJudgeScore,
+    )
+
+    class ScoreJudge:
+        def evaluate_claim(self, claim, source_document=""):
+            return ArgumentJudgeScore(
+                rationale_fidelity=0.4,
+                substantive_vs_framing=1.0,
+                groundedness=0.8,
+                phantom_counterparty=1.0,
+                reasoning="claim",
+                errors=[],
+                weights=dict(DEFAULT_ARGUMENT_JUDGE_WEIGHTS),
+            )
+
+        def evaluate_point(self, point, source_document=""):
+            return ArgumentJudgeScore(
+                rationale_fidelity=0.6,
+                substantive_vs_framing=1.0,
+                groundedness=0.8,
+                phantom_counterparty=1.0,
+                reasoning="point",
+                errors=[],
+                weights=dict(DEFAULT_ARGUMENT_JUDGE_WEIGHTS),
+            )
+
+    report = build_rubric_regression_report(GOLDEN, judge=ScoreJudge())
+    assert report.judge_scores is not None
+    assert 0.4 <= report.judge_scores["rationale_fidelity"] <= 0.6
+    assert report.point_linter == "lint_consensus_divergence"
 
 
 def test_rubric_regression_flags_judge_score_drop():
@@ -128,3 +172,10 @@ def test_rubric_regression_flags_map_violation_rate_rise(tmp_path: Path):
     assert report.map_violation_rate == 1.0
     assert "MISSING_RATIONALE" in report.map_violation_counts
     assert any("map_violation_rate rose" in item for item in report.regressions)
+
+
+def test_rubric_report_cli_runs_the_point_linter_offline():
+    from research_analysis_layer.evals.cli import main
+
+    code = main(["rubric-report", "--golden", str(GOLDEN)])
+    assert code == 0
