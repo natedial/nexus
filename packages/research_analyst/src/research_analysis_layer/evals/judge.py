@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+DEFAULT_ARGUMENT_JUDGE_WEIGHTS: dict[str, float] = {
+    "rationale_fidelity": 0.25,
+    "substantive_vs_framing": 0.25,
+    "groundedness": 0.25,
+    "phantom_counterparty": 0.25,
+}
 
 
 @dataclass
@@ -185,3 +192,179 @@ Return JSON with scores and reasoning."""
             score = self.evaluate(agent_output, golden_output, source_document)
             results.append(score)
         return results
+
+
+@dataclass
+class ArgumentJudgeScore:
+    """Structured score bundle from the argument-map / consensus judge."""
+
+    rationale_fidelity: float
+    substantive_vs_framing: float
+    groundedness: float
+    phantom_counterparty: float
+    reasoning: str
+    errors: list[str]
+    weights: dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_ARGUMENT_JUDGE_WEIGHTS)
+    )
+
+    @property
+    def scores_dict(self) -> dict[str, float]:
+        return {
+            "rationale_fidelity": self.rationale_fidelity,
+            "substantive_vs_framing": self.substantive_vs_framing,
+            "groundedness": self.groundedness,
+            "phantom_counterparty": self.phantom_counterparty,
+        }
+
+    @property
+    def weighted_score(self) -> float:
+        """Weighted mean of rubric dimensions. Not a pass/fail cutoff."""
+        total_weight = 0.0
+        weighted = 0.0
+        scores = self.scores_dict
+        for name, score in scores.items():
+            weight = float(self.weights.get(name, 0.0))
+            if weight <= 0:
+                continue
+            weighted += score * weight
+            total_weight += weight
+        if total_weight == 0:
+            return 0.0
+        return weighted / total_weight
+
+
+def _item_as_dict(item: Any) -> dict[str, Any]:
+    if item is None:
+        return {}
+    if isinstance(item, dict):
+        return item
+    dump = getattr(item, "model_dump", None)
+    if callable(dump):
+        return dump()
+    return {"value": item}
+
+
+class ArgumentJudge:
+    """LLM judge for claims and consensus/divergence points.
+
+    Distinct from `LLMJudge`, which scores final analyst output against a
+    golden reference. This path uses `prompts/evals/argument_judge.md`.
+    """
+
+    def __init__(
+        self,
+        llm_client: Any,
+        judge_model: str = "gpt-5-mini",
+        prompt_path: Path | None = None,
+        weights: dict[str, float] | None = None,
+    ):
+        self.llm_client = llm_client
+        self.judge_model = judge_model
+        self.weights = dict(weights or DEFAULT_ARGUMENT_JUDGE_WEIGHTS)
+
+        if prompt_path is None:
+            prompt_path = (
+                Path(__file__).parent.parent.parent.parent
+                / "prompts"
+                / "evals"
+                / "argument_judge.md"
+            )
+        self.prompt_path = Path(prompt_path)
+        self._prompt_template = self._load_prompt()
+
+    def _load_prompt(self) -> str:
+        if self.prompt_path.exists():
+            return self.prompt_path.read_text(encoding="utf-8")
+        return self._default_prompt()
+
+    def _default_prompt(self) -> str:
+        return """You are scoring argument-map claims and cross-author points.
+
+## Kind
+{{kind}}
+
+## Item
+{{item}}
+
+## Source excerpt
+{{source_document}}
+
+Score 0-1: rationale_fidelity, substantive_vs_framing, groundedness, phantom_counterparty.
+Return JSON with scores, reasoning, and errors."""
+
+    def _format_prompt(self, kind: str, item: dict[str, Any], source_document: str) -> str:
+        prompt = self._prompt_template
+        prompt = prompt.replace("{{kind}}", kind)
+        prompt = prompt.replace("{{item}}", json.dumps(item, indent=2, default=str))
+        prompt = prompt.replace("{{source_document}}", source_document)
+        return prompt
+
+    def _parse_response(self, response: dict) -> ArgumentJudgeScore:
+        scores = response.get("scores", {})
+        reasoning = response.get("reasoning", "")
+        errors = response.get("errors", [])
+        if isinstance(errors, str):
+            errors = [errors]
+        return ArgumentJudgeScore(
+            rationale_fidelity=float(scores.get("rationale_fidelity", 0.0)),
+            substantive_vs_framing=float(scores.get("substantive_vs_framing", 0.0)),
+            groundedness=float(scores.get("groundedness", 0.0)),
+            phantom_counterparty=float(scores.get("phantom_counterparty", 0.0)),
+            reasoning=reasoning,
+            errors=errors,
+            weights=dict(self.weights),
+        )
+
+    def _zero_score(self, reasoning: str, errors: list[str]) -> ArgumentJudgeScore:
+        return ArgumentJudgeScore(
+            rationale_fidelity=0.0,
+            substantive_vs_framing=0.0,
+            groundedness=0.0,
+            phantom_counterparty=0.0,
+            reasoning=reasoning,
+            errors=errors,
+            weights=dict(self.weights),
+        )
+
+    def evaluate(
+        self,
+        kind: str,
+        item: Any,
+        source_document: str = "",
+    ) -> ArgumentJudgeScore:
+        """Score one claim or consensus/divergence point."""
+        payload_item = _item_as_dict(item)
+        prompt = self._format_prompt(kind, payload_item, source_document)
+        user_payload = {
+            "kind": kind,
+            "item": payload_item,
+            "source_document": source_document,
+        }
+        try:
+            response = self.llm_client.generate_structured(
+                system_prompt=prompt,
+                user_payload=user_payload,
+                model=self.judge_model,
+                timeout_seconds=60,
+            )
+            return self._parse_response(response)
+        except Exception as e:
+            return self._zero_score(
+                f"Error: {type(e).__name__}: {e}",
+                [str(e)],
+            )
+
+    def evaluate_claim(
+        self,
+        claim: Any,
+        source_document: str = "",
+    ) -> ArgumentJudgeScore:
+        return self.evaluate("claim", claim, source_document)
+
+    def evaluate_point(
+        self,
+        point: Any,
+        source_document: str = "",
+    ) -> ArgumentJudgeScore:
+        return self.evaluate("point", point, source_document)

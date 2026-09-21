@@ -396,3 +396,234 @@ def lint_argument_map(argument_map: Any) -> list[Violation]:
             seen_keys[key] = index
 
     return violations
+
+
+_ANALYTICAL_LENSES = frozenset({"thesis", "contrarian", "positioning"})
+
+
+def _is_grounded_reason(reason: Any) -> bool:
+    if not isinstance(reason, dict) and not hasattr(reason, "ref_key"):
+        return False
+    ref_key = _item_field(reason, "ref_key")
+    text = str(_item_field(reason, "text", "") or "")
+    return bool(str(ref_key or "").strip()) and bool(text.strip())
+
+
+def _has_grounded_reason(reasons: Any) -> bool:
+    return any(_is_grounded_reason(reason) for reason in (reasons or []))
+
+
+def _normalize_publisher(name: Any) -> str:
+    return str(name or "").strip()
+
+
+def _publisher_key(name: str) -> str:
+    return name.casefold()
+
+
+def _is_lens_name(name: str) -> bool:
+    return _publisher_key(name) in _ANALYTICAL_LENSES
+
+
+def _flatten_points(points: Any) -> list[Any]:
+    if points is None:
+        return []
+    if isinstance(points, dict) and (
+        "agreements" in points or "disagreements" in points
+    ):
+        return list(points.get("agreements") or []) + list(
+            points.get("disagreements") or []
+        )
+    if not isinstance(points, dict) and (
+        hasattr(points, "agreements") or hasattr(points, "disagreements")
+    ):
+        return list(_item_field(points, "agreements", []) or []) + list(
+            _item_field(points, "disagreements", []) or []
+        )
+    if isinstance(points, list):
+        return points
+    return [points]
+
+
+def _is_divergence_point(item: Any) -> bool:
+    if isinstance(item, dict):
+        return "sides" in item
+    return hasattr(item, "sides")
+
+
+def _is_consensus_point(item: Any) -> bool:
+    if isinstance(item, dict):
+        return "positions" in item
+    return hasattr(item, "positions")
+
+
+def _read_verdict(item: Any) -> tuple[str | None, bool]:
+    """Return (verdict, present). Empty/missing verdicts are not present."""
+    if isinstance(item, dict):
+        if "verdict" not in item:
+            return None, False
+        verdict = item.get("verdict")
+    else:
+        if not hasattr(item, "verdict"):
+            return None, False
+        verdict = getattr(item, "verdict")
+    text = str(verdict or "").strip()
+    if not text:
+        return None, False
+    return text, True
+
+
+def lint_consensus_divergence(points: Any) -> list[Violation]:
+    """Deterministic quality checks over Slice 2 consensus/divergence points.
+
+    Accepts a list of ConsensusPoint / DivergencePoint instances or dicts, or
+    a ConsensusSnapshot (agreements + disagreements). One malformed item never
+    raises — it is reported as a violation when possible.
+    """
+    items = _flatten_points(points)
+    violations: list[Violation] = []
+
+    for index, item in enumerate(items):
+        if not isinstance(item, dict) and not (
+            hasattr(item, "sides") or hasattr(item, "positions")
+        ):
+            violations.append(
+                Violation(
+                    code="INVALID_POINT",
+                    claim_index=index,
+                    detail="point is not an object",
+                )
+            )
+            continue
+
+        if _is_divergence_point(item):
+            violations.extend(_lint_divergence_point(item, index))
+        elif _is_consensus_point(item):
+            violations.extend(_lint_consensus_point(item, index))
+        else:
+            violations.append(
+                Violation(
+                    code="INVALID_POINT",
+                    claim_index=index,
+                    detail="point is neither consensus nor divergence",
+                )
+            )
+
+    return violations
+
+
+def _lint_divergence_point(item: Any, index: int) -> list[Violation]:
+    violations: list[Violation] = []
+    sides = list(_item_field(item, "sides", []) or [])
+    publishers = [_normalize_publisher(_item_field(side, "position")) for side in sides]
+    distinct = {_publisher_key(name) for name in publishers if name}
+
+    if len(sides) < 2:
+        violations.append(
+            Violation(
+                code="TOO_FEW_SIDES",
+                claim_index=index,
+                detail=f"divergence has {len(sides)} side(s); need at least 2",
+            )
+        )
+    elif len(distinct) < 2:
+        violations.append(
+            Violation(
+                code="NON_DISTINCT_SIDES",
+                claim_index=index,
+                detail="divergence sides are not from distinct publishers",
+            )
+        )
+
+    for side, publisher in zip(sides, publishers):
+        if _is_lens_name(publisher):
+            violations.append(
+                Violation(
+                    code="LENS_AS_POSITION",
+                    claim_index=index,
+                    detail=f"side {publisher!r} is an analytical lens, not a publisher",
+                )
+            )
+        if not _has_grounded_reason(_item_field(side, "reasons", [])):
+            label = publisher or "unknown"
+            violations.append(
+                Violation(
+                    code="UNGROUNDED_SIDE",
+                    claim_index=index,
+                    detail=f"side {label} has no grounded reason",
+                )
+            )
+
+    verdict, verdict_present = _read_verdict(item)
+    if not verdict_present:
+        violations.append(
+            Violation(
+                code="MISSING_VERDICT",
+                claim_index=index,
+                detail="divergence is missing a verdict",
+            )
+        )
+    else:
+        favored = _normalize_publisher(_item_field(item, "favored_position"))
+        favored_verdict = verdict == "position_favored"
+        if favored_verdict != bool(favored):
+            if favored_verdict:
+                detail = "favored_position must be set when verdict is position_favored"
+            else:
+                detail = (
+                    "favored_position must be unset unless verdict is position_favored"
+                )
+            violations.append(
+                Violation(
+                    code="BAD_FAVORED_POSITION",
+                    claim_index=index,
+                    detail=detail,
+                )
+            )
+
+    return violations
+
+
+def _lint_consensus_point(item: Any, index: int) -> list[Violation]:
+    violations: list[Violation] = []
+    positions = [
+        _normalize_publisher(name)
+        for name in (_item_field(item, "positions", []) or [])
+    ]
+    distinct = {_publisher_key(name) for name in positions if name}
+
+    if len(distinct) < 2:
+        violations.append(
+            Violation(
+                code="TOO_FEW_PUBLISHERS",
+                claim_index=index,
+                detail=(
+                    f"consensus has {len(distinct)} distinct publisher(s); "
+                    "need at least 2"
+                ),
+            )
+        )
+
+    for publisher in positions:
+        if _is_lens_name(publisher):
+            violations.append(
+                Violation(
+                    code="LENS_AS_POSITION",
+                    claim_index=index,
+                    detail=(
+                        f"position {publisher!r} is an analytical lens, "
+                        "not a publisher"
+                    ),
+                )
+            )
+
+    if not _has_grounded_reason(_item_field(item, "reasons", [])):
+        violations.append(
+            Violation(
+                code="MISSING_SHARED_REASON",
+                claim_index=index,
+                detail="consensus has no shared grounded reason",
+            )
+        )
+
+    return violations

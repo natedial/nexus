@@ -22,6 +22,9 @@ from research_analysis_layer.evals.db import (
 )
 
 from research_analysis_layer.evals.judge import (
+    DEFAULT_ARGUMENT_JUDGE_WEIGHTS,
+    ArgumentJudge,
+    ArgumentJudgeScore,
     JudgeScore,
     LLMJudge,
 )
@@ -64,6 +67,9 @@ __all__ = [
     "compute_golden_set_hash",
     "JudgeScore",
     "LLMJudge",
+    "ArgumentJudge",
+    "ArgumentJudgeScore",
+    "DEFAULT_ARGUMENT_JUDGE_WEIGHTS",
     "PromotionGateDecision",
     "RubricRates",
     "aggregate_rubric_metrics",
