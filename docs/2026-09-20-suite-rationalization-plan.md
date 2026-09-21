@@ -1,7 +1,7 @@
 # Research suite rationalization plan
 
 Date: 2026-09-20
-Revised: 2026-09-20 — v2, corrected against a code audit of all six packages.
+Revised: 2026-09-20 — v3, after Slice 2/3 consensus and eval work landed on Nexus `main` (PRs #4–#7, #9–#13). v2 was the code-audit correction of all six packages.
 
 ## Objective
 
@@ -16,9 +16,45 @@ research-relay or direct source intake
     -> research_dispatcher / morning digest / query clients
 ```
 
+Those canonical claims are the analyst `argument_map` (`claim_key` /
+`referent_key`), not parser migration 004 tables. Consensus, the argument
+graph, and street-agrees are derived from the maps. Parser 004 is dropped
+(Phase 0 decision 4).
+
 The `research-relay -> research_parser` edge does not exist yet. Relay archives
 to Drive folders and the parser independently polls Drive; nothing hands off.
 Building that edge is tracked below as R2.
+
+### Settled after Slice 2/3 (sequencing rules, not open questions)
+
+These are locked. Later phases port persistence around them; they do not
+re-litigate or rewrite the shipped consensus/eval surface.
+
+1. **Canonical claims are analyst maps.** `argument_map` (`claim_key` /
+   `referent_key`) is the one semantic store. Consensus, the argument graph, and
+   street-agrees are derived from those maps. Parser migration 004 is dropped
+   (Phase 0 decision 4). Phase 2's consolidated schema must not recreate 004's
+   claims/entities/relations tables.
+2. **Do not rewrite shipped Slice 2/3.** Protect the live prompts
+   (`contrarian.md`, `challenger.md`, `argument_graph_guide.md`), the eval
+   surface (`lint_argument_map`, `lint_consensus_divergence`, `ArgumentJudge`,
+   rubric metrics/gate, golden rubric report), and `DIGEST_CONSENSUS_MODE`.
+   Positions remain publisher identities, never thesis/contrarian/positioning
+   lenses. Promotion-gate floors and `ARGUMENT_JUDGE_WEIGHT_*` stay config, not
+   hard-coded constants or Postgres columns.
+3. **Deleting `research-store` must relocate `tool_schema.json` first.**
+   `ToolRegistry` boots from that file. The Slice 2 `argument_graph` tool is
+   analyst-local and already registers in-process; `research_search` still
+   depends on the store schema until it is moved.
+4. **The `AnalysisStore` split is larger, not different.** Slice 2 added
+   `consensus_cluster_state`, `consensus_shift_events`, and
+   `shadow_street_digest`. Consensus/divergence *points* stay queries over
+   maps. Golden JSONL and `evals/eval.db` stay SQLite; do not port linters,
+   the judge, or the rubric report onto PostgreSQL.
+5. **Checkout mismatch is unchanged.** Production except relay still runs from
+   `research_processing/`. There is still no analyst crontab. Dispatcher
+   reconcile must take Nexus `DIGEST_CONSENSUS_MODE` (PR #6) and later
+   digest/eval landings, not only `cursor/slice2-street-digest-a21e`.
 
 ## Driver
 
@@ -62,17 +98,20 @@ production service except relay runs from the legacy
 | `research_dispatcher` | cron, Sun and Wed 23:00, `MODE=production` | `research_processing/research_dispatcher`, on branch `cursor/slice2-street-digest-a21e` |
 | `morning_research` | cron, Sun–Fri 06:10 | `research_processing/morning_research`, on branch `cursor/author-argument-prompt-split` |
 | `research-relay` | LaunchAgents `com.researchrelay.email` (300s) and `com.researchrelay.archive` (8h) | `nexus/packages/research-relay` — repointed by PR #2 |
-| `research_analyst` | no schedule found; apparently run by hand | — |
+| `research_analyst` | no schedule found; run by hand | Nexus `packages/research_analyst` holds Slice 2/3 (`DIGEST_CONSENSUS_MODE`, argument graph, evals). That code is not live until someone runs this checkout. |
 
 This is the single largest execution risk in the plan, and it has three parts:
 
 1. **Changes made in this monorepo do not reach production.** The entire
    migration could be completed here while the live pipeline keeps running the
-   old code against Supabase.
+   old code against Supabase. That includes today's Slice 2/3 analyst work:
+   there is still no analyst cron, so none of it is live.
 2. **Two production services run unmerged feature branches**, and the legacy
    dispatcher checkout also has uncommitted changes and untracked files. Legacy
    production code is not a subset of what is in this repository — repointing
-   could silently drop behavior.
+   could silently drop behavior. The dispatcher branch is an older street-digest
+   cut. When reconciling it, take Nexus `DIGEST_CONSENSUS_MODE` (PR #6) and the
+   later digest/eval landings, not only `cursor/slice2-street-digest-a21e`.
 3. **The dispatcher cron passes deprecated unprefixed variables**
    (`MODE=production`, `USE_SKILL_PIPELINE=true`). Per `docs/environment.md`
    these are fallbacks for the `RESEARCH_DISPATCHER_*` names. When the fallbacks
@@ -123,7 +162,8 @@ reserved for genuinely local operational state.
 
 - source documents and parser artifact metadata
 - spans and retrieval chunks
-- claims, evidence, entities, relations, and forecasts
+- claims, evidence, entities, relations, and forecasts — meaning analyst
+  `argument_map` / graph / consensus-shift state, not parser migration 004
 - pipeline operations and run history
 - dispatch history and durable semantic records
 
@@ -131,7 +171,7 @@ reserved for genuinely local operational state.
 
 - parser polling state (`processed_files`)
 - relay delivery and archive ledgers
-- the analyst eval database
+- the analyst eval database and golden files (`evals/eval.db`, `evals/golden/`)
 - local locks, retry queues, tests, fixtures, and temporary caches
 
 Note the size of the gap: today SQLite holds far more than this list, and
@@ -172,11 +212,14 @@ Nine SQL migrations live in four packages under three naming conventions:
 
 There is no migration runner. Standing up local PostgreSQL includes choosing one
 — plain SQL files with an ordering manifest is enough at this stage — and
-deciding which carry forward. Two are already settled:
+deciding which carry forward. Three are already settled:
 `001_create_report_feedback.sql` is dropped with the retired function surface,
-and `20260402105000_create_pipeline_ops.sql` moves out of the `supabase/`
-directory. Parser migration 004 created claims/entities/relations tables that no
-live code writes; resolve that before porting rather than after.
+`20260402105000_create_pipeline_ops.sql` moves out of the `supabase/`
+directory, and parser migration 004's claims/entities/relations tables are
+**dropped, not adopted**. No live code writes them. The live claims layer is
+analyst-owned: `argument_map` with `claim_key` / `referent_key`, plus consensus,
+the argument graph, and street-agrees derived from those maps. Adopting 004 as
+canonical would create the second semantic store the non-goals forbid.
 
 ### Where the instance lives
 
@@ -196,8 +239,14 @@ install/run/test commands and connects by URL.
 v1 promised the parser and analyst were protected and then required moving
 analyst semantic state to PostgreSQL. Both cannot be true. The honest boundary:
 
-- **Protected:** parser extraction logic, analyst reasoning, agent prompts, and
-  the domain models of both packages.
+- **Protected:** parser extraction logic; analyst reasoning; agent prompts
+  (including the Slice 2/3 `contrarian.md`, `challenger.md`, and
+  `argument_graph_guide.md` additions); the domain models of both packages
+  (positions are publishers only); and the Slice 3 eval surface
+  (`lint_argument_map`, `lint_consensus_divergence`, `ArgumentJudge`, rubric
+  metrics/gate, golden rubric report). Port persistence around these. Do not
+  rewrite them as part of this migration. Calibration knobs
+  (`PROMOTION_GATE_*`, `ARGUMENT_JUDGE_WEIGHT_*`) stay env config.
 - **In scope:** their persistence adapters. The analyst's persistence layer has
   to change, because the Supabase exit and the one-semantic-store goal both
   require it.
@@ -210,26 +259,33 @@ justified by a downstream query or provenance requirement.
 | Package | Target disposition | Scope of work |
 |---|---|---|
 | `research_parser` | Protected core | Preserve extraction logic and models. Port persistence to PostgreSQL behind a `SourceStore` interface. Add a second intake adapter for relay. |
-| `research_analyst` | Protected core, persistence in scope | Preserve reasoning and prompts. Extract a repository seam from `AnalysisStore`, port PostgREST reads, and consolidate the semantic layer into PostgreSQL. |
+| `research_analyst` | Protected core, persistence in scope | Preserve reasoning, prompts, argument maps, and evals. Extract a repository seam from `AnalysisStore`, port PostgREST reads, and consolidate the semantic layer into PostgreSQL. Consensus/divergence points stay queries over maps, not a second store. |
 | `research-relay` | Retain as transport boundary | Keep independent of analysis. Complete attachment metadata sanitization, then build the intake handoff. |
 | `research_dispatcher` | Retain, narrow | Keep editorial synthesis, rendering, delivery, and dispatch history. Remove parser mode and the retired feedback surface, which together remove its Supabase client. |
-| `research-store` | Delete | Verify the distill tool is actually dead, preserve the ranking logic and eval queries in the canonical retrieval module, then remove the package. |
+| `research-store` | Delete | Verify the distill tool is actually dead. Relocate `tool_schema.json` (or an analyst-local copy) so `ToolRegistry` still boots. Preserve ranking logic and eval queries in the canonical retrieval module, then remove the package. |
 | `morning_research` | Prune, then archive | Delete the Drive/Codex/Supabase path now. Keep Notion publishing as a library only if the digest survives. |
 
 ## Non-goals
 
-- Do not rewrite parser extraction or analyst reasoning as part of this work.
+- Do not rewrite parser extraction or analyst reasoning, prompts, or Slice 3
+  evals as part of this work.
+- Do not treat positions as thesis, contrarian, or positioning lenses; they
+  are publisher identities only.
+- Do not hard-code promotion-gate floors or argument-judge weights; those stay
+  in `RESEARCH_ANALYST_*` config.
 - Do not merge all packages into one Python distribution.
 - Do not make relay responsible for analysis or persistence.
 - Do not preserve multiple semantic stores for the same document version.
+  Do not adopt parser migration 004 as a second claims store.
 - Do not build backfill, dual-write, or parity tooling for a pre-production
   system.
 - Do not port any Supabase surface that is already scheduled for deletion.
 
 ## Phase 0 — decisions and inventory
 
-Six blocking decisions, all of which later phases depend on. The first is new
-and is the prerequisite for every other phase; the rest are cheap to answer.
+Six blocking decisions, all of which later phases depend on. The first is the
+prerequisite for every other phase. Decision 4 is now settled (drop parser 004;
+keep claims analyst-owned). The rest are still cheap to answer.
 
 1. **Reconcile the deployment checkout.** Production runs from
    `research_processing/`, not from here. For each of parser, research-store
@@ -238,16 +294,20 @@ and is the prerequisite for every other phase; the rest are cheap to answer.
    container at the Nexus checkout — as PR #2 already did for relay. Until this
    is done, no phase below has any production effect. While repointing the
    dispatcher, replace the deprecated unprefixed `MODE` and `USE_SKILL_PIPELINE`
-   cron variables with their `RESEARCH_DISPATCHER_*` equivalents.
+   cron variables with their `RESEARCH_DISPATCHER_*` equivalents, and take the
+   Nexus street-agrees path gated by `DIGEST_CONSENSUS_MODE` rather than only
+   the older `cursor/slice2-street-digest-a21e` branch. The analyst still has
+   no crontab; Slice 2/3 on Nexus `main` has no production effect until this
+   checkout is what gets run.
 2. **Re-derive or export?** Count documents in `parsed_research`, estimate the
    analyst re-run cost, and confirm the Drive sources are intact. Default:
    re-derive.
 3. **PostgreSQL host.** One machine for everything, or a reachable instance
    shared across hosts? Note that the parser runs as a container today, so this
    is not automatically a localhost socket.
-4. **Migration 004 tables.** Adopt the PostgreSQL claims/entities/relations
-   tables, or drop them and keep that data analyst-owned? Leaving both is the
-   dual-canonical store the non-goals forbid.
+4. **Migration 004 tables — settled.** Drop them. Keep claims, evidence keys,
+   consensus, and the argument graph analyst-owned on `argument_map`. Do not
+   adopt parser 004 as a second canonical claims store.
 5. **On-disk parser artifacts.** `data/artifacts/{file_id}/` holds
    `document.md`, `clean_text.md`, `blocks.jsonl`, `figures.jsonl`, and
    `parse.json`. Canonical, cache, or absorbed into the database?
@@ -263,7 +323,8 @@ Alongside the decisions, build the compatibility inventory — but scope it to
 fields that actually cross a package boundary today: `document_id`,
 `research_id`, `document_hash`, `document_key`, the parser version constants
 (`parser-source-v1`, `span-v3`, `retrieval-chunker-v3`), `analysis_version`, the
-`DispatchBatch` fields, and the relay ledger keys.
+`DispatchBatch` fields (including `street_agrees_splits`), `claim_key`,
+`referent_key`, `DIGEST_CONSENSUS_MODE`, and the relay ledger keys.
 
 Record the two known naming collisions: `file_id` and `document_id` are the same
 Drive identifier under two names, and the analyst's `chunker_version` shares a
@@ -273,14 +334,22 @@ Acceptance criteria:
 
 - one documented owner for every durable semantic field
 - every legacy path has an explicit sunset condition
-- all five decisions above are written down
+- the remaining open Phase 0 decisions (1, 2, 3, 5, 6) are written down;
+  decision 4 is settled as analyst-owned maps
 
 ## Phase 1 — shrink the Supabase surface by pruning
 
 Pruning first is not tidiness. Each package removed here is one fewer Supabase
 client to port in Phases 2 and 3.
 
-This phase does not modify parser or analyst code.
+This phase does not modify parser extraction or analyst reasoning. Deleting
+`research-store` is the settled exception that *must* touch a thin analyst boot
+path (see constraint 3 above):
+`ToolRegistry` loads schemas from
+`packages/research-store/distill_tool/tool_schema.json` and fails if that file
+is gone. Relocate or stub that schema (and `distill_adapter`) as part of
+deleting the package. Do not treat "no analyst code changes" as license to
+delete the store first.
 
 ### `morning_research`
 
@@ -310,7 +379,12 @@ which depended on a later phase. Decouple them: freeze now, rebuild later.
 ### `research-store`
 
 The only runtime consumer is the analyst's
-`services/tools/distill_adapter.py`. Its default corpus path
+`services/tools/distill_adapter.py`. `ToolRegistry` also boots from
+`packages/research-store/distill_tool/tool_schema.json`. The Slice 2
+`argument_graph` tool is analyst-local and does **not** need this package;
+`research_search` and registry init still do.
+
+Its default corpus path
 `packages/research-store/data/distilled_corpus.db` does not exist — that
 directory holds `chunks.sqlite`, `embeddings.npz`, and `sample_text.md`. The
 adapter catches only `ImportError`, so a missing corpus raises
@@ -322,15 +396,19 @@ rather than degrading gracefully.
    preserve.
 2. Either way, make the adapter fail loudly instead of pretending an empty
    corpus.
-3. Stop and remove the `research-store-indexer-1` container, which has been up
+3. Move `tool_schema.json` (or an analyst-local copy of the `research_search` /
+   `research_corpus_info` specs) out of this package **before** deleting it, so
+   `ToolRegistry()` still constructs. `argument_graph` already registers
+   in-process and can stay.
+4. Stop and remove the `research-store-indexer-1` container, which has been up
    for roughly three weeks running `distill-index-supabase --continuous` from
    `research_processing/research-store`. This is a live worker writing
    `parsed_research` index columns, not a dormant compose service, so confirm
    nothing depends on those columns before stopping it.
-4. Preserve the hybrid ranking in `distill_tool/search.py` and the three judged
+5. Preserve the hybrid ranking in `distill_tool/search.py` and the three judged
    queries in `eval/queries.jsonl` by moving them into the canonical retrieval
    module. A three-query eval set does not warrant a formal parity window.
-5. Delete the package. `chunks.sqlite` and `embeddings.npz` must not survive as
+6. Delete the package. `chunks.sqlite` and `embeddings.npz` must not survive as
    a second long-lived corpus.
 
 ## Phase 2 — local PostgreSQL and the parser port
@@ -338,7 +416,9 @@ rather than degrading gracefully.
 The parser is the only writer of canonical source data, so it goes first.
 
 1. Add the root-level `postgres` compose service and apply the consolidated
-   schema from Phase 0's decisions.
+   schema from Phase 0's decisions. That schema excludes parser 004's unused
+   claims/entities/relations tables; claims stay analyst-owned and land in
+   Phase 3 with the maps.
 2. Port the parser's four tables. The upserts in `src/storage/supabase.py` are
    generic enough to become plain `psycopg` writes; the work is mechanical.
 3. Put those writes behind a `SourceStore` interface so `pipeline.py` stops
@@ -357,22 +437,30 @@ mode.
 The largest piece of work in this plan, and the one v1 most understated.
 
 1. **Extract the repository seam first.** Split `AnalysisStore` by domain — runs,
-   chunks and evidence, assertions, world graph, forecasts, dispatch — behind
-   interfaces, and remove the `store._connect()` reach-through in
-   `DispatchBatchExporter`. This is worth doing independently of the database
-   change and is mandatory before it.
+   chunks and evidence, assertions, world graph, forecasts, dispatch, and the
+   Slice 2 consensus tables (`consensus_cluster_state`,
+   `consensus_shift_events`, `shadow_street_digest`) — behind interfaces, and
+   remove the `store._connect()` reach-through in `DispatchBatchExporter`.
+   Consensus and divergence *points* are still queries over `argument_map`, not
+   extra tables. This is worth doing independently of the database change and is
+   mandatory before it. The god class grew with Slice 2; the split is larger,
+   not different in kind.
 2. **Port the reads.** Replace the raw PostgREST clients in
    `db/parsed_db_client.py` and `db/calendar_db_client.py` with PostgreSQL
    queries against the Phase 2 schema.
 3. **Consolidate the semantic layer.** Move the durable analysis tables out of
-   `data/analysis.db` and into the same PostgreSQL instance. This is the step
-   that actually delivers one semantic store per document version.
-4. Keep `evals/eval.db` and local caches on SQLite. Those are genuinely
-   operational.
+   `data/analysis.db` and into the same PostgreSQL instance, including the
+   Slice 2 tables above and `document_analysis` (argument maps live in
+   `payload_json`). This is the step that actually delivers one semantic store
+   per document version.
+4. Keep `evals/eval.db`, `evals/golden/` (including `consensus.jsonl`), and
+   local caches on SQLite. Those are genuinely operational. Do not port the
+   Slice 3 linters, `ArgumentJudge`, or rubric report onto PostgreSQL.
 5. Re-run the analyst over the re-parsed corpus.
 
 The JSON dispatch-batch bridge stays through this phase. It works, it is already
-the analyst-to-dispatcher contract, and retiring it is Phase 4's business.
+the analyst-to-dispatcher contract — including `street_agrees_splits` gated by
+`DIGEST_CONSENSUS_MODE` — and retiring it is Phase 4's business.
 
 ## Phase 4 — dispatcher narrowing
 
@@ -471,7 +559,8 @@ consumer to protect. That is a pre-production-launch task, not a now task.
 1. Phase 0 decision 1, reconciling the deployment checkout. Nothing else has any
    production effect until this is done.
 2. R1 sanitization. A live privacy gap, independent of everything else.
-3. The remaining Phase 0 decisions, plus a recorded test baseline.
+3. The remaining Phase 0 decisions (1, 2, 3, 5, 6), plus a recorded test
+   baseline. Decision 4 is already settled.
 4. Phase 1 pruning. Removes two Supabase clients before they need porting, and
    decommissions two live jobs.
 5. Phase 2 parser port onto local PostgreSQL.
