@@ -76,8 +76,7 @@ Required vars, all shared and therefore set at the repo root:
 ```env
 GOOGLE_CREDENTIALS_PATH=./credentials/service-account.json
 GOOGLE_DRIVE_FOLDER_ID=your_folder_id
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_key
+NEXUS_DATABASE_URL=postgresql://nexus:nexus@localhost:5432/nexus
 ```
 
 ## Data Storage

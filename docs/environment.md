@@ -28,7 +28,7 @@ level.
 
 | Name shape | Meaning | Lives in |
 | --- | --- | --- |
-| `SUPABASE_URL`, `GOOGLE_*`, `NOTION_*`, `OPENAI_API_KEY`, `RESEARCH_PROCESSING_ROOT` | shared: one value per service or account, used by the pipeline as a whole | repo-root `.env` |
+| `NEXUS_DATABASE_URL`, `GOOGLE_*`, `NOTION_*`, `OPENAI_API_KEY`, `RESEARCH_PROCESSING_ROOT` | shared: one value per service or account, used by the pipeline as a whole | repo-root `.env` |
 | `RESEARCH_PARSER_*` | owned by `packages/research_parser` | that package's `.env` |
 | `RESEARCH_ANALYST_*` | owned by `packages/research_analyst` | that package's `.env` |
 | `RESEARCH_DISPATCHER_*` | owned by `packages/research_dispatcher` | that package's `.env` |
@@ -47,8 +47,8 @@ Two rules follow from the table, and they are the whole convention:
    file.
 
 A package that needs its own view of a shared service prefixes the override and
-falls back to the shared value: `RESEARCH_ANALYST_PARSED_DB_URL` defaults to
-`SUPABASE_URL`, and `RESEARCH_ANALYST_STATE_DB_PATH` defaults to
+falls back to the shared value: `RESEARCH_ANALYST_PARSED_DATABASE_URL` defaults
+to `NEXUS_DATABASE_URL`, and `RESEARCH_ANALYST_STATE_DB_PATH` defaults to
 `RESEARCH_PARSER_STATE_DB_PATH`.
 
 Where the old unprefixed name already carried a package word, the prefix
@@ -69,8 +69,7 @@ fallbacks can be deleted once every deployment has moved.
 
 | Variable | Consumers |
 | --- | --- |
-| `NEXUS_DATABASE_URL` | parser, analyst (canonical store, Phases 2–3+) |
-| `SUPABASE_URL`, `SUPABASE_KEY` | analyst, dispatcher (legacy reads until Phase 5) |
+| `NEXUS_DATABASE_URL` | parser, analyst, dispatcher |
 | `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID` | parser |
 | `RESEARCH_PROCESSING_ROOT` | parser, analyst |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY` | dispatcher |
@@ -84,9 +83,8 @@ Docling OCR retry, and retry pacing. All `RESEARCH_PARSER_*`.
 ### `packages/research_analyst/.env.example`
 
 Analysis store (`RESEARCH_ANALYST_DATABASE_URL` / `NEXUS_DATABASE_URL` for
-PostgreSQL, or `sqlite:///…` for local bootstrap), parsed/calendar reads
-(`RESEARCH_ANALYST_PARSED_DATABASE_URL` when not using Supabase), the upstream
-parser state DB, batch behaviour,
+PostgreSQL, or `sqlite:///…` for local bootstrap), parsed/calendar PostgreSQL
+reads, the upstream parser state DB, batch behaviour,
 quality gates, pipeline versions, agent LLM provider and limits, round/tool/debate
 switches, resolution and consensus thresholds, the Tholos client, eval captures,
 and hourly-runner pacing. All `RESEARCH_ANALYST_*`.

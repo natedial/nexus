@@ -82,15 +82,15 @@ cp .env.example .env
 
 Shared, unprefixed, set at the repo root:
 
-- `SUPABASE_URL` and `SUPABASE_KEY` — back the parsed and calendar stores by default
+- `NEXUS_DATABASE_URL` — shared PostgreSQL database for parsed research and calendar reads
 - `RESEARCH_PROCESSING_ROOT` — checkout root used to locate `research_pipeline_ops`
 
 Analyst-owned, prefixed `RESEARCH_ANALYST_`, set in this package's `.env`. The
 unprefixed forms (`PARSED_DB_URL`, `ANALYST_DEBATE_MODE`, ...) remain a
 deprecated fallback.
 
-- `RESEARCH_ANALYST_PARSED_DB_URL` / `_PARSED_DB_KEY` — override the shared Supabase project for parsed research
-- `RESEARCH_ANALYST_CALENDAR_DB_URL` / `_CALENDAR_DB_KEY` — the calendar source, defaulting to the parsed store
+- `RESEARCH_ANALYST_PARSED_DATABASE_URL` — override the shared PostgreSQL URL for parsed research
+- `RESEARCH_ANALYST_CALENDAR_DATABASE_URL` — calendar source, defaulting to the parsed store
 - `RESEARCH_ANALYST_CALENDAR_MATCH_SOURCE` (`economic_events` for legacy single-project mode, `release_dates` for Scrivener-backed matching)
 - `RESEARCH_ANALYST_CALENDAR_SOURCE_NAME` (defaults to `scrivener` when using `release_dates`)
 - `RESEARCH_ANALYST_STATE_DB_PATH` — parser state DB, falling back to `RESEARCH_PARSER_STATE_DB_PATH`

@@ -31,8 +31,7 @@ cp .env.example .env
 Shared credentials in the repo-root `.env` (unprefixed):
 
 ```bash
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_supabase_anon_key
+NEXUS_DATABASE_URL=postgresql://nexus:nexus@localhost:5432/nexus
 
 # LLM providers for synthesis
 OPENAI_API_KEY=

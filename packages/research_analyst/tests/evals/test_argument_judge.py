@@ -251,8 +251,7 @@ class TestArgumentJudge(unittest.TestCase):
         from unittest.mock import patch
 
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            "NEXUS_DATABASE_URL": "postgresql://nexus:nexus@localhost:5432/nexus",
             "RESEARCH_ANALYST_ARGUMENT_JUDGE_WEIGHT_RATIONALE_FIDELITY": "0.7",
             "RESEARCH_ANALYST_ARGUMENT_JUDGE_WEIGHT_SUBSTANTIVE": "0.1",
             "RESEARCH_ANALYST_ARGUMENT_JUDGE_WEIGHT_GROUNDEDNESS": "0.1",

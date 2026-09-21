@@ -656,10 +656,7 @@ class TestToolBootstrap(unittest.TestCase):
             "AGENT_EXECUTION_ENABLED": "false",
             "ANALYST_ROUND_MODE": "rounds",
             "ANALYST_TOOLS_ENABLED": "true",
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "test-key",
-            "PARSED_DB_URL": "https://example.supabase.co",
-            "PARSED_DB_KEY": "test-key",
+            "NEXUS_DATABASE_URL": "postgresql://nexus:nexus@localhost:5432/nexus",
         }
         with patch.dict(os.environ, env, clear=False):
             settings = Settings.from_env()

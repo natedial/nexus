@@ -14,7 +14,7 @@ This document tracks the implementation of the debate-style multi-round agentic 
 
 **Supabase vs SQLite split:**
 - `research_dispatcher` reads `parsed_research` from Supabase PostgreSQL (legacy path). It never writes back.
-- `research_analyst` reads `parsed_research` from Supabase via `RESEARCH_ANALYST_PARSED_DB_URL`/`RESEARCH_ANALYST_PARSED_DB_KEY` (defaulting to the shared `SUPABASE_URL`/`SUPABASE_KEY`) and writes analysis results to a local SQLite file (`AnalysisStore`). It does **not** sync analysis results back to Supabase.
+- `research_analyst` reads `parsed_research` from PostgreSQL via `RESEARCH_ANALYST_PARSED_DATABASE_URL` (defaulting to the shared `NEXUS_DATABASE_URL`) and writes analysis results to PostgreSQL or a local SQLite file (`AnalysisStore`), depending on `RESEARCH_ANALYST_ANALYSIS_DB_URL`.
 - The new `document_analysis` table lives in analyst SQLite only. Dispatcher consumes it **via the `AnalystBatchClient` JSON file bridge**, not via a Supabase sync.
 
 ## Research ID Audit
