@@ -16,12 +16,12 @@ if str(_WORKSPACE_ROOT) not in sys.path:
 
 from research_pipeline_ops import PipelineOpsClient
 from research_analysis_layer.config import Settings, resolve_codex_bin
-from research_analysis_layer.db import (
-    AnalysisStore,
-    CalendarDbClient,
-    ParsedDbClient,
-    StateDbReader,
+from research_analysis_layer.db import AnalysisStore, StateDbReader
+from research_analysis_layer.db.client_factory import (
+    open_calendar_db_client,
+    open_parsed_db_client,
 )
+from research_analysis_layer.db.store_protocol import open_analysis_store_from_settings
 from research_analysis_layer.logging import configure_logging
 from research_analysis_layer.pipelines import AnalyzeDocumentPipeline, RunBatchPipeline
 from research_analysis_layer.services import (
@@ -115,19 +115,9 @@ def register_agent_tools(
 def build_app(settings: Settings) -> RunBatchPipeline:
     """Construct the bootstrap service graph."""
     state_reader = StateDbReader(settings.state_db_path)
-    parsed_db_client = ParsedDbClient(
-        base_url=settings.parsed_db_url,
-        api_key=settings.parsed_db_key,
-        timeout_seconds=settings.request_timeout_seconds,
-    )
-    calendar_db_client = CalendarDbClient(
-        base_url=settings.calendar_db_url,
-        api_key=settings.calendar_db_key,
-        timeout_seconds=settings.request_timeout_seconds,
-        match_source=settings.calendar_match_source,
-        source_name=settings.calendar_source_name,
-    )
-    store = AnalysisStore(settings.analysis_db_path)
+    parsed_db_client = open_parsed_db_client(settings)
+    calendar_db_client = open_calendar_db_client(settings)
+    store = open_analysis_store_from_settings(settings)
     selector = Selector()
     hydrator = Hydrator(parsed_db_client)
     registry = get_registry()
@@ -489,7 +479,7 @@ def command_resolve_referents(
     else:
         report["golden"] = {"error": f"golden set not found: {golden_path}"}
 
-    store = AnalysisStore(settings.analysis_db_path)
+    store = open_analysis_store_from_settings(settings)
     stored_rows = store.list_document_analyses(limit=limit)
     payloads = []
     for row in stored_rows:
@@ -556,7 +546,7 @@ def command_resolve_claims(
     else:
         report["golden"] = {"error": f"golden set not found: {golden_path}"}
 
-    store = AnalysisStore(settings.analysis_db_path)
+    store = open_analysis_store_from_settings(settings)
     stored_rows = store.list_document_analyses(limit=limit)
     payloads = [
         row["payload_json"]
@@ -592,7 +582,7 @@ def command_consensus(
 ) -> int:
     """Cluster stored argument maps into consensus and divergence points."""
     n = min_publishers if min_publishers is not None else settings.consensus_min_publishers
-    store = AnalysisStore(settings.analysis_db_path)
+    store = open_analysis_store_from_settings(settings)
     maps = store.list_argument_maps_for_consensus(limit=limit)
     snapshot = ConsensusClusterer(min_publishers=n).cluster_maps(maps)
     print(json.dumps(snapshot.model_dump(), indent=2, sort_keys=True))
@@ -609,7 +599,7 @@ def command_argument_graph(
 ) -> int:
     """Run argument-graph queries over stored maps."""
     n = min_publishers if min_publishers is not None else settings.consensus_min_publishers
-    store = AnalysisStore(settings.analysis_db_path)
+    store = open_analysis_store_from_settings(settings)
     maps = store.list_argument_maps_for_consensus(limit=limit)
     snapshot = ArgumentGraph(min_publishers=n).query_maps(maps, claim_key=claim_key)
     payload = snapshot.model_dump()
@@ -649,7 +639,7 @@ def command_street_digest(
 ) -> int:
     """Render the street-agrees / street-splits digest from stored maps."""
     n = min_publishers if min_publishers is not None else settings.consensus_min_publishers
-    store = AnalysisStore(settings.analysis_db_path)
+    store = open_analysis_store_from_settings(settings)
     maps = store.list_argument_maps_for_consensus(limit=limit)
     section = render_street_digest(maps, min_publishers=n)
     print(json.dumps(section.to_payload(), indent=2, sort_keys=True))
@@ -671,7 +661,7 @@ def command_consensus_shift(
         if diversity_threshold is not None
         else settings.consensus_shift_diversity_threshold
     )
-    store = AnalysisStore(settings.analysis_db_path)
+    store = open_analysis_store_from_settings(settings)
     maps = store.list_argument_maps_for_consensus(limit=limit)
     snapshot = ConsensusClusterer(min_publishers=n).cluster_maps(maps)
     detector = ConsensusShiftDetector(diversity_threshold=threshold)
@@ -1180,7 +1170,7 @@ def command_export_dispatch_batch(
         logger.error("Invalid scope: %s", e)
         return 1
 
-    store = AnalysisStore(settings.analysis_db_path)
+    store = open_analysis_store_from_settings(settings)
     exporter = DispatchBatchExporter(
         store,
         min_publishers=settings.consensus_min_publishers,
