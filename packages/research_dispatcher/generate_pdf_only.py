@@ -14,7 +14,8 @@ from src.dispatch_store import DispatchStore
 from src.formatter import ReportFormatter
 from src.pdf_generator import PDFGenerator
 from src.synthesizer import Synthesizer
-from src.main import _derive_dispatch_batch_key, _load_dispatch_documents
+from src.dispatch_loader import load_dispatch_documents
+from src.main import _derive_dispatch_batch_key
 
 try:
     print("Validating configuration...")
@@ -24,20 +25,15 @@ try:
 
     db = DatabaseClient()
     dispatch_batch = None
-    source_type = "analyst_batch" if Config.DISPATCH_INPUT_MODE == "analyst" else "parsed_research"
-    if Config.DISPATCH_INPUT_MODE == "analyst":
-        print(f"Loading analyst dispatch batch: {Config.ANALYST_BATCH_PATH}")
-    else:
-        print("Querying parsed_research documents")
-    data, dispatch_batch, source_type = _load_dispatch_documents(
-        input_mode=Config.DISPATCH_INPUT_MODE,
+    source_type = "analyst_batch"
+    print(f"Loading analyst dispatch batch: {Config.ANALYST_BATCH_PATH}")
+    data, dispatch_batch, source_type = load_dispatch_documents(
         analyst_batch_path=Config.ANALYST_BATCH_PATH,
-        db_client=db,
     )
-    if dispatch_batch is not None:
-        print(f"Loaded batch {dispatch_batch.batch_key} with {len(dispatch_batch.documents)} document(s)")
-    else:
-        print(f"Retrieved {len(data)} research records")
+    print(
+        f"Loaded batch {dispatch_batch.batch_key} with "
+        f"{len(dispatch_batch.documents)} document(s)"
+    )
 
     # Query calendar data
     economic_events = db.query_economic_events()
