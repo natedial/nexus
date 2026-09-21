@@ -39,6 +39,9 @@ class ArchiveRow:
     unrecoverable: bool
     enqueued_at: str
     updated_at: str
+    content_hash: str = ""
+    intake_bundle_id: str = ""
+    intake_written_at: str = ""
 
 
 class Ledger:
@@ -101,7 +104,19 @@ class Ledger:
             )
             """
         )
+        self._migrate_archives_columns()
         self._conn.commit()
+
+    def _migrate_archives_columns(self) -> None:
+        for ddl in (
+            "ALTER TABLE archives ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE archives ADD COLUMN intake_bundle_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE archives ADD COLUMN intake_written_at TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                self._conn.execute(ddl)
+            except sqlite3.OperationalError:
+                pass
 
     def enqueue_archive(
         self,
@@ -147,7 +162,8 @@ class Ledger:
         row = self._conn.execute(
             """
             SELECT gmail_msgid, message_id, kind, expected_names, pdf_ids, doc_ids,
-                   html_id, last_error, find_failures, unrecoverable, enqueued_at, updated_at
+                   html_id, last_error, find_failures, unrecoverable, enqueued_at, updated_at,
+                   content_hash, intake_bundle_id, intake_written_at
             FROM archives WHERE gmail_msgid = ?
             """,
             (str(gmail_msgid),),
@@ -160,7 +176,8 @@ class Ledger:
         rows = self._conn.execute(
             """
             SELECT gmail_msgid, message_id, kind, expected_names, pdf_ids, doc_ids,
-                   html_id, last_error, find_failures, unrecoverable, enqueued_at, updated_at
+                   html_id, last_error, find_failures, unrecoverable, enqueued_at, updated_at,
+                   content_hash, intake_bundle_id, intake_written_at
             FROM archives WHERE unrecoverable = 0 ORDER BY enqueued_at ASC
             """
         ).fetchall()
@@ -191,6 +208,20 @@ class Ledger:
         self._conn.execute(
             "UPDATE archives SET html_id = ?, last_error = '', updated_at = ? WHERE gmail_msgid = ?",
             (drive_id, now, str(gmail_msgid)),
+        )
+        self._conn.commit()
+
+    def mark_intake_written(
+        self, gmail_msgid: str, content_hash: str, bundle_id: str
+    ) -> None:
+        now = _now()
+        self._conn.execute(
+            """
+            UPDATE archives SET
+                content_hash = ?, intake_bundle_id = ?, intake_written_at = ?, updated_at = ?
+            WHERE gmail_msgid = ?
+            """,
+            (content_hash, bundle_id, now, now, str(gmail_msgid)),
         )
         self._conn.commit()
 
@@ -242,7 +273,8 @@ class Ledger:
         rows = self._conn.execute(
             """
             SELECT gmail_msgid, message_id, kind, expected_names, pdf_ids, doc_ids,
-                   html_id, last_error, find_failures, unrecoverable, enqueued_at, updated_at
+                   html_id, last_error, find_failures, unrecoverable, enqueued_at, updated_at,
+                   content_hash, intake_bundle_id, intake_written_at
             FROM archives WHERE unrecoverable = 1 ORDER BY enqueued_at ASC
             """
         ).fetchall()
@@ -528,4 +560,7 @@ def _archive_row(row: tuple) -> ArchiveRow:
         unrecoverable=bool(row[9]),
         enqueued_at=str(row[10]),
         updated_at=str(row[11]),
+        content_hash=str(row[12] or "") if len(row) > 12 else "",
+        intake_bundle_id=str(row[13] or "") if len(row) > 13 else "",
+        intake_written_at=str(row[14] or "") if len(row) > 14 else "",
     )

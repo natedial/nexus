@@ -121,3 +121,8 @@ pdf_folder_id = ""
 docs_folder_id = ""
 max_retries_per_run = 20
 find_failure_threshold = 5
+
+[intake]
+# Parser handoff bundles (manifest.json + sanitized PDF copies) for R2/R3 intake.
+enabled = false
+handoff_dir = "/var/research/intake"

@@ -43,6 +43,8 @@ except ImportError:
 
 from src.config import Settings
 from src.drive import DriveWatcher
+from src.intake.relay_adapter import RelayIntakeAdapter
+from src.intake.relay_contract import RelayIntakeArtifact
 from src.parser import (
     DoclingBackend,
     MinerUBackend,
@@ -123,6 +125,26 @@ def build_source_document(file_id: str, file_name: str, full_text: str) -> Sourc
     )
 
 
+def build_source_document_from_relay(
+    artifact: RelayIntakeArtifact,
+    file_name: str,
+    full_text: str,
+) -> SourceDocument:
+    drive_ids = list(artifact.archive_pdf_drive_ids.values())
+    document_link = (
+        f"https://drive.google.com/file/d/{drive_ids[0]}/view" if drive_ids else None
+    )
+    return SourceDocument(
+        document_id=artifact.document_id(),
+        document_name=file_name,
+        full_text=full_text,
+        source=artifact.sender_address or "relay",
+        source_date=artifact.source_date(),
+        document_uri=f"relay://{artifact.relay_key}",
+        document_link=document_link,
+    )
+
+
 class Pipeline:
     """Download, parse, and store source-grounded research PDFs."""
 
@@ -180,14 +202,28 @@ class Pipeline:
         self._active_run_key = None
         logger.info("Pipeline initialized")
 
-    def process_file(self, file_id: str, file_name: str, *, force: bool = False) -> bool:
+    def process_file(
+        self,
+        file_id: str,
+        file_name: str,
+        *,
+        force: bool = False,
+        local_pdf_path: Path | None = None,
+        relay_artifact: RelayIntakeArtifact | None = None,
+    ) -> bool:
         log = logger.bind(file_id=file_id, file_name=file_name, force=force)
         max_attempts = 2
         for attempt in range(1, max_attempts + 1):
             attempt_log = log.bind(attempt=attempt, max_attempts=max_attempts)
             attempt_log.info("Starting file processing attempt")
             status, error_message = self._process_file_once(
-                file_id, file_name, attempt_log, attempt=attempt, force=force
+                file_id,
+                file_name,
+                attempt_log,
+                attempt=attempt,
+                force=force,
+                local_pdf_path=local_pdf_path,
+                relay_artifact=relay_artifact,
             )
             if status == ProcessingStatus.COMPLETED:
                 return True
@@ -215,6 +251,8 @@ class Pipeline:
         *,
         attempt: int,
         force: bool = False,
+        local_pdf_path: Path | None = None,
+        relay_artifact: RelayIntakeArtifact | None = None,
     ) -> tuple[ProcessingStatus, str | None]:
         artifact_dir = self._artifact_dir(file_id)
         document_key = make_document_key(file_id=file_id)
@@ -252,17 +290,21 @@ class Pipeline:
                 log.info("Resuming from persisted artifacts")
             else:
                 try:
-                    with self.ops.track_stage(
-                        repo_name="research_parser",
-                        stage_name="parser.download",
-                        run_key=self._active_run_key,
-                        document_key=document_key,
-                        file_id=file_id,
-                        attempt=attempt,
-                        payload={"file_name": file_name},
-                        document_fields=document_fields,
-                    ):
-                        file_path = self.drive.download_file(file_id, file_name)
+                    if local_pdf_path is not None:
+                        file_path = local_pdf_path
+                        log.info("Using relay intake PDF", path=str(local_pdf_path))
+                    else:
+                        with self.ops.track_stage(
+                            repo_name="research_parser",
+                            stage_name="parser.download",
+                            run_key=self._active_run_key,
+                            document_key=document_key,
+                            file_id=file_id,
+                            attempt=attempt,
+                            payload={"file_name": file_name},
+                            document_fields=document_fields,
+                        ):
+                            file_path = self.drive.download_file(file_id, file_name)
                 except Exception as exc:
                     message = f"Download failed: {exc}"
                     log.exception("Download failed")
@@ -339,7 +381,12 @@ class Pipeline:
 
                 self._write_clean_text_artifact(artifact_dir, clean_text, log)
                 parse_blocks = filter_blocks_present_in_text(parse_blocks, clean_text)
-                source = build_source_document(file_id, file_name, clean_text)
+                if relay_artifact is not None:
+                    source = build_source_document_from_relay(
+                        relay_artifact, file_name, clean_text
+                    )
+                else:
+                    source = build_source_document(file_id, file_name, clean_text)
 
             self.state.update_step(file_id, "storage", False, ProcessingStatus.STORING)
             artifact_context = self._build_artifact_context(artifact_dir, parse_blocks)
@@ -538,6 +585,55 @@ class Pipeline:
         parse_blocks = filter_blocks_present_in_text(parse_blocks, clean_text)
         return build_source_document(file_id, file_name, clean_text), parse_blocks
 
+    def process_relay_intake(self, artifact: RelayIntakeArtifact) -> bool:
+        if self.state.is_relay_intake_complete(artifact.relay_key, artifact.content_hash):
+            logger.info(
+                "Skipping relay intake; already stored",
+                relay_key=artifact.relay_key,
+                content_hash=artifact.content_hash,
+            )
+            return False
+        pdf_path = artifact.primary_pdf_path()
+        if pdf_path is None or not pdf_path.is_file():
+            logger.warning(
+                "Relay intake missing PDF attachment",
+                relay_key=artifact.relay_key,
+            )
+            return False
+        file_id = artifact.document_id()
+        ok = self.process_file(
+            file_id,
+            pdf_path.name,
+            local_pdf_path=pdf_path,
+            relay_artifact=artifact,
+        )
+        self.state.record_relay_intake(
+            artifact.relay_key,
+            content_hash=artifact.content_hash,
+            document_id=file_id,
+            file_id=file_id,
+            storage_ok=ok,
+        )
+        return ok
+
+    def run_relay_intake_once(self) -> int:
+        intake_dir = getattr(self.settings, "relay_intake_dir", None)
+        if intake_dir is None:
+            return 0
+        adapter = RelayIntakeAdapter(intake_dir)
+        processed = 0
+        for artifact in adapter.list_pending():
+            try:
+                if self.process_relay_intake(artifact):
+                    processed += 1
+            except Exception as exc:
+                logger.exception(
+                    "Unexpected error processing relay intake",
+                    relay_key=artifact.relay_key,
+                    error=str(exc),
+                )
+        return processed
+
     def run_once(self, days_ago: int | None = None, since: datetime | None = None) -> int:
         logger.info("Starting polling cycle", days_ago=days_ago, since=since)
         self.ops.flush()
@@ -552,7 +648,7 @@ class Pipeline:
             },
         )
         self._active_run_key = run_key
-        processed_count = 0
+        processed_count = self.run_relay_intake_once()
         try:
             retryable_partials = self.state.get_retryable_partials(
                 self.settings.poll_interval_minutes
