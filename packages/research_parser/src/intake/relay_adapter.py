@@ -22,7 +22,7 @@ class RelayIntakeAdapter:
                 artifact = load_manifest(manifest_path)
             except (OSError, ValueError, KeyError, TypeError):
                 continue
-            if artifact.primary_pdf_path() is None:
+            if not artifact.is_processable():
                 continue
             artifacts.append(artifact)
         return artifacts

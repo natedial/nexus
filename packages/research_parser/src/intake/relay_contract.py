@@ -30,15 +30,42 @@ class RelayIntakeArtifact:
     archive_pdf_drive_ids: dict[str, str]
     bundle_id: str
     manifest_path: Path
+    archive_kind: str = "pdfs"
+    archive_html_drive_id: str = ""
 
     def document_id(self) -> str:
         return relay_document_id(self.relay_key)
+
+    def is_html_only(self) -> bool:
+        return self.archive_kind == "html"
 
     def primary_pdf_path(self) -> Path | None:
         for item in self.attachments:
             if item.path.lower().endswith(".pdf"):
                 return self.manifest_path.parent / item.path
         return None
+
+    def primary_html_path(self) -> Path | None:
+        for item in self.attachments:
+            if item.path.lower().endswith(".html"):
+                return self.manifest_path.parent / item.path
+        return None
+
+    def is_processable(self) -> bool:
+        if self.is_html_only():
+            return bool(self.body.strip()) or self.primary_html_path() is not None
+        return self.primary_pdf_path() is not None
+
+    def intake_file_name(self) -> str:
+        if self.is_html_only():
+            html_path = self.primary_html_path()
+            if html_path is not None:
+                return html_path.name
+            return f"{self.source_date() or 'relay'}_{self.subject or 'message'}.html"
+        pdf_path = self.primary_pdf_path()
+        if pdf_path is not None:
+            return pdf_path.name
+        return f"{self.source_date() or 'relay'}_relay.pdf"
 
     def source_date(self) -> str | None:
         if not self.original_date:
@@ -83,4 +110,6 @@ def artifact_from_dict(data: dict[str, Any], *, manifest_path: Path) -> RelayInt
         },
         bundle_id=str(data["bundle_id"]),
         manifest_path=manifest_path,
+        archive_kind=str(data.get("archive_kind", "pdfs")),
+        archive_html_drive_id=str(data.get("archive_html_drive_id", "")),
     )

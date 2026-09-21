@@ -204,7 +204,10 @@ def process_archives(
                 if store.archive_is_complete(fresh):
                     result.completed += 1
                     log.info("archive done key=%s", row.gmail_msgid[-24:])
-                    if cfg.intake.enabled and fresh is not None and fresh.kind == "pdfs":
+                    if cfg.intake.enabled and fresh is not None and fresh.kind in {
+                        "pdfs",
+                        "html",
+                    }:
                         _maybe_write_intake_handoff(
                             cfg,
                             store,
@@ -357,10 +360,30 @@ def _maybe_write_intake_handoff(
     )
     when = _message_when(original)
     subject = str(reconstructed.message.get("Subject") or "")
-    payloads = _pdf_payloads(reconstructed, when, subject, cfg.relay.private_address)
-    if not payloads:
-        return
+    private = cfg.relay.private_address
     original_date = str(original.get("Date") or "").strip() or None
+    bundle_id = bundle_id_for_relay_key(row.gmail_msgid)
+    if row.kind == "html":
+        body_part = reconstructed.message.get_body(preferencelist=("plain",))
+        body = body_part.get_content() if body_part is not None else ""
+        html = archive_html_document(
+            sender=reconstructed.sender_address,
+            date_text=str(original.get("Date") or ""),
+            subject=subject,
+            body=body if isinstance(body, str) else str(body),
+            private_address=private,
+        )
+        html_name = archive_html_name(when, subject, private_address=private)
+        file_payloads = {html_name: (html.encode("utf-8"), "text/html")}
+        archive_kind = "html"
+    else:
+        pdf_payloads = _pdf_payloads(reconstructed, when, subject, private)
+        if not pdf_payloads:
+            return
+        file_payloads = {
+            name: (payload, "application/pdf") for name, payload in pdf_payloads.items()
+        }
+        archive_kind = "pdfs"
     maybe_write_intake_handoff(
         cfg.intake.handoff_dir,
         ledger,
@@ -368,8 +391,9 @@ def _maybe_write_intake_handoff(
         reconstructed=reconstructed,
         original_date=original_date,
         row=row,
-        pdf_payloads=payloads,
-        bundle_id=bundle_id_for_relay_key(row.gmail_msgid),
+        file_payloads=file_payloads,
+        bundle_id=bundle_id,
+        archive_kind=archive_kind,
     )
 
 
