@@ -46,6 +46,11 @@ from research_analysis_layer.evals.runner import (
     validate_schema,
 )
 
+from research_analysis_layer.evals.rubric_regression import (
+    RubricRegressionReport,
+    build_rubric_regression_report,
+)
+
 from research_analysis_layer.evals.training_capture import (
     CAPTURE_THRESHOLD,
     TrainingCapture,
@@ -78,6 +83,8 @@ __all__ = [
     "EvalResult",
     "EvalSummary",
     "RegressionReport",
+    "RubricRegressionReport",
+    "build_rubric_regression_report",
     "load_golden_annotations",
     "load_golden_document",
     "validate_schema",
