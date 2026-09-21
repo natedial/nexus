@@ -120,6 +120,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional path to write the current report JSON",
     )
+    rubric_parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="Score golden maps/points with ArgumentJudge (requires an LLM client)",
+    )
+    rubric_parser.add_argument(
+        "--judge-model",
+        type=str,
+        default="gpt-5-mini",
+        help="Model for ArgumentJudge (default: gpt-5-mini)",
+    )
 
     return parser
 
@@ -277,6 +288,7 @@ def cmd_export(args: argparse.Namespace, settings: Settings) -> int:
 
 def cmd_rubric_report(args: argparse.Namespace) -> int:
     """Run the Slice 3 rubric regression report (no live agent calls)."""
+    from research_analysis_layer.evals.judge import ArgumentJudge
     from research_analysis_layer.evals.rubric_regression import (
         build_rubric_regression_report,
     )
@@ -285,9 +297,32 @@ def cmd_rubric_report(args: argparse.Namespace) -> int:
     if not golden_path.exists():
         print(f"Error: Golden path not found: {golden_path}", file=sys.stderr)
         return 1
+
+    judge = None
+    if getattr(args, "judge", False):
+        settings = Settings.from_env()
+        from research_analysis_layer.services.agent_llm_client import (
+            build_agent_llm_client,
+        )
+
+        llm_client = build_agent_llm_client(settings)
+        if llm_client is None:
+            print(
+                "Error: --judge needs AGENT_LLM_PROVIDER=openai "
+                "(with AGENT_LLM_API_KEY) or AGENT_LLM_PROVIDER=codex",
+                file=sys.stderr,
+            )
+            return 1
+        judge = ArgumentJudge(
+            llm_client=llm_client,
+            judge_model=getattr(args, "judge_model", "gpt-5-mini"),
+            weights=settings.argument_judge_weights,
+        )
+
     report = build_rubric_regression_report(
         golden_path,
         previous=args.previous,
+        judge=judge,
     )
     payload = report.as_dict()
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -12,6 +12,8 @@ from research_analysis_layer.evals.comparison import (
     compute_field_similarity,
     DEFAULT_FIELD_WEIGHTS,
     exact_match,
+    lint_argument_map,
+    lint_consensus_divergence,
     list_match_rate,
     rouge_l,
 )
@@ -68,6 +70,8 @@ __all__ = [
     "exact_match",
     "list_match_rate",
     "rouge_l",
+    "lint_argument_map",
+    "lint_consensus_divergence",
     "EvalDatabase",
     "compute_golden_set_hash",
     "JudgeScore",

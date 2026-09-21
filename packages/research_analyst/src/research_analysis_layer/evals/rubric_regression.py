@@ -11,7 +11,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from research_analysis_layer.evals.comparison import lint_argument_map
+from research_analysis_layer.evals.comparison import (
+    lint_argument_map,
+    lint_consensus_divergence,
+)
 from research_analysis_layer.evals.runner import load_golden_annotations
 
 CONSENSUS_FILENAME = "consensus.jsonl"
@@ -27,16 +30,6 @@ def _rate(numer: int, denom: int) -> float:
     if denom <= 0:
         return 0.0
     return numer / denom
-
-
-def _lint_points(points: list[Any]) -> list[Any] | None:
-    """Use Slice 3 Task 2 linter when present; otherwise skip point rates."""
-    from research_analysis_layer.evals import comparison as comparison_module
-
-    lint_fn = getattr(comparison_module, "lint_consensus_divergence", None)
-    if lint_fn is None:
-        return None
-    return list(lint_fn(points))
 
 
 def _score_bundle(result: Any) -> dict[str, float] | None:
@@ -190,7 +183,13 @@ def build_rubric_regression_report(
     previous: dict[str, Any] | Path | None = None,
     judge: Any | None = None,
 ) -> RubricRegressionReport:
-    """Lint + optionally judge golden maps/points; diff against a previous report."""
+    """Lint + optionally judge golden maps/points; diff against a previous report.
+
+    Always runs `lint_argument_map` and `lint_consensus_divergence`. Pass an
+    `ArgumentJudge` (or a stub with the same `evaluate_claim` /
+    `evaluate_point` methods) to include rubric scores. The CLI wires the
+    real judge behind `--judge`; tests inject stubs so this stays offline.
+    """
     maps = load_golden_argument_maps(golden_path)
     points = load_golden_consensus_points(golden_path)
 
@@ -203,20 +202,13 @@ def build_rubric_regression_report(
             map_counts[violation.code] += 1
 
     point_counts: Counter[str] = Counter()
-    point_rate: float | None = 0.0
+    point_rate = 0.0
     point_linter = "none"
     if points:
-        point_result = _lint_points(points)
-        if point_result is None:
-            point_rate = None
-            point_linter = "unavailable"
-        else:
-            for violation in point_result:
-                code = getattr(violation, "code", None)
-                if code:
-                    point_counts[str(code)] += 1
-            point_rate = _rate(sum(point_counts.values()), len(points))
-            point_linter = "lint_consensus_divergence"
+        for violation in lint_consensus_divergence(points):
+            point_counts[violation.code] += 1
+        point_rate = _rate(sum(point_counts.values()), len(points))
+        point_linter = "lint_consensus_divergence"
 
     judge_scores = _average_judge_scores(judge, maps, points)
 
