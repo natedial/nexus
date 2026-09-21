@@ -11,9 +11,9 @@ The substrate `contradicts` relation is schema-only today; this module infers
 the same pattern from opposing-polarity citations of one referent, and also
 accepts explicit `contradicts` rows when a caller has them.
 
-Not wired into the live contrarian `research_search` tool — that is optional
-and would change agent behavior. Callers use `ArgumentGraph` or the
-`argument-graph` CLI.
+Also exposed as the additive `argument_graph` agent tool (analyst-local
+schema; does not replace corpus `research_search`). Callers can use
+`ArgumentGraph`, the `argument-graph` CLI, or the tool handler.
 """
 
 from __future__ import annotations

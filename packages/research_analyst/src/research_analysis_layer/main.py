@@ -63,6 +63,10 @@ from research_analysis_layer.services.evidence_referent_resolver import (
 from research_analysis_layer.services.reconcile import reconcile_recent
 from research_analysis_layer.services.round_executor import RoundExecutor
 from research_analysis_layer.services.tools.registry import ToolRegistry
+from research_analysis_layer.services.tools.argument_graph_tool import (
+    ARGUMENT_GRAPH_TOOL_SCHEMA,
+    create_argument_graph_handlers,
+)
 from research_analysis_layer.services.tools.distill_adapter import (
     DistillAdapter,
     create_distill_handlers,
@@ -73,6 +77,33 @@ from research_analysis_layer.services.tools.tholos_adapter import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def register_agent_tools(
+    tool_registry: ToolRegistry,
+    settings: Settings,
+    store: AnalysisStore,
+) -> None:
+    """Register corpus search plus the analyst-local argument-graph tool."""
+    if settings.tholos_enabled:
+        tholos_adapter = TholosAdapter(
+            base_url=settings.tholos_base_url,
+            timeout_seconds=settings.tholos_timeout_seconds,
+        )
+        handlers = create_tholos_handlers(tholos_adapter)
+    else:
+        distill_adapter = DistillAdapter()
+        handlers = create_distill_handlers(distill_adapter)
+
+    for name, handler in handlers.items():
+        tool_registry.register_handler(name, handler)
+
+    tool_registry.register_schema(ARGUMENT_GRAPH_TOOL_SCHEMA)
+    for name, handler in create_argument_graph_handlers(
+        store,
+        min_publishers=settings.consensus_min_publishers,
+    ).items():
+        tool_registry.register_handler(name, handler)
 
 
 def build_app(settings: Settings) -> RunBatchPipeline:
@@ -102,19 +133,7 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         assert tool_registry.get_schema("research_search") is not None, (
             f"Tool schema not loaded from {tool_registry._schema_path}"
         )
-
-        if settings.tholos_enabled:
-            tholos_adapter = TholosAdapter(
-                base_url=settings.tholos_base_url,
-                timeout_seconds=settings.tholos_timeout_seconds,
-            )
-            handlers = create_tholos_handlers(tholos_adapter)
-        else:
-            distill_adapter = DistillAdapter()
-            handlers = create_distill_handlers(distill_adapter)
-
-        for name, handler in handlers.items():
-            tool_registry.register_handler(name, handler)
+        register_agent_tools(tool_registry, settings, store)
 
     llm_client = build_agent_llm_client(settings, tool_registry)
 
