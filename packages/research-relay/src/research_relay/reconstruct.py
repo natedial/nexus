@@ -13,6 +13,7 @@ from research_relay.attachments import (
     AttachmentResult,
     evaluate_attachment,
 )
+from research_relay.metadata_scrub import scrub_attachment_metadata
 from research_relay.domain import extract_sender_mailbox
 from research_relay.htmltext import html_to_text
 from research_relay.message_id import make_message_id
@@ -125,18 +126,50 @@ def reconstruct_message(
             policy=settings.attachment_policy,
             used_names=used_names,
         )
-        kept.append(result)
         if result.action != AttachmentDecision.ALLOW:
+            kept.append(result)
             notes.append(f"{result.action.value} attachment {result.safe_filename}: {result.reason}")
             continue
-        maintype, _, subtype = (result.content_type or "application/octet-stream").partition("/")
-        outgoing.add_attachment(
+
+        scrub = scrub_attachment_metadata(
             result.payload,
+            result.safe_filename,
+            result.content_type,
+        )
+        if not scrub.ok:
+            fail_action = (
+                AttachmentDecision.QUARANTINE
+                if settings.attachment_policy.on_prohibited == "quarantine"
+                else AttachmentDecision.SKIP
+            )
+            kept.append(
+                AttachmentResult(
+                    action=fail_action,
+                    reason=scrub.reason,
+                    safe_filename=result.safe_filename,
+                    payload=result.payload,
+                    content_type=result.content_type,
+                )
+            )
+            notes.append(f"{fail_action.value} attachment {result.safe_filename}: {scrub.reason}")
+            continue
+
+        final = AttachmentResult(
+            action=AttachmentDecision.ALLOW,
+            reason="metadata scrubbed" if scrub.scrubbed else result.reason,
+            safe_filename=result.safe_filename,
+            payload=scrub.payload,
+            content_type=result.content_type,
+        )
+        kept.append(final)
+        maintype, _, subtype = (final.content_type or "application/octet-stream").partition("/")
+        outgoing.add_attachment(
+            final.payload,
             maintype=maintype or "application",
             subtype=subtype or "octet-stream",
-            filename=result.safe_filename,
+            filename=final.safe_filename,
         )
-        used_bytes += len(result.payload)
+        used_bytes += len(final.payload)
 
     _drop_forbidden_headers(outgoing)
     return Reconstruction(
