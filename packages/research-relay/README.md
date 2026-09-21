@@ -11,7 +11,7 @@ Live SMTP submission and Gmail label changes are **off by default**. Use dry-run
 - It does not forward the original RFC822 message or attach a `.eml`.
 - It does not copy Gmail transport or threading headers (`Received`, `Delivered-To`, `Return-Path`, `Message-ID`, `References`, `In-Reply-To`, `Authentication-Results`, `X-Google-*`, `X-Gmail-*`, and similar).
 - It does not store passwords in the config file, LaunchAgent plist, source, or logs.
-- Copying attachments does **not** strip document metadata (author fields, comments, revision history, EXIF, etc.). Destructive metadata rewriting is not implemented.
+- Allowed attachments are metadata-scrubbed before copy (PDF document properties, image EXIF, Office Open XML `docProps`). If scrubbing is required and fails, the attachment is skipped or quarantined per `on_prohibited` — the relay does not fall back to the original bytes.
 
 ## Requirements
 

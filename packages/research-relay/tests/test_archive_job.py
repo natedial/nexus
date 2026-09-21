@@ -7,6 +7,8 @@ from research_relay.exceptions import DriveAuthError, TemporaryRelayError
 from research_relay.ledger import Ledger
 from research_relay.reconstruct import reconstruct_message, parse_rfc822
 
+from tests.pdf_fixtures import minimal_pdf_bytes
+
 
 def _config(tmp_path: Path):
     cfg_path = tmp_path / "config.toml"
@@ -92,7 +94,7 @@ def _pdf_raw() -> bytes:
     msg["Date"] = "Fri, 28 Aug 2026 12:00:00 +0000"
     msg["Message-ID"] = "<pdf@proton.me>"
     msg.set_content("see attached")
-    msg.add_attachment(b"%PDF-1.4 fake", maintype="application", subtype="pdf", filename="cv.pdf")
+    msg.add_attachment(minimal_pdf_bytes(), maintype="application", subtype="pdf", filename="cv.pdf")
     return msg.as_bytes()
 
 
