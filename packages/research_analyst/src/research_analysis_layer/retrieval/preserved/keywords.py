@@ -1,3 +1,5 @@
+# Preserved from packages/research-store/distill_tool/keywords.py (Phase 1).
+# Reference only — not imported.
 from __future__ import annotations
 
 import html

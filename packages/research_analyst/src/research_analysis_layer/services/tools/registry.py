@@ -12,10 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 logger = logging.getLogger(__name__)
 
-_CORPUS_ROOT = Path(__file__).resolve().parents[5]
-_DEFAULT_SCHEMA_PATH = (
-    _CORPUS_ROOT / "research-store" / "distill_tool" / "tool_schema.json"
-)
+_ANALYST_ROOT = Path(__file__).resolve().parents[4]
+_DEFAULT_SCHEMA_PATH = _ANALYST_ROOT / "schemas" / "corpus_tool_schema.json"
 
 _rate_limit_semaphore: threading.Semaphore | None = None
 _rate_limit_lock = threading.Lock()
@@ -63,7 +61,7 @@ class ToolRegistry:
             if not self._schema_path.exists():
                 raise ValueError(
                     f"Tool schema not found at default path: {self._schema_path}. "
-                    f"Ensure research-store/distill_tool/tool_schema.json exists."
+                    f"Ensure schemas/corpus_tool_schema.json exists in research_analyst."
                 )
             self.load_schema(self._schema_path)
 
@@ -86,8 +84,8 @@ class ToolRegistry:
     def register_schema(self, schema: dict[str, Any]) -> None:
         """Register an extra tool schema without changing the distill JSON file.
 
-        Analyst-local tools (argument-graph queries, etc.) live here so
-        research-store's corpus search schema stays corpus-only.
+        Analyst-local tools (argument-graph queries, etc.) live here so the
+        corpus search schema JSON stays limited to research_search tools.
         """
         name = schema.get("name")
         if not isinstance(name, str) or not name.strip():

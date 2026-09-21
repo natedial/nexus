@@ -32,9 +32,7 @@ level.
 | `RESEARCH_PARSER_*` | owned by `packages/research_parser` | that package's `.env` |
 | `RESEARCH_ANALYST_*` | owned by `packages/research_analyst` | that package's `.env` |
 | `RESEARCH_DISPATCHER_*` | owned by `packages/research_dispatcher` | that package's `.env` |
-| `RESEARCH_STORE_*` | owned by `packages/research-store` (none needed yet) | that package's `.env` |
 | `RESEARCH_RELAY_*` | owned by `packages/research-relay` | secrets file / keychain, see below |
-| `MORNING_RESEARCH_*` | owned by `packages/morning_research` | that package's `.env` |
 
 Two rules follow from the table, and they are the whole convention:
 
@@ -71,10 +69,9 @@ fallbacks can be deleted once every deployment has moved.
 
 | Variable | Consumers |
 | --- | --- |
-| `SUPABASE_URL`, `SUPABASE_KEY` | parser, analyst, dispatcher, store, morning_research |
-| `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID` | parser, morning_research |
-| `RESEARCH_PROCESSING_ROOT` | parser, analyst, store |
-| `NOTION_TOKEN`, `NOTION_DATABASE_ID`, `NOTION_AREA_PAGE_ID` | morning_research |
+| `SUPABASE_URL`, `SUPABASE_KEY` | parser, analyst, dispatcher |
+| `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID` | parser |
+| `RESEARCH_PROCESSING_ROOT` | parser, analyst |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY` | dispatcher |
 
 ### `packages/research_parser/.env.example`
@@ -94,18 +91,6 @@ and hourly-runner pacing. All `RESEARCH_ANALYST_*`.
 Synthesis switches, SMTP and recipients, report title, input mode and dispatch
 ledger path, run mode, filters, and the feedback/document-viewer links. All
 `RESEARCH_DISPATCHER_*`.
-
-### `packages/morning_research/.env.example`
-
-Run-state path, per-run work directory, Codex CLI settings, prefilter threshold,
-and the dry-run switch. All `MORNING_RESEARCH_*`.
-
-### `packages/research-store` — no env file
-
-The distill tool reads only `SUPABASE_URL`, `SUPABASE_KEY`, and
-`RESEARCH_PROCESSING_ROOT`, which are all shared, so this package has no `.env`
-of its own. Its CLI loads the root file (and a package file if one is created).
-Future store-owned settings would be `RESEARCH_STORE_*`.
 
 ### `packages/research-relay` — no env file
 

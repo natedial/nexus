@@ -1,35 +1,36 @@
-"""Distill tool adapter for research corpus search."""
+"""Corpus search tool adapter (schema retained; corpus retired Phase 1)."""
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
-
-from research_analysis_layer.env import env
 
 logger = logging.getLogger(__name__)
 
-_CORPUS_ROOT = Path(__file__).resolve().parents[5]
-_DEFAULT_DB_PATH = _CORPUS_ROOT / "research-store" / "data" / "distilled_corpus.db"
 _MAX_SEARCH_RESULTS = 8
 _MAX_EXCERPT_CHARS = 400
 
+_CORPUS_RETIRED_MESSAGE = (
+    "research_search corpus is retired with research-store (suite rationalization "
+    "Phase 1). Canonical PostgreSQL retrieval lands in Phase 2/3. Enable Tholos "
+    "(RESEARCH_ANALYST_THOLOS_ENABLED=true) or pass a test client to DistillAdapter."
+)
+
+
+class CorpusSearchUnavailableError(RuntimeError):
+    """The legacy distilled corpus path is no longer available."""
+
 
 class DistillAdapter:
-    """Adapter for the distill_tool search API.
+    """Adapter for research_search / research_corpus_info tool handlers.
 
-    Wraps distill_tool.api.search and corpus_info to provide
-    a consistent interface for agent tool use.
+    Tool schemas still load from ``schemas/corpus_tool_schema.json`` so
+    ``ToolRegistry`` boots. Invocations fail loudly until canonical retrieval
+    replaces the retired research-store corpus.
     """
 
-    def __init__(
-        self,
-        distill_client: Any | None = None,
-        db_path: Path | None = None,
-    ):
+    def __init__(self, distill_client: Any | None = None):
         self._client = distill_client
-        self._db_path = db_path or _get_default_db_path()
 
     def search(
         self,
@@ -39,18 +40,6 @@ class DistillAdapter:
         date_to: str | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Search the research corpus.
-
-        Args:
-            query: Search query string
-            date_from: ISO date lower bound
-            date_to: ISO date upper bound
-            limit: Max results to return
-
-        Returns:
-            List of search results with chunk_id, source_path, source_date,
-            text, keywords, lexical_score, semantic_score, hybrid_score
-        """
         if self._client:
             return self._client.search(
                 query,
@@ -58,60 +47,18 @@ class DistillAdapter:
                 date_to=date_to,
                 limit=limit,
             )
-
-        try:
-            from distill_tool.api import search as distill_search
-
-            return distill_search(
-                query,
-                db_path=str(self._db_path),
-                limit=limit,
-                date_from=date_from,
-                date_to=date_to,
-            )
-        except ImportError as e:
-            logger.warning("distill_tool not available: %s", e)
-            return []
+        raise CorpusSearchUnavailableError(_CORPUS_RETIRED_MESSAGE)
 
     def corpus_info(self) -> dict[str, Any]:
-        """Get metadata about the research corpus.
-
-        Returns:
-            Dict with total_chunks, total_runs, date_range, sources
-        """
         if self._client:
             return self._client.corpus_info()
-
-        try:
-            from distill_tool.api import corpus_info as distill_corpus_info
-
-            return distill_corpus_info(str(self._db_path))
-        except ImportError as e:
-            logger.warning("distill_tool not available: %s", e)
-            return {
-                "total_chunks": 0,
-                "total_runs": 0,
-                "date_range": None,
-                "sources": [],
-            }
-
-
-def _get_default_db_path() -> Path:
-    """Get the default path to the distilled corpus database."""
-    env_path = env("DISTILL_DB_PATH")
-    if env_path:
-        return Path(env_path)
-    return _DEFAULT_DB_PATH
+        raise CorpusSearchUnavailableError(_CORPUS_RETIRED_MESSAGE)
 
 
 def create_distill_handlers(
     adapter: DistillAdapter | None = None,
 ) -> dict[str, Any]:
-    """Create tool handlers for the DistillAdapter.
-
-    Returns a dict mapping tool names to handler functions
-    that can be registered with ToolRegistry.
-    """
+    """Create tool handlers for corpus search tools."""
     adapter = adapter or DistillAdapter()
 
     def handle_search(input_data: dict[str, Any]) -> list[dict[str, Any]]:

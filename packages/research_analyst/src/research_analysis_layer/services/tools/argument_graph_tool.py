@@ -1,7 +1,7 @@
 """Analyst-local argument-graph tool (Slice 2 Task 5 leftover).
 
 Additive to corpus `research_search`. Schema is registered on ToolRegistry
-in-process so research-store's distill `tool_schema.json` stays unchanged.
+in-process so `schemas/corpus_tool_schema.json` stays corpus-only.
 Positions in every hit are publishers.
 """
 

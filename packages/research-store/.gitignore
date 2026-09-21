@@ -1,9 +1,0 @@
-.venv/
-.pytest_cache/
-__pycache__/
-*.py[cod]
-data/
-distill_out/
-distill_tool/out/
-*.egg-info/
-startup_instructions.md
