@@ -9,6 +9,10 @@ from unittest.mock import patch
 
 from research_analysis_layer.config import Settings
 
+_NEXUS_ENV = {
+    "NEXUS_DATABASE_URL": "postgresql://nexus:nexus@localhost:5432/nexus",
+}
+
 
 class ConfigTest(unittest.TestCase):
     def test_prefers_existing_relative_state_db(self) -> None:
@@ -24,8 +28,7 @@ class ConfigTest(unittest.TestCase):
 
             env = {
                 "STATE_DB_PATH": "data/state.db",
-                "SUPABASE_URL": "https://example.supabase.co",
-                "SUPABASE_KEY": "secret",
+                **_NEXUS_ENV,
             }
             with patch.dict(os.environ, env, clear=False):
                 previous = Path.cwd()
@@ -65,8 +68,7 @@ class ConfigTest(unittest.TestCase):
 
             env = {
                 "STATE_DB_PATH": "data/state.db",
-                "SUPABASE_URL": "https://example.supabase.co",
-                "SUPABASE_KEY": "secret",
+                **_NEXUS_ENV,
             }
             with patch.dict(os.environ, env, clear=False):
                 previous = Path.cwd()
@@ -78,23 +80,23 @@ class ConfigTest(unittest.TestCase):
 
             self.assertEqual(settings.state_db_path.resolve(), parser_state_path.resolve())
 
-    def test_calendar_db_defaults_to_parsed_db_settings(self) -> None:
+    def test_calendar_db_defaults_to_parsed_database_url(self) -> None:
         env = {
             "STATE_DB_PATH": "data/state.db",
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
         }
         with patch.dict(os.environ, env, clear=False):
             settings = Settings.from_env()
 
-        self.assertEqual(settings.calendar_db_url, "https://example.supabase.co")
-        self.assertEqual(settings.calendar_db_key, "secret")
+        self.assertEqual(
+            settings.calendar_database_url,
+            "postgresql://nexus:nexus@localhost:5432/nexus",
+        )
         self.assertEqual(settings.calendar_match_source, "economic_events")
 
     def test_referent_granularity_defaults_coarse(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
             "REFERENT_GRANULARITY": "coarse",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -106,8 +108,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_invalid_referent_granularity_is_a_config_error(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
             "REFERENT_GRANULARITY": "medium",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -119,8 +120,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_consensus_min_publishers_defaults_to_two(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
         }
         with patch.dict(os.environ, env, clear=False):
             settings = Settings.from_env()
@@ -131,8 +131,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_invalid_consensus_min_publishers_is_a_config_error(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
             "CONSENSUS_MIN_PUBLISHERS": "1",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -144,8 +143,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_consensus_shift_diversity_threshold_defaults_to_three(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
         }
         with patch.dict(os.environ, env, clear=False):
             settings = Settings.from_env()
@@ -159,8 +157,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_invalid_consensus_shift_diversity_threshold_is_a_config_error(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
             "CONSENSUS_SHIFT_DIVERSITY_THRESHOLD": "1",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -172,8 +169,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_digest_consensus_mode_defaults_to_off(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
         }
         with patch.dict(os.environ, env, clear=False):
             os.environ.pop("RESEARCH_ANALYST_DIGEST_CONSENSUS_MODE", None)
@@ -186,8 +182,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_invalid_digest_consensus_mode_is_a_config_error(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
             "DIGEST_CONSENSUS_MODE": "maybe",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -199,8 +194,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_promotion_gate_defaults_to_advisory(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
         }
         with patch.dict(os.environ, env, clear=False):
             os.environ.pop("RESEARCH_ANALYST_PROMOTION_GATE_MODE", None)
@@ -214,8 +208,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_invalid_promotion_gate_mode_is_a_config_error(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
             "PROMOTION_GATE_MODE": "strict",
         }
         with patch.dict(os.environ, env, clear=False):
@@ -227,8 +220,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_promotion_gate_floor_out_of_range_is_a_config_error(self) -> None:
         env = {
-            "SUPABASE_URL": "https://example.supabase.co",
-            "SUPABASE_KEY": "secret",
+            **_NEXUS_ENV,
             "PROMOTION_GATE_FLOOR_DIVERGENCE_GROUNDED": "1.5",
         }
         with patch.dict(os.environ, env, clear=False):

@@ -178,16 +178,14 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        # The parsed and calendar stores default to the pipeline-wide Supabase
-        # project configured in the repo-root .env.
         nexus_database_url = env("DATABASE_URL") or os.getenv("NEXUS_DATABASE_URL")
         parsed_database_url = env("PARSED_DATABASE_URL") or nexus_database_url
         calendar_database_url = env("CALENDAR_DATABASE_URL") or parsed_database_url
-        parsed_db_url = env("PARSED_DB_URL") or os.getenv("SUPABASE_URL", "")
-        parsed_db_key = env("PARSED_DB_KEY") or os.getenv("SUPABASE_KEY", "")
+        parsed_db_url = env("PARSED_DB_URL", "")
+        parsed_db_key = env("PARSED_DB_KEY", "")
         calendar_match_source = env("CALENDAR_MATCH_SOURCE", "economic_events")
-        calendar_db_url = env("CALENDAR_DB_URL") or parsed_db_url
-        calendar_db_key = env("CALENDAR_DB_KEY") or parsed_db_key
+        calendar_db_url = env("CALENDAR_DB_URL", "")
+        calendar_db_key = env("CALENDAR_DB_KEY", "")
         analysis_db_url = env("ANALYSIS_DB_URL", "sqlite:///data/analysis.db")
         if nexus_database_url and analysis_db_url.startswith("sqlite://"):
             analysis_db_url = nexus_database_url
@@ -355,30 +353,23 @@ class Settings:
             errors.append(
                 f"state db missing processed_files table: {self.state_db_path}"
             )
-        postgres_reads = bool(
-            (self.parsed_database_url and self.parsed_database_url.startswith("postgresql"))
-            or (self.calendar_database_url and self.calendar_database_url.startswith("postgresql"))
-        )
-        if not postgres_reads:
-            if not self.parsed_db_url:
-                errors.append(
-                    "missing parsed db url: set "
-                    f"{ENV_PREFIX}PARSED_DB_URL, {ENV_PREFIX}PARSED_DATABASE_URL, "
-                    "or NEXUS_DATABASE_URL"
-                )
-            if not self.parsed_db_key:
-                errors.append(
-                    "missing parsed db key: set "
-                    f"{ENV_PREFIX}PARSED_DB_KEY or SUPABASE_KEY"
-                )
-            if not self.calendar_db_url:
-                errors.append(
-                    f"missing calendar db url: set {ENV_PREFIX}CALENDAR_DB_URL"
-                )
-            if not self.calendar_db_key:
-                errors.append(
-                    f"missing calendar db key: set {ENV_PREFIX}CALENDAR_DB_KEY"
-                )
+        if not self.parsed_database_url:
+            errors.append(
+                "missing parsed database url: set "
+                f"{ENV_PREFIX}PARSED_DATABASE_URL or NEXUS_DATABASE_URL"
+            )
+        elif not self.parsed_database_url.startswith("postgresql"):
+            errors.append(
+                "parsed database url must be a PostgreSQL URL, "
+                f"received {self.parsed_database_url!r}"
+            )
+        if self.calendar_database_url and not self.calendar_database_url.startswith(
+            "postgresql"
+        ):
+            errors.append(
+                "calendar database url must be a PostgreSQL URL when set, "
+                f"received {self.calendar_database_url!r}"
+            )
         if self.calendar_match_source not in {"economic_events", "release_dates"}:
             errors.append(
                 "invalid calendar match source: expected economic_events or release_dates, "

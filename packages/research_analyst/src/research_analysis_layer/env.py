@@ -5,7 +5,7 @@ Values resolve in this order: the process environment, then this package's
 by the whole pipeline).
 
 Analyst-owned names are prefixed `RESEARCH_ANALYST_`. Shared names
-(`SUPABASE_URL`, `RESEARCH_PROCESSING_ROOT`, ...) stay unprefixed. The
+(`NEXUS_DATABASE_URL`, `RESEARCH_PROCESSING_ROOT`, ...) stay unprefixed. The
 pre-monorepo unprefixed names are still accepted as a deprecated fallback.
 """
 

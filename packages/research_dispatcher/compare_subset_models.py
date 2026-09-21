@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare stage-one throughline outputs across two models on a small live Supabase subset."""
+"""Compare stage-one throughline outputs across two models on a small live PostgreSQL subset."""
 
 from __future__ import annotations
 
@@ -305,8 +305,8 @@ def _run_stage1(
 def main() -> int:
     args = _parse_args()
 
-    if not Config.SUPABASE_URL or not Config.SUPABASE_KEY:
-        raise SystemExit("Supabase credentials are missing.")
+    if not Config.DATABASE_URL:
+        raise SystemExit("DATABASE_URL / NEXUS_DATABASE_URL is missing.")
     if not Config.OPENAI_API_KEY:
         raise SystemExit("OPENAI_API_KEY is missing.")
     if not Config.DEEPINFRA_API_KEY:

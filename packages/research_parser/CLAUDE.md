@@ -62,6 +62,6 @@ All settings via environment variables, loaded through pydantic-settings (`src/c
 
 Required vars (shared, unprefixed, set at the repo root):
 - `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID`
-- `SUPABASE_URL`, `SUPABASE_KEY`
+- `NEXUS_DATABASE_URL`
 
 Parser-owned settings are prefixed `RESEARCH_PARSER_` and live in `packages/research_parser/.env`. The unprefixed forms remain a deprecated fallback.

@@ -66,8 +66,7 @@ Shared credentials in the repo-root `.env`:
 ```env
 GOOGLE_CREDENTIALS_PATH=./credentials/service-account.json
 GOOGLE_DRIVE_FOLDER_ID=your_folder_id_here
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_service_role_key
+NEXUS_DATABASE_URL=postgresql://nexus:nexus@localhost:5432/nexus
 ```
 
 Parser-owned settings in `packages/research_parser/.env`, all prefixed
@@ -159,12 +158,11 @@ research_parser/
 │   │   └── boilerplate.py   # Deterministic disclaimer stripping
 │   ├── research_memory/     # Spans + retrieval chunks
 │   └── storage/
-│       ├── supabase.py      # Supabase client
-│       └── state.py         # SQLite state tracking
+│       ├── postgres_store.py  # PostgreSQL SourceStore
+│       └── state.py           # SQLite state tracking
 ├── scripts/
-│   ├── test_drive.py        # Test Drive connection
-│   ├── test_full_pipeline.py
-│   └── test_supabase.py     # Test database connection
+│   ├── test_drive.py          # Test Drive connection
+│   └── test_full_pipeline.py
 ├── Dockerfile
 ├── docker-compose.yml
 └── pyproject.toml
@@ -259,7 +257,6 @@ Each document stores parse artifacts and source spans. `parsed_data` is the sour
 ```bash
 python3 -m pytest tests/
 python scripts/test_drive.py
-python scripts/test_supabase.py
 ```
 
 ## Troubleshooting
