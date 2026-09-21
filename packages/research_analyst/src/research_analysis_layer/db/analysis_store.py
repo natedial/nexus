@@ -1,4 +1,4 @@
-"""SQLite-backed bootstrap analysis store."""
+"""Analysis store with SQLite bootstrap and PostgreSQL consolidation."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import sqlite3
 from typing import Any, Iterator
 
 from research_analysis_layer.clocks import utc_now
+from research_analysis_layer.db.postgres_compat import postgres_connection
+from research_analysis_layer.models.dispatch_scope import DispatchScope
 from research_analysis_layer.config import Settings
 from research_analysis_layer.models import (
     AnalysisChunkDraft,
@@ -31,15 +33,31 @@ from research_analysis_layer.models.consensus_shift_models import (
 
 
 class AnalysisStore:
-    """Bootstrap storage over local SQLite."""
+    """Bootstrap storage over local SQLite or consolidated PostgreSQL."""
 
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_db()
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        *,
+        database_url: str | None = None,
+    ):
+        if database_url and db_path is not None:
+            raise ValueError("Specify either db_path or database_url, not both")
+        self._backend = "postgres" if database_url else "sqlite"
+        if self._backend == "postgres":
+            self._database_url = database_url
+        else:
+            path = db_path or Path("data/analysis.db")
+            self.db_path = path
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._ensure_db()
 
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
+    def _connect(self) -> Iterator[Any]:
+        if self._backend == "postgres":
+            with postgres_connection(self._database_url) as conn:
+                yield conn
+            return
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
@@ -49,6 +67,8 @@ class AnalysisStore:
             conn.close()
 
     def _ensure_db(self) -> None:
+        if self._backend == "postgres":
+            return
         with self._connect() as conn:
             conn.executescript(
                 """
@@ -1838,6 +1858,71 @@ class AnalysisStore:
             "debate_scores": debate_session["scores"] if debate_session else [],
             "debate_verdicts": debate_session["verdicts"] if debate_session else [],
         }
+
+    def list_document_analysis_for_dispatch(
+        self,
+        scope: DispatchScope,
+    ) -> list[dict[str, Any]]:
+        """Return document_analysis rows for dispatch export."""
+        scope.validate_scope()
+        with self._connect() as conn:
+            if scope.analysis_version:
+                query = "SELECT * FROM document_analysis WHERE 1=1"
+                params: list[object] = []
+
+                if scope.document_keys:
+                    placeholders = ",".join("?" * len(scope.document_keys))
+                    query += f" AND document_key IN ({placeholders})"
+                    params.extend(scope.document_keys)
+                else:
+                    if scope.date_from:
+                        query += " AND created_at >= ?"
+                        params.append(scope.date_from.isoformat())
+                    if scope.date_to:
+                        query += " AND created_at < ?"
+                        params.append(scope.date_to.isoformat())
+
+                if not scope.include_orphans:
+                    query += " AND research_id IS NOT NULL"
+
+                query += " AND analysis_version = ?"
+                params.append(scope.analysis_version)
+                query += " ORDER BY created_at ASC"
+            else:
+                subquery = """
+                    SELECT document_hash, MAX(created_at) as max_created
+                    FROM document_analysis
+                    WHERE 1=1
+                """
+                subparams: list[object] = []
+
+                if scope.document_keys:
+                    placeholders = ",".join("?" * len(scope.document_keys))
+                    subquery += f" AND document_key IN ({placeholders})"
+                    subparams.extend(scope.document_keys)
+                else:
+                    if scope.date_from:
+                        subquery += " AND created_at >= ?"
+                        subparams.append(scope.date_from.isoformat())
+                    if scope.date_to:
+                        subquery += " AND created_at < ?"
+                        subparams.append(scope.date_to.isoformat())
+
+                if not scope.include_orphans:
+                    subquery += " AND research_id IS NOT NULL"
+
+                subquery += " GROUP BY document_hash"
+                query = f"""
+                    SELECT da.* FROM document_analysis da
+                    INNER JOIN ({subquery}) latest
+                    ON da.document_hash = latest.document_hash
+                    AND da.created_at = latest.max_created
+                    ORDER BY da.created_at ASC
+                """
+                params = subparams
+
+            rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
 
     def list_document_analyses(
         self,

@@ -6,13 +6,6 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.lib import colors
 from typing import Dict, Any
-from urllib.parse import urlencode
-from urllib.parse import urlparse
-import base64
-import hashlib
-import hmac
-import json
-import time
 import os
 import yaml
 from datetime import datetime
@@ -20,7 +13,6 @@ from xml.sax.saxutils import escape
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import Config
 
 
 class PDFGenerator:
@@ -121,7 +113,6 @@ class PDFGenerator:
         theme_header_config = self.format_rules.get('THEME_HEADER', [{}])[0]
         callout_quote_config = self.format_rules.get('CALLOUT_QUOTE', [{}])[0]
         callout_attr_config = self.format_rules.get('CALLOUT_ATTRIBUTION', [{}])[0]
-        feedback_config = self.format_rules.get('FEEDBACK_LINKS', [{}])[0]
         indented_config = self.format_rules.get('INDENTED_BODY', [{}])[0]
         summary_stat_config = self.format_rules.get('SUMMARY_STAT', [{}])[0]
         summary_label_config = self.format_rules.get('SUMMARY_STAT_LABEL', [{}])[0]
@@ -216,17 +207,6 @@ class PDFGenerator:
             textColor=colors.HexColor(callout_attr_config.get('font_color', '#666666')),
             fontName=self._get_font(),
             alignment=TA_RIGHT
-        ))
-
-        # Feedback links style — YAML-driven
-        self.styles.add(ParagraphStyle(
-            name='FeedbackLinks',
-            parent=self.styles['Normal'],
-            fontSize=feedback_config.get('font_size', 8),
-            textColor=colors.HexColor(feedback_config.get('font_color', '#666666')),
-            spaceAfter=feedback_config.get('space_after', 8),
-            spaceBefore=feedback_config.get('space_before', 2),
-            leftIndent=indented_config.get('left_indent', 18)
         ))
 
         # Indented body text — replaces &nbsp; indentation
@@ -360,60 +340,6 @@ class PDFGenerator:
         if start_dt.date() == end_dt.date():
             return _fmt(start_dt)
         return f"{_fmt(start_dt)} to {_fmt(end_dt)}"
-
-    def _create_feedback_links(self, doc_id: str, item_id: str) -> str:
-        """Create feedback links HTML for a theme or through-line."""
-        if not Config.FEEDBACK_ENABLED:
-            return ""
-        feedback_url = Config.FEEDBACK_BASE_URL
-        if not feedback_url or not doc_id:
-            return ""
-
-        viewer_url = Config.DOCUMENT_VIEWER_URL
-        if not self._is_secure_viewer_url(viewer_url):
-            return ""
-        token = self._sign_document_link(doc_id)
-        if not token:
-            return ""
-
-        useful_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'useful'})}"
-        flag_url = f"{feedback_url}?{urlencode({'doc': doc_id, 'item': item_id, 'action': 'flag'})}"
-        view_params = {'id': doc_id}
-        view_params['token'] = token
-        view_url = f"{viewer_url}?{urlencode(view_params)}"
-
-        return (
-            f'[<a href="{useful_url}" color="#0066cc">Useful</a>] '
-            f'[<a href="{flag_url}" color="#0066cc">Flag</a>] '
-            f'[<a href="{view_url}" color="#0066cc">Full Text</a>]'
-        )
-
-    def _sign_document_link(self, doc_id: str) -> str | None:
-        """Create a short-lived signed token for document viewing."""
-        secret = Config.DOCUMENT_LINK_SECRET
-        if not secret or not doc_id:
-            return None
-
-        expires_at = int(time.time()) + (Config.DOCUMENT_LINK_TTL_DAYS * 86400)
-        payload = {"id": doc_id, "exp": expires_at}
-        payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
-
-        signature = hmac.new(
-            secret.encode("utf-8"),
-            payload_b64.encode("ascii"),
-            hashlib.sha256,
-        ).digest()
-        signature_b64 = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
-        return f"{payload_b64}.{signature_b64}"
-
-    @staticmethod
-    def _is_secure_viewer_url(viewer_url: str | None) -> bool:
-        """Return True when the configured document viewer URL is HTTPS."""
-        if not viewer_url:
-            return False
-        parsed = urlparse(viewer_url)
-        return parsed.scheme == "https" and bool(parsed.netloc)
 
     def _get_content_width(self) -> float:
         """Return available content width in inches based on page margins."""
@@ -552,14 +478,6 @@ class PDFGenerator:
             tag_line = " | ".join(tags)
             tag_para = Paragraph(f"<i>{tag_line}</i>", self.styles['Minimalist'])
             card_rows.append([tag_para])
-
-        # Feedback links
-        doc_id = tl.get('doc_id', '')
-        item_id = tl.get('item_id', '')
-        if doc_id and item_id:
-            feedback_links = self._create_feedback_links(doc_id, item_id)
-            if feedback_links:
-                card_rows.append([Paragraph(feedback_links, self.styles['FeedbackLinks'])])
 
         if not card_rows:
             return elements
@@ -775,21 +693,6 @@ class PDFGenerator:
                 if doc_name:
                     source_para = Paragraph(f"\u2014 {doc_name}", self.styles['ThemeSource'])
                     card_rows.append([source_para])
-
-        # Feedback links — one set per theme, not per example
-        doc_ids_seen = set()
-        feedback_parts = []
-        for example in examples:
-            doc_id = example.get('doc_id', '')
-            item_id = example.get('item_id', '')
-            if doc_id and item_id and doc_id not in doc_ids_seen:
-                doc_ids_seen.add(doc_id)
-                links = self._create_feedback_links(doc_id, item_id)
-                if links:
-                    feedback_parts.append(links)
-        if feedback_parts:
-            # Show just the first set of feedback links per theme
-            card_rows.append([Paragraph(feedback_parts[0], self.styles['FeedbackLinks'])])
 
         if not card_rows:
             return elements

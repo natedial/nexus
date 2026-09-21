@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
-"""Quick test to verify database connection and query."""
+"""Quick test to verify PostgreSQL calendar queries."""
 
 from config import Config
 from src.database import DatabaseClient
 import json
 
 try:
-    # Validate config
     print("Validating configuration...")
     Config.validate()
-    print("✓ Configuration valid\n")
+    print("Configuration valid\n")
 
-    # Test connection
-    print("Connecting to Supabase...")
+    print("Connecting to PostgreSQL calendar tables...")
     db = DatabaseClient()
-    print("✓ Connected\n")
+    print("Connected\n")
 
-    # Run query
-    print("Querying parsed_research (last 7 days)...")
-    results = db.query_analysis()
-    print(f"✓ Query successful! Found {len(results)} records\n")
+    print("Querying economic_events for the upcoming week...")
+    economic_events = db.query_economic_events()
+    print(f"Query successful! Found {len(economic_events)} economic events\n")
 
-    # Show sample data
-    if results:
-        print("Sample record structure:")
-        print(json.dumps(results[0], indent=2, default=str))
-    else:
-        print("No records found in the last 7 days.")
+    print("Querying supply_events for the upcoming week...")
+    supply_events = db.query_supply_events()
+    print(f"Query successful! Found {len(supply_events)} supply events\n")
+
+    if economic_events:
+        print("Sample economic event:")
+        print(json.dumps(economic_events[0], indent=2, default=str))
 
 except Exception as e:
-    print(f"✗ Error: {e}")
+    print(f"Error: {e}")
     import traceback
+
     traceback.print_exc()

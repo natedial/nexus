@@ -13,7 +13,7 @@ from research_analysis_layer.models.dispatch_scope import (
     DispatchScope,
     DispatchScopeError,
 )
-from research_analysis_layer.db.analysis_store import AnalysisStore
+from research_analysis_layer.db.store_protocol import AnalysisStoreProtocol
 from research_analysis_layer.services.street_digest import render_street_digest
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class DispatchBatchExporter:
 
     def __init__(
         self,
-        store: AnalysisStore,
+        store: AnalysisStoreProtocol,
         *,
         min_publishers: int = 2,
         consensus_mode: str = "off",
@@ -56,67 +56,7 @@ class DispatchBatchExporter:
         Raises:
             DispatchScopeError: If scope is invalid
         """
-        scope.validate_scope()
-
-        with self.store._connect() as conn:
-            if scope.analysis_version:
-                query = "SELECT * FROM document_analysis WHERE 1=1"
-                params = []
-
-                if scope.document_keys:
-                    placeholders = ",".join("?" * len(scope.document_keys))
-                    query += f" AND document_key IN ({placeholders})"
-                    params.extend(scope.document_keys)
-                else:
-                    if scope.date_from:
-                        query += " AND created_at >= ?"
-                        params.append(scope.date_from.isoformat())
-                    if scope.date_to:
-                        query += " AND created_at < ?"
-                        params.append(scope.date_to.isoformat())
-
-                if not scope.include_orphans:
-                    query += " AND research_id IS NOT NULL"
-
-                query += " AND analysis_version = ?"
-                params.append(scope.analysis_version)
-
-                query += " ORDER BY created_at ASC"
-            else:
-                subquery = """
-                    SELECT document_hash, MAX(created_at) as max_created
-                    FROM document_analysis
-                    WHERE 1=1
-                """
-                subparams = []
-
-                if scope.document_keys:
-                    placeholders = ",".join("?" * len(scope.document_keys))
-                    subquery += f" AND document_key IN ({placeholders})"
-                    subparams.extend(scope.document_keys)
-                else:
-                    if scope.date_from:
-                        subquery += " AND created_at >= ?"
-                        subparams.append(scope.date_from.isoformat())
-                    if scope.date_to:
-                        subquery += " AND created_at < ?"
-                        subparams.append(scope.date_to.isoformat())
-
-                if not scope.include_orphans:
-                    subquery += " AND research_id IS NOT NULL"
-
-                subquery += " GROUP BY document_hash"
-
-                query = f"""
-                    SELECT da.* FROM document_analysis da
-                    INNER JOIN ({subquery}) latest
-                    ON da.document_hash = latest.document_hash
-                    AND da.created_at = latest.max_created
-                    ORDER BY da.created_at ASC
-                """
-                params = subparams
-
-            rows = conn.execute(query, params).fetchall()
+        rows = self.store.list_document_analysis_for_dispatch(scope)
 
         documents = []
         for row in rows:

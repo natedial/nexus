@@ -1,203 +1,76 @@
-from supabase import create_client, Client
+"""PostgreSQL calendar queries for dispatcher reports."""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+
+import psycopg
+from psycopg.rows import dict_row
+
 from config import Config
-from datetime import datetime, timedelta, date
 
 
 class DatabaseClient:
-    """Handles connection and queries to Supabase PostgreSQL database."""
+    """Read economic and supply calendar events from local PostgreSQL."""
 
-    def __init__(self):
-        self.client: Client = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
-
-    def query_analysis(self):
-        """
-        Query parsed_research documents based on configured filters.
-
-        Returns documents with full parsed_data JSONB:
-        - themes, trades, through_lines from parsed_data
-        - publisher from parsed_data->metadata
-        - synthesis status and metadata
-
-        Filters applied:
-        - Date range: Config.DATE_RANGE_DAYS
-        - Sources: Config.FILTER_SOURCES (comma-separated, empty = all)
-        - Region: Config.FILTER_REGION (from parsed_data->metadata->region)
-        - Asset focus: Config.FILTER_ASSET_FOCUS (from parsed_data->metadata->asset_focus)
-        """
-        # Calculate date range based on config
-        date_threshold = (datetime.now() - timedelta(days=Config.DATE_RANGE_DAYS)).strftime('%Y-%m-%d')
-
-        # Build query (exclude already-synthesized documents)
-        query = (
-            self.client.table('parsed_research')
-            .select('*')
-            .gte('source_date', date_threshold)
-            .eq('synthesized', False)
-        )
-
-        # Apply source filter if configured
-        if Config.FILTER_SOURCES:
-            sources = [s.strip() for s in Config.FILTER_SOURCES.split(',')]
-            query = query.in_('source', sources)
-
-        # Apply region filter if configured (filters on JSONB metadata)
-        if Config.FILTER_REGION:
-            query = query.eq('parsed_data->metadata->>region', Config.FILTER_REGION)
-
-        # Apply asset focus filter if configured (filters on JSONB metadata)
-        if Config.FILTER_ASSET_FOCUS:
-            query = query.eq('parsed_data->metadata->>asset_focus', Config.FILTER_ASSET_FOCUS)
-
-        # Execute query
-        response = query.order('parsed_at', desc=True).execute()
-
-        return response.data
-
-    def mark_as_synthesized(self, document_ids: list) -> bool:
-        """
-        Mark documents as synthesized after successful report generation.
-
-        Args:
-            document_ids: List of document IDs to mark as synthesized
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if not document_ids:
-            return True
-
-        try:
-            response = (
-                self.client.table('parsed_research')
-                .update({'synthesized': True})
-                .in_('id', document_ids)
-                .execute()
+    def __init__(self, database_url: str | None = None):
+        self.database_url = database_url or Config.DATABASE_URL
+        if not self.database_url:
+            raise ValueError(
+                "DATABASE_URL is required: set RESEARCH_DISPATCHER_DATABASE_URL "
+                "or NEXUS_DATABASE_URL"
             )
-            return True
-        except Exception as e:
-            print(f"Error marking documents as synthesized: {e}")
-            return False
 
-    def reset_synthesized_by_source_date(
-        self,
-        start_date: str,
-        end_date: str,
-        *,
-        preview_only: bool = False,
-    ) -> list[dict]:
-        """Reset synthesized=false for documents whose source_date falls in a date range.
+    def _connect(self) -> psycopg.Connection:
+        return psycopg.connect(self.database_url, row_factory=dict_row)
 
-        Args:
-            start_date: Inclusive start date in YYYY-MM-DD format
-            end_date: Inclusive end date in YYYY-MM-DD format
-            preview_only: When True, return matching rows without updating
-
-        Returns:
-            Matching rows, either previewed or updated
-        """
-        query = (
-            self.client.table('parsed_research')
-            .select('id, document_name, source, source_date, synthesized')
-            .gte('source_date', start_date)
-            .lte('source_date', end_date)
-            .order('source_date')
-            .order('source')
-        )
-
-        if preview_only:
-            return query.execute().data
-
-        response = (
-            self.client.table('parsed_research')
-            .update({'synthesized': False})
-            .gte('source_date', start_date)
-            .lte('source_date', end_date)
-            .select('id, document_name, source, source_date, synthesized')
-            .order('source_date')
-            .order('source')
-            .execute()
-        )
-        return response.data
-
-    def _get_upcoming_week_range(self):
-        """Get the Monday-Friday date range for the relevant week.
-
-        On weekdays (Mon-Fri): returns the current week's Mon-Fri.
-        On weekends (Sat-Sun): returns next week's Mon-Fri.
-        """
+    def _get_upcoming_week_range(self) -> tuple[date, date]:
+        """Monday-Friday for the current or next week depending on weekday."""
         today = date.today()
-        weekday = today.weekday()  # 0=Mon, 6=Sun
+        weekday = today.weekday()
 
-        if weekday <= 4:  # Mon-Fri: use current week
+        if weekday <= 4:
             monday = today - timedelta(days=weekday)
-        else:  # Sat-Sun: use next week
+        else:
             days_until_monday = 7 - weekday
             monday = today + timedelta(days=days_until_monday)
 
         friday = monday + timedelta(days=4)
         return monday, friday
 
-    def query_economic_events(self):
-        """
-        Query economic events for the upcoming week (Monday-Friday).
-
-        Returns events with: event_date, time_ny, event_name, consensus
-
-        Filters applied:
-        - Country: Config.CALENDAR_COUNTRY
-        """
+    def query_economic_events(self) -> list[dict]:
+        """Query economic events for the upcoming Monday-Friday window."""
         monday, friday = self._get_upcoming_week_range()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT event_date, time_ny, event_name, consensus, importance_indicator
+                FROM economic_events
+                WHERE country = %s
+                  AND event_date >= %s
+                  AND event_date <= %s
+                ORDER BY event_date, time_ny
+                """,
+                (Config.CALENDAR_COUNTRY, monday.isoformat(), friday.isoformat()),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
-        response = (
-            self.client.table('economic_events')
-            .select('event_date, time_ny, event_name, consensus, importance_indicator')
-            .eq('country', Config.CALENDAR_COUNTRY)
-            .gte('event_date', monday.isoformat())
-            .lte('event_date', friday.isoformat())
-            .order('event_date')
-            .order('time_ny')
-            .execute()
-        )
-
-        return response.data
-
-    def query_supply_events(self):
-        """
-        Query supply events for the upcoming week (Monday-Friday).
-
-        Returns events with: event_date, time_ny, description, size_bn
-
-        Filters applied:
-        - Country: Config.CALENDAR_COUNTRY
-        """
+    def query_supply_events(self) -> list[dict]:
+        """Query supply events for the upcoming Monday-Friday window."""
         monday, friday = self._get_upcoming_week_range()
-
-        response = (
-            self.client.table('supply_events')
-            .select('event_date, time_ny, description, size_bn, maturity')
-            .eq('country', Config.CALENDAR_COUNTRY)
-            .gte('event_date', monday.isoformat())
-            .lte('event_date', friday.isoformat())
-            .order('event_date')
-            .order('time_ny')
-            .execute()
-        )
-
-        return response.data
-
-    def query_all_recent(self):
-        """
-        Alternative query: Get all fields including full parsed_data JSONB.
-        Useful if you need access to the complete JSONB structure.
-        """
-        seven_days_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-
-        response = (
-            self.client.table('parsed_research')
-            .select('*')
-            .gte('parsed_at', seven_days_ago)
-            .order('parsed_at', desc=True)
-            .execute()
-        )
-
-        return response.data
+        with self._connect() as conn:
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT event_date, time_ny, description, size_bn, maturity
+                    FROM supply_events
+                    WHERE country = %s
+                      AND event_date >= %s
+                      AND event_date <= %s
+                    ORDER BY event_date, time_ny
+                    """,
+                    (Config.CALENDAR_COUNTRY, monday.isoformat(), friday.isoformat()),
+                ).fetchall()
+            except psycopg.errors.UndefinedTable:
+                return []
+        return [dict(row) for row in rows]

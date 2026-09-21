@@ -14,7 +14,9 @@ ordering manifest.
 | 4 | `packages/research_parser/migrations/005_parsed_research_document_id_identity.sql` | Canonical Drive `document_id` |
 | 5 | `packages/research_parser/migrations/004_research_memory_substrate.sql` | **Partial** — spans, chunks, artifacts only; **drop** unused `research_claims` / entities / relations tables (parser 004 claims layer is retired; analyst `argument_map` is canonical) |
 | 6 | `packages/research_analyst/migrations/001_agent_tables.sql` | Agent run tables → PostgreSQL in Phase 3 |
-| 7 | `packages/research_dispatcher/supabase/migrations/20260402105000_create_pipeline_ops.sql` | Move `pipeline_ops` schema out of `supabase/` |
+| 6b | `migrations/002_analyst_schema.sql` | **Applied in Phase 3** — analyst semantic layer + Slice 2 consensus tables |
+| 7 | `migrations/003_pipeline_ops_schema.sql` | **Applied in Phase 4** — `pipeline_ops` schema |
+| 8 | `migrations/004_supply_events.sql` | **Applied in Phase 4** — supply calendar table for dispatcher |
 
 ## Drop (do not port)
 
@@ -26,6 +28,19 @@ ordering manifest.
 
 ## Runner
 
-No migration runner exists today. Phase 2 will add a plain ordered manifest
-(for example `apply.sh` or a numbered `NNN_*.sql` sequence). Until then this
-directory documents intent only.
+Apply parser schema migrations:
+
+```bash
+docker compose up -d postgres
+./migrations/apply.sh
+```
+
+Uses `RESEARCH_PARSER_DATABASE_URL` or `NEXUS_DATABASE_URL` (default
+`postgresql://nexus:nexus@localhost:5432/nexus`).
+
+| File | Status |
+| --- | --- |
+| `001_parser_schema.sql` | **Applied in Phase 2** — parser tables without 004 claims/entities/relations |
+| `002_analyst_schema.sql` | **Applied in Phase 3** — analyst tables, consensus/shadow tables, agent tables |
+| `003_pipeline_ops_schema.sql` | **Applied in Phase 4** — pipeline_ops schema |
+| `004_supply_events.sql` | **Applied in Phase 4** — supply calendar events |

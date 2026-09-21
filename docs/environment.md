@@ -69,19 +69,24 @@ fallbacks can be deleted once every deployment has moved.
 
 | Variable | Consumers |
 | --- | --- |
-| `SUPABASE_URL`, `SUPABASE_KEY` | parser, analyst, dispatcher |
+| `NEXUS_DATABASE_URL` | parser, analyst (canonical store, Phases 2–3+) |
+| `SUPABASE_URL`, `SUPABASE_KEY` | analyst, dispatcher (legacy reads until Phase 5) |
 | `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID` | parser |
 | `RESEARCH_PROCESSING_ROOT` | parser, analyst |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY` | dispatcher |
 
 ### `packages/research_parser/.env.example`
 
+PostgreSQL URL (`RESEARCH_PARSER_DATABASE_URL`, falls back to `NEXUS_DATABASE_URL`),
 Drive polling and catch-up, local state and artifact paths, the MinerU fallback,
 Docling OCR retry, and retry pacing. All `RESEARCH_PARSER_*`.
 
 ### `packages/research_analyst/.env.example`
 
-Analysis and calendar stores, the upstream parser state DB, batch behaviour,
+Analysis store (`RESEARCH_ANALYST_DATABASE_URL` / `NEXUS_DATABASE_URL` for
+PostgreSQL, or `sqlite:///…` for local bootstrap), parsed/calendar reads
+(`RESEARCH_ANALYST_PARSED_DATABASE_URL` when not using Supabase), the upstream
+parser state DB, batch behaviour,
 quality gates, pipeline versions, agent LLM provider and limits, round/tool/debate
 switches, resolution and consensus thresholds, the Tholos client, eval captures,
 and hourly-runner pacing. All `RESEARCH_ANALYST_*`.

@@ -1,3 +1,6 @@
+-- Nexus pipeline_ops schema (Phase 4)
+-- Moved from packages/research_dispatcher/supabase/migrations/
+
 CREATE SCHEMA IF NOT EXISTS pipeline_ops;
 
 CREATE TABLE IF NOT EXISTS pipeline_ops.documents (
