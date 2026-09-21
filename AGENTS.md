@@ -5,9 +5,7 @@ Pipeline pieces, formerly three repos:
 - packages/research_parser
 - packages/research_analyst
 - packages/research_dispatcher
-- packages/research-store
 - packages/research-relay
-- packages/morning_research
 
 Rules:
 - Work in the smallest package that owns the change.

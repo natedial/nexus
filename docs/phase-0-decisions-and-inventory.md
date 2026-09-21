@@ -82,8 +82,8 @@ One documented owner per durable semantic field crossing a package boundary.
 | --- | --- |
 | Supabase `parsed_research` writes (parser) | Phase 2 complete + re-derive verified |
 | PostgREST reads (`parsed_db_client`, `calendar_db_client`) | Phase 3 PostgreSQL reads land |
-| `research-store` / `distill_adapter` | Phase 1 after `tool_schema.json` relocated |
-| `morning_research` package | Phase 1 — cron removal is ops; code deletion in Nexus now |
+| `research-store` / `distill_adapter` | **Done Phase 1** — schema relocated; adapter fails loudly |
+| `morning_research` package | **Done Phase 1** — removed from Nexus; cron removal is ops ([checklist](./phase-1-ops-checklist.md)) |
 | Dispatcher parser mode + `mark_as_synthesized` | Phase 4 defaults + deletion |
 | Dispatcher Edge Functions / `report_feedback` | Phase 4 with `supabase/` deletion |
 | JSON dispatch-batch file bridge | Optional post-Phase 3; not required for Supabase exit |

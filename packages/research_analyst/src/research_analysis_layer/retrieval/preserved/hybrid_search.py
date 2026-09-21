@@ -1,3 +1,5 @@
+# Preserved from packages/research-store/distill_tool/search.py (Phase 1).
+# Reference only — not imported. Canonical retrieval port is Phase 2+.
 from __future__ import annotations
 
 import json

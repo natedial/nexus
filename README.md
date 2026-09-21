@@ -6,9 +6,7 @@ keeps its own install, run, and test commands; the repo root is not an app.
 - `packages/research_parser`
 - `packages/research_analyst`
 - `packages/research_dispatcher`
-- `packages/research-store`
 - `packages/research-relay`
-- `packages/morning_research`
 
 ## Configuration
 
