@@ -55,7 +55,7 @@ from src.parser import (
 )
 from src.research_memory import ResearchArtifactContext
 from src.source import SourceDocument
-from src.storage import StateStore, SupabaseClient
+from src.storage import PostgresSourceStore, StateStore
 from src.storage.state import ProcessingStatus
 
 logger = structlog.get_logger()
@@ -169,7 +169,7 @@ class Pipeline:
                         error=str(exc),
                     )
         self.state = StateStore(db_path=settings.state_db_path)
-        self.supabase = SupabaseClient(url=settings.supabase_url, key=settings.supabase_key)
+        self.source_store = PostgresSourceStore(database_url=settings.database_url)
         if PipelineOpsClient is not None:
             self.ops = PipelineOpsClient.from_env(
                 default_spool_db_path=str(settings.state_db_path.parent / "pipeline_ops_spool.db"),
@@ -346,7 +346,7 @@ class Pipeline:
             try:
                 with self.ops.track_stage(
                     repo_name="research_parser",
-                    stage_name="parser.store_supabase",
+                    stage_name="parser.store_source",
                     run_key=self._active_run_key,
                     document_key=document_key,
                     file_id=file_id,
@@ -354,7 +354,7 @@ class Pipeline:
                     payload={"file_name": file_name},
                     document_fields=document_fields,
                 ):
-                    research_row = self.supabase.insert_research(
+                    research_row = self.source_store.insert_research(
                         source,
                         file_name,
                         artifact_context=artifact_context,

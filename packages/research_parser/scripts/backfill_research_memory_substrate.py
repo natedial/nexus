@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Backfill research memory substrate tables from parsed_research.full_text."""
+"""Backfill research memory substrate tables from parsed_research.full_text.
+
+Deprecated (Phase 2): still uses Supabase PostgREST. Prefer re-derive via parser
+re-parse into PostgreSQL instead of running this script.
+"""
 
 from __future__ import annotations
 

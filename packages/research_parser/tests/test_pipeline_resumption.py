@@ -24,7 +24,7 @@ class _FailingBackend:
         raise AssertionError("extract_figures should not be called when artifacts exist")
 
 
-class _SupabaseRecorder:
+class _SourceStoreRecorder:
     def __init__(self):
         self.calls = []
 
@@ -46,7 +46,7 @@ def _build_pipeline(tmp_path, state: StateStore) -> Pipeline:
     pipeline.docling_backend = _FailingBackend()
     pipeline.docling_ocr_backend = None
     pipeline.mineru_backend = None
-    pipeline.supabase = _SupabaseRecorder()
+    pipeline.source_store = _SourceStoreRecorder()
     return pipeline
 
 
@@ -96,9 +96,9 @@ def test_process_file_resumes_from_artifacts(tmp_path):
     )
 
     assert pipeline.process_file(file_id, file_name) is True
-    assert len(pipeline.supabase.calls) == 1
+    assert len(pipeline.source_store.calls) == 1
 
-    stored, stored_name, stored_kwargs = pipeline.supabase.calls[0]
+    stored, stored_name, stored_kwargs = pipeline.source_store.calls[0]
     assert stored_name == file_name
     assert stored.source == "Goldman Sachs"
     assert stored.source_date == "2026-08-31"
@@ -202,7 +202,7 @@ def test_process_file_force_reparses_instead_of_resuming(tmp_path, monkeypatch):
     assert "OLD CLEAN TEXT" not in clean_text
     assert "NEW BODY FROM OCR" in (artifact_dir / "document.md").read_text(encoding="utf-8")
 
-    stored, _stored_name, stored_kwargs = pipeline.supabase.calls[0]
+    stored, _stored_name, stored_kwargs = pipeline.source_store.calls[0]
     assert "NEW BODY FROM OCR" in stored.full_text
     assert stored_kwargs["artifact_context"].parse_backend == "docling-ocr"
     assert stored_kwargs["artifact_context"].ocr_retried is True

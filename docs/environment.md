@@ -69,13 +69,15 @@ fallbacks can be deleted once every deployment has moved.
 
 | Variable | Consumers |
 | --- | --- |
-| `SUPABASE_URL`, `SUPABASE_KEY` | parser, analyst, dispatcher |
+| `NEXUS_DATABASE_URL` | parser (canonical source store, Phase 2+) |
+| `SUPABASE_URL`, `SUPABASE_KEY` | analyst, dispatcher (until Phase 5) |
 | `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID` | parser |
 | `RESEARCH_PROCESSING_ROOT` | parser, analyst |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY` | dispatcher |
 
 ### `packages/research_parser/.env.example`
 
+PostgreSQL URL (`RESEARCH_PARSER_DATABASE_URL`, falls back to `NEXUS_DATABASE_URL`),
 Drive polling and catch-up, local state and artifact paths, the MinerU fallback,
 Docling OCR retry, and retry pacing. All `RESEARCH_PARSER_*`.
 
