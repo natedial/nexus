@@ -124,6 +124,11 @@ class Settings(BaseSettings):
         validation_alias=_env("STALE_PROCESSING_TIMEOUT_MINUTES"),
         description="Mark in-progress files stale after this many minutes and retry",
     )
+    relay_intake_dir: Path | None = Field(
+        default=None,
+        validation_alias=_env("RELAY_INTAKE_DIR"),
+        description="Directory of relay intake handoff bundles (manifest.json + PDFs)",
+    )
 
 
 def get_settings() -> Settings:

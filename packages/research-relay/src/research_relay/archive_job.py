@@ -18,6 +18,8 @@ from research_relay.drive_archive import upload_pdf as _upload_pdf
 from research_relay.drive_archive import upload_pdf_as_gdoc as _upload_gdoc
 from research_relay.domain import domain_allowed
 from research_relay.exceptions import DriveAuthError, TemporaryRelayError
+from research_relay.intake_contract import bundle_id_for_relay_key
+from research_relay.intake_handoff import maybe_write_intake_handoff
 from research_relay.ledger import ArchiveRow, Ledger
 from research_relay.reconstruct import Reconstruction, ReconstructionSettings, parse_rfc822, reconstruct_message
 
@@ -202,6 +204,14 @@ def process_archives(
                 if store.archive_is_complete(fresh):
                     result.completed += 1
                     log.info("archive done key=%s", row.gmail_msgid[-24:])
+                    if cfg.intake.enabled and fresh is not None and fresh.kind == "pdfs":
+                        _maybe_write_intake_handoff(
+                            cfg,
+                            store,
+                            row=fresh,
+                            imap=imap,
+                            settings=settings,
+                        )
                 elif fresh and fresh.unrecoverable:
                     result.unrecoverable += 1
                     log.warning("archive unrecoverable key=%s", row.gmail_msgid[-24:])
@@ -328,6 +338,39 @@ def _message_when(original: EmailMessage) -> datetime:
     if parsed is None:
         return datetime.now()
     return parsed
+
+
+def _maybe_write_intake_handoff(
+    cfg: AppConfig,
+    ledger: Ledger,
+    *,
+    row: ArchiveRow,
+    imap: object,
+    settings: ReconstructionSettings,
+) -> None:
+    if row.intake_written_at:
+        return
+    raw = imap.fetch_by_message_id(row.message_id)
+    original = parse_rfc822(raw)
+    reconstructed = reconstruct_message(
+        original, gmail_msgid=row.gmail_msgid, settings=settings
+    )
+    when = _message_when(original)
+    subject = str(reconstructed.message.get("Subject") or "")
+    payloads = _pdf_payloads(reconstructed, when, subject, cfg.relay.private_address)
+    if not payloads:
+        return
+    original_date = str(original.get("Date") or "").strip() or None
+    maybe_write_intake_handoff(
+        cfg.intake.handoff_dir,
+        ledger,
+        relay_key=row.gmail_msgid,
+        reconstructed=reconstructed,
+        original_date=original_date,
+        row=row,
+        pdf_payloads=payloads,
+        bundle_id=bundle_id_for_relay_key(row.gmail_msgid),
+    )
 
 
 def _missing(row: ArchiveRow) -> str:

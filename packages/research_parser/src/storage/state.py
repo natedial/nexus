@@ -91,6 +91,17 @@ class StateStore:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_status ON processed_files(status)
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS relay_intake (
+                    relay_key TEXT PRIMARY KEY,
+                    content_hash TEXT NOT NULL,
+                    document_id TEXT NOT NULL,
+                    file_id TEXT NOT NULL,
+                    storage_ok INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
             conn.commit()
 
     @contextmanager
@@ -399,3 +410,54 @@ class StateStore:
             )
             conn.commit()
         logger.info("Deleted state entry", file_id=file_id)
+
+    def is_relay_intake_complete(self, relay_key: str, content_hash: str) -> bool:
+        """Return True when this relay key/hash was already stored successfully."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT content_hash, storage_ok
+                FROM relay_intake
+                WHERE relay_key = ?
+                """,
+                (relay_key,),
+            ).fetchone()
+        if row is None:
+            return False
+        return row["content_hash"] == content_hash and row["storage_ok"] == 1
+
+    def record_relay_intake(
+        self,
+        relay_key: str,
+        *,
+        content_hash: str,
+        document_id: str,
+        file_id: str,
+        storage_ok: bool,
+    ) -> None:
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO relay_intake (
+                    relay_key, content_hash, document_id, file_id,
+                    storage_ok, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(relay_key) DO UPDATE SET
+                    content_hash = excluded.content_hash,
+                    document_id = excluded.document_id,
+                    file_id = excluded.file_id,
+                    storage_ok = excluded.storage_ok,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    relay_key,
+                    content_hash,
+                    document_id,
+                    file_id,
+                    int(storage_ok),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()

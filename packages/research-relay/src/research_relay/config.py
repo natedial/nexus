@@ -116,6 +116,12 @@ class ArchiveConfig:
 
 
 @dataclass(frozen=True)
+class IntakeConfig:
+    enabled: bool
+    handoff_dir: Path
+
+
+@dataclass(frozen=True)
 class AppConfig:
     gmail: GmailConfig
     auth: AuthConfig
@@ -127,6 +133,7 @@ class AppConfig:
     logging: LoggingConfig
     alerts: AlertsConfig
     archive: ArchiveConfig
+    intake: IntakeConfig
     source_path: Path
 
 
@@ -246,6 +253,12 @@ def load_config(path: str | Path) -> AppConfig:
     archive_lock_raw = str(paths.get("archive_lock_file", "")).strip()
     archive_lock_file = _path(archive_lock_raw) if archive_lock_raw else lock_file.with_name("archive.lock")
 
+    intake_cfg = data.get("intake", {})
+    intake_enabled = bool(intake_cfg.get("enabled", False))
+    handoff_dir = _optional_path(intake_cfg.get("handoff_dir", ""))
+    if intake_enabled and handoff_dir is None:
+        raise ConfigError("intake.handoff_dir is required when intake.enabled = true")
+
     return AppConfig(
         gmail=GmailConfig(
             username=str(gmail["username"]),
@@ -339,6 +352,10 @@ def load_config(path: str | Path) -> AppConfig:
             docs_folder_id=docs_folder_id,
             max_retries_per_run=archive_retries,
             find_failure_threshold=find_failure_threshold,
+        ),
+        intake=IntakeConfig(
+            enabled=intake_enabled,
+            handoff_dir=handoff_dir or Path(""),
         ),
         source_path=config_path,
     )

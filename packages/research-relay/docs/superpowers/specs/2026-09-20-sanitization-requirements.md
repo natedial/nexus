@@ -41,7 +41,7 @@ see the original private message or unsanitized attachment metadata.
 | 6 | `attachments.py` | done |
 | 7 | `attachments.py` | done |
 | 8 | `metadata_scrub.py` | **R1** |
-| 9 | parser intake adapter | R2/R3 |
+| 9 | parser intake adapter | **R2/R3** (`intake_contract.py`, `intake_handoff.py`, parser `src/intake/`) |
 
 ## Fail-closed rule (item 8)
 
