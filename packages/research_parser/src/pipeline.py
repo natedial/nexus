@@ -113,6 +113,11 @@ def _source_from_filename(file_name: str) -> str | None:
     return _SOURCE_DISPLAY.get(parts[1].upper())
 
 
+def _plain_text_from_html(html: str) -> str:
+    without_tags = re.sub(r"<[^>]+>", " ", html)
+    return re.sub(r"\s+", " ", without_tags).strip()
+
+
 def build_source_document(file_id: str, file_name: str, full_text: str) -> SourceDocument:
     return SourceDocument(
         document_id=file_id,
@@ -130,10 +135,15 @@ def build_source_document_from_relay(
     file_name: str,
     full_text: str,
 ) -> SourceDocument:
-    drive_ids = list(artifact.archive_pdf_drive_ids.values())
-    document_link = (
-        f"https://drive.google.com/file/d/{drive_ids[0]}/view" if drive_ids else None
-    )
+    if artifact.archive_html_drive_id:
+        document_link = (
+            f"https://drive.google.com/file/d/{artifact.archive_html_drive_id}/view"
+        )
+    else:
+        drive_ids = list(artifact.archive_pdf_drive_ids.values())
+        document_link = (
+            f"https://drive.google.com/file/d/{drive_ids[0]}/view" if drive_ids else None
+        )
     return SourceDocument(
         document_id=artifact.document_id(),
         document_name=file_name,
@@ -593,20 +603,23 @@ class Pipeline:
                 content_hash=artifact.content_hash,
             )
             return False
-        pdf_path = artifact.primary_pdf_path()
-        if pdf_path is None or not pdf_path.is_file():
-            logger.warning(
-                "Relay intake missing PDF attachment",
-                relay_key=artifact.relay_key,
-            )
-            return False
         file_id = artifact.document_id()
-        ok = self.process_file(
-            file_id,
-            pdf_path.name,
-            local_pdf_path=pdf_path,
-            relay_artifact=artifact,
-        )
+        if artifact.is_html_only():
+            ok = self._process_relay_html_intake(artifact, file_id=file_id)
+        else:
+            pdf_path = artifact.primary_pdf_path()
+            if pdf_path is None or not pdf_path.is_file():
+                logger.warning(
+                    "Relay intake missing PDF attachment",
+                    relay_key=artifact.relay_key,
+                )
+                return False
+            ok = self.process_file(
+                file_id,
+                pdf_path.name,
+                local_pdf_path=pdf_path,
+                relay_artifact=artifact,
+            )
         self.state.record_relay_intake(
             artifact.relay_key,
             content_hash=artifact.content_hash,
@@ -615,6 +628,59 @@ class Pipeline:
             storage_ok=ok,
         )
         return ok
+
+    def _process_relay_html_intake(
+        self, artifact: RelayIntakeArtifact, *, file_id: str
+    ) -> bool:
+        file_name = artifact.intake_file_name()
+        log = logger.bind(file_id=file_id, file_name=file_name, relay_key=artifact.relay_key)
+        body_text = artifact.body.strip()
+        if not body_text:
+            html_path = artifact.primary_html_path()
+            if html_path is None or not html_path.is_file():
+                log.warning("Relay HTML intake missing body and archive file")
+                return False
+            try:
+                body_text = _plain_text_from_html(html_path.read_text(encoding="utf-8"))
+            except OSError as exc:
+                log.warning("Failed to read HTML intake file", error=str(exc))
+                return False
+        if not body_text.strip():
+            log.warning("Relay HTML intake has empty body")
+            return False
+
+        self.state.start_processing(file_id, file_name)
+        artifact_dir = self._artifact_dir(file_id)
+        try:
+            clean_text = strip_boilerplate(
+                body_text,
+                document_name=file_name,
+                source_hint=artifact.sender_address or "relay",
+                log=log,
+            )
+            self._write_clean_text_artifact(artifact_dir, clean_text, log)
+            source = build_source_document_from_relay(artifact, file_name, clean_text)
+            artifact_context = self._build_artifact_context(artifact_dir, [])
+            research_row = self.source_store.insert_research(
+                source,
+                file_name,
+                artifact_context=artifact_context,
+            )
+            self.state.update_step(file_id, "parse", True)
+            self.state.update_step(file_id, "boilerplate", True)
+            self.state.update_step(file_id, "storage", True)
+            self.state.mark_completed(file_id)
+            log.info(
+                "Relay HTML intake stored",
+                research_id=research_row.get("id"),
+                text_length=len(clean_text),
+            )
+            return True
+        except Exception as exc:
+            message = f"Relay HTML intake failed: {exc}"
+            log.exception("Relay HTML intake failed")
+            self.state.mark_failed(file_id, message)
+            return False
 
     def run_relay_intake_once(self) -> int:
         intake_dir = getattr(self.settings, "relay_intake_dir", None)

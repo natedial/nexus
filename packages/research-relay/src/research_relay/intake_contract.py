@@ -35,6 +35,8 @@ class IntakeManifest:
     attachments: tuple[IntakeAttachment, ...]
     archive_pdf_drive_ids: dict[str, str]
     bundle_id: str
+    archive_kind: str = "pdfs"
+    archive_html_drive_id: str = ""
 
     def to_json(self) -> str:
         payload = asdict(self)
@@ -66,6 +68,8 @@ class IntakeManifest:
                 for key, value in dict(data.get("archive_pdf_drive_ids", {})).items()
             },
             bundle_id=str(data["bundle_id"]),
+            archive_kind=str(data.get("archive_kind", "pdfs")),
+            archive_html_drive_id=str(data.get("archive_html_drive_id", "")),
         )
 
 

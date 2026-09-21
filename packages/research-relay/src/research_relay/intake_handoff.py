@@ -33,11 +33,12 @@ def write_intake_handoff(
     reconstructed: Reconstruction,
     original_date: str | None,
     row: ArchiveRow,
-    pdf_payloads: dict[str, bytes],
+    file_payloads: dict[str, tuple[bytes, str]],
     bundle_id: str,
+    archive_kind: str,
 ) -> IntakeManifest | None:
-    """Persist a manifest and PDF copies for parser intake. Returns None when no PDFs."""
-    if not pdf_payloads:
+    """Persist a manifest and archived file copies for parser intake."""
+    if not file_payloads:
         return None
     bundle_dir = handoff_dir / bundle_id
     bundle_dir.mkdir(parents=True, exist_ok=True)
@@ -46,7 +47,7 @@ def write_intake_handoff(
     body = _sanitized_body_text(reconstructed)
     attachments: list[IntakeAttachment] = []
     digests: list[str] = []
-    for archive_name, payload in sorted(pdf_payloads.items()):
+    for archive_name, (payload, content_type) in sorted(file_payloads.items()):
         target = bundle_dir / archive_name
         target.write_bytes(payload)
         digest = hashlib.sha256(payload).hexdigest()
@@ -54,7 +55,7 @@ def write_intake_handoff(
         attachments.append(
             IntakeAttachment(
                 safe_filename=archive_name,
-                content_type="application/pdf",
+                content_type=content_type,
                 sha256=digest,
                 path=archive_name,
             )
@@ -71,13 +72,16 @@ def write_intake_handoff(
         attachments=tuple(attachments),
         archive_pdf_drive_ids=dict(row.pdf_ids),
         bundle_id=bundle_id,
+        archive_kind=archive_kind,
+        archive_html_drive_id=row.html_id,
     )
     (bundle_dir / "manifest.json").write_text(manifest.to_json(), encoding="utf-8")
     log.info(
-        "intake handoff written key=%s bundle=%s files=%d",
+        "intake handoff written key=%s bundle=%s kind=%s files=%d",
         relay_key[-24:],
         bundle_id,
-        len(pdf_payloads),
+        archive_kind,
+        len(file_payloads),
     )
     return manifest
 
@@ -90,8 +94,9 @@ def maybe_write_intake_handoff(
     reconstructed: Reconstruction,
     original_date: str | None,
     row: ArchiveRow,
-    pdf_payloads: dict[str, bytes],
+    file_payloads: dict[str, tuple[bytes, str]],
     bundle_id: str,
+    archive_kind: str,
 ) -> bool:
     if row.intake_written_at:
         return False
@@ -101,8 +106,9 @@ def maybe_write_intake_handoff(
         reconstructed=reconstructed,
         original_date=original_date,
         row=row,
-        pdf_payloads=pdf_payloads,
+        file_payloads=file_payloads,
         bundle_id=bundle_id,
+        archive_kind=archive_kind,
     )
     if manifest is None:
         return False

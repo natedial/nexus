@@ -51,8 +51,9 @@ def test_write_intake_handoff_writes_manifest_and_pdf(tmp_path: Path) -> None:
         reconstructed=reconstructed,
         original_date="Mon, 21 Mar 2026 12:00:00 +0000",
         row=_archive_row(),
-        pdf_payloads={pdf_name: b"%PDF-1.4 test"},
+        file_payloads={pdf_name: (b"%PDF-1.4 test", "application/pdf")},
         bundle_id="bundle123",
+        archive_kind="pdfs",
     )
     assert manifest is not None
     bundle_dir = tmp_path / "bundle123"
@@ -61,3 +62,46 @@ def test_write_intake_handoff_writes_manifest_and_pdf(tmp_path: Path) -> None:
     loaded = (bundle_dir / "manifest.json").read_text(encoding="utf-8")
     assert "proton:<abc@example.com>" in loaded
     assert manifest.content_hash
+
+
+def test_write_intake_handoff_writes_html_archive(tmp_path: Path) -> None:
+    message = EmailMessage()
+    message["Subject"] = "Rates note"
+    message.set_content("Sanitized body for HTML archive")
+    reconstructed = Reconstruction(
+        message=message,
+        attachments=[],
+        sender_address="sender@example.com",
+        notes=[],
+    )
+    html_name = "2026-03-21_rates_note.html"
+    row = ArchiveRow(
+        gmail_msgid="proton:<html@example.com>",
+        message_id="<html@example.com>",
+        kind="html",
+        expected_names=[],
+        pdf_ids={},
+        doc_ids={},
+        html_id="drive-html-1",
+        last_error="",
+        find_failures=0,
+        unrecoverable=False,
+        enqueued_at="2026-03-21T00:00:00Z",
+        updated_at="2026-03-21T00:00:00Z",
+    )
+    manifest = write_intake_handoff(
+        tmp_path,
+        relay_key="proton:<html@example.com>",
+        reconstructed=reconstructed,
+        original_date="Mon, 21 Mar 2026 12:00:00 +0000",
+        row=row,
+        file_payloads={
+            html_name: (b"<html><body>Sanitized</body></html>", "text/html"),
+        },
+        bundle_id="bundle-html",
+        archive_kind="html",
+    )
+    assert manifest is not None
+    assert manifest.archive_kind == "html"
+    assert manifest.archive_html_drive_id == "drive-html-1"
+    assert (tmp_path / "bundle-html" / html_name).is_file()

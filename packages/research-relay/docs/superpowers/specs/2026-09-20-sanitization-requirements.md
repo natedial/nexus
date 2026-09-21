@@ -27,8 +27,9 @@ see the original private message or unsanitized attachment metadata.
      keywords, comments)
    - Raster images: EXIF and other metadata segments (JPEG, PNG, WebP, GIF, TIFF)
    - Office Open XML (`.docx`, `.xlsx`, `.pptx`): remove `docProps/*` entries
-9. **Downstream handoff artifact (future, R2)** — relay ledger key, content hash,
-   sanitized body, attachment manifest. Not implemented in R1.
+9. **Downstream handoff artifact (R2/R3)** — relay ledger key, content hash,
+   sanitized body, attachment manifest (PDF or HTML-only archive). Parser intake
+   adapter consumes handoff bundles from a shared directory.
 
 ## Implementation map
 
