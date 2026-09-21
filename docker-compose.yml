@@ -1,0 +1,41 @@
+# Shared infrastructure for the Nexus research pipeline.
+# AGENTS.md: the repo root is not an app; this file is the intentional
+# exception for the canonical PostgreSQL instance (suite rationalization plan).
+#
+# Target host: Mac mini (eventual production). Packages connect by URL — from
+# containers use host.docker.internal, from host processes use localhost.
+#
+# Usage (on the mini, after copying .env):
+#   docker compose up -d postgres
+#   docker compose ps
+#
+# Apply consolidated schema migrations in Phase 2; this service only provisions
+# the empty database.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexus-postgres
+    restart: unless-stopped
+    ports:
+      - "${NEXUS_POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: "${NEXUS_POSTGRES_USER:-nexus}"
+      POSTGRES_PASSWORD: "${NEXUS_POSTGRES_PASSWORD:-nexus}"
+      POSTGRES_DB: "${NEXUS_POSTGRES_DB:-nexus}"
+    volumes:
+      - nexus_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NEXUS_POSTGRES_USER:-nexus} -d ${NEXUS_POSTGRES_DB:-nexus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  nexus_pgdata:
