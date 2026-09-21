@@ -16,6 +16,11 @@ def test_rollout_stats_defaults_to_zero():
     assert stats.debate_input_tokens == 0
     assert stats.baseline_duration_ms == 0
     assert stats.debate_duration_ms == 0
+    assert stats.claim_rationale_rate is None
+    assert stats.claim_evidenced_rate is None
+    assert stats.divergence_grounded_rate is None
+    assert stats.divergence_attributed_rate is None
+    assert stats.consensus_multi_source_rate is None
 
 
 def test_round_executor_defaults_debate_mode_to_off():

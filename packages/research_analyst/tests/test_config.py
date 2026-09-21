@@ -197,6 +197,49 @@ class ConfigTest(unittest.TestCase):
             settings.validate(),
         )
 
+    def test_promotion_gate_defaults_to_advisory(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("RESEARCH_ANALYST_PROMOTION_GATE_MODE", None)
+            os.environ.pop("PROMOTION_GATE_MODE", None)
+            settings = Settings.from_env()
+        self.assertEqual(settings.promotion_gate_mode, "advisory")
+        self.assertEqual(settings.promotion_gate_floors["divergence_grounded_rate"], 0.0)
+        self.assertFalse(
+            any("promotion_gate" in error for error in settings.validate())
+        )
+
+    def test_invalid_promotion_gate_mode_is_a_config_error(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+            "PROMOTION_GATE_MODE": "strict",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertIn(
+            "invalid promotion_gate_mode: expected advisory or blocking, received 'strict'",
+            settings.validate(),
+        )
+
+    def test_promotion_gate_floor_out_of_range_is_a_config_error(self) -> None:
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_KEY": "secret",
+            "PROMOTION_GATE_FLOOR_DIVERGENCE_GROUNDED": "1.5",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+        self.assertTrue(
+            any(
+                "promotion_gate_floor_divergence_grounded" in error
+                for error in settings.validate()
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

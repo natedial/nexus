@@ -103,6 +103,11 @@ class RolloutStats:
     debate_output_tokens: int = 0
     baseline_duration_ms: int = 0
     debate_duration_ms: int = 0
+    claim_rationale_rate: float | None = None
+    claim_evidenced_rate: float | None = None
+    divergence_grounded_rate: float | None = None
+    divergence_attributed_rate: float | None = None
+    consensus_multi_source_rate: float | None = None
 
 
 class RoundExecutor:

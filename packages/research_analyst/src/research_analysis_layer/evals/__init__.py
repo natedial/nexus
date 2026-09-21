@@ -29,6 +29,13 @@ from research_analysis_layer.evals.judge import (
     LLMJudge,
 )
 
+from research_analysis_layer.evals.rubric_metrics import (
+    PromotionGateDecision,
+    RubricRates,
+    aggregate_rubric_metrics,
+    evaluate_promotion_gate,
+)
+
 from research_analysis_layer.evals.runner import (
     AgentEvalRunner,
     EvalResult,
@@ -63,6 +70,10 @@ __all__ = [
     "ArgumentJudge",
     "ArgumentJudgeScore",
     "DEFAULT_ARGUMENT_JUDGE_WEIGHTS",
+    "PromotionGateDecision",
+    "RubricRates",
+    "aggregate_rubric_metrics",
+    "evaluate_promotion_gate",
     "AgentEvalRunner",
     "EvalResult",
     "EvalSummary",

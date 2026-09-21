@@ -166,6 +166,13 @@ class Settings:
     argument_judge_weight_substantive: float = 0.25
     argument_judge_weight_groundedness: float = 0.25
     argument_judge_weight_phantom: float = 0.25
+    promotion_gate_mode: str = "advisory"
+    promotion_gate_baseline_path: Path = Path("evals/baselines/rubric_rates.json")
+    promotion_gate_floor_claim_rationale: float = 0.0
+    promotion_gate_floor_claim_evidenced: float = 0.0
+    promotion_gate_floor_divergence_grounded: float = 0.0
+    promotion_gate_floor_divergence_attributed: float = 0.0
+    promotion_gate_floor_consensus_multi_source: float = 0.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -285,6 +292,28 @@ class Settings:
             argument_judge_weight_phantom=_env_float(
                 "ARGUMENT_JUDGE_WEIGHT_PHANTOM", 0.25
             ),
+            promotion_gate_mode=env("PROMOTION_GATE_MODE", "advisory"),
+            promotion_gate_baseline_path=Path(
+                env(
+                    "PROMOTION_GATE_BASELINE_PATH",
+                    "evals/baselines/rubric_rates.json",
+                )
+            ),
+            promotion_gate_floor_claim_rationale=_env_float(
+                "PROMOTION_GATE_FLOOR_CLAIM_RATIONALE", 0.0
+            ),
+            promotion_gate_floor_claim_evidenced=_env_float(
+                "PROMOTION_GATE_FLOOR_CLAIM_EVIDENCED", 0.0
+            ),
+            promotion_gate_floor_divergence_grounded=_env_float(
+                "PROMOTION_GATE_FLOOR_DIVERGENCE_GROUNDED", 0.0
+            ),
+            promotion_gate_floor_divergence_attributed=_env_float(
+                "PROMOTION_GATE_FLOOR_DIVERGENCE_ATTRIBUTED", 0.0
+            ),
+            promotion_gate_floor_consensus_multi_source=_env_float(
+                "PROMOTION_GATE_FLOOR_CONSENSUS_MULTI_SOURCE", 0.0
+            ),
         )
 
     @property
@@ -388,6 +417,37 @@ class Settings:
                 "invalid digest_consensus_mode: expected off, shadow, or on, "
                 f"received {self.digest_consensus_mode!r}"
             )
+        if self.promotion_gate_mode not in {"advisory", "blocking"}:
+            errors.append(
+                "invalid promotion_gate_mode: expected advisory or blocking, "
+                f"received {self.promotion_gate_mode!r}"
+            )
+        for label, value in (
+            (
+                "promotion_gate_floor_claim_rationale",
+                self.promotion_gate_floor_claim_rationale,
+            ),
+            (
+                "promotion_gate_floor_claim_evidenced",
+                self.promotion_gate_floor_claim_evidenced,
+            ),
+            (
+                "promotion_gate_floor_divergence_grounded",
+                self.promotion_gate_floor_divergence_grounded,
+            ),
+            (
+                "promotion_gate_floor_divergence_attributed",
+                self.promotion_gate_floor_divergence_attributed,
+            ),
+            (
+                "promotion_gate_floor_consensus_multi_source",
+                self.promotion_gate_floor_consensus_multi_source,
+            ),
+        ):
+            if value < 0 or value > 1:
+                errors.append(
+                    f"invalid {label}: must be between 0 and 1, received {value}"
+                )
         for label, value in (
             (
                 "argument_judge_weight_rationale_fidelity",
@@ -419,3 +479,23 @@ class Settings:
             "groundedness": self.argument_judge_weight_groundedness,
             "phantom_counterparty": self.argument_judge_weight_phantom,
         }
+
+    @property
+    def promotion_gate_floors(self) -> dict[str, float]:
+        """Absolute rate floors for `shadow → on`. Defaults are 0.0 (advisory)."""
+        return {
+            "claim_rationale_rate": self.promotion_gate_floor_claim_rationale,
+            "claim_evidenced_rate": self.promotion_gate_floor_claim_evidenced,
+            "divergence_grounded_rate": self.promotion_gate_floor_divergence_grounded,
+            "divergence_attributed_rate": self.promotion_gate_floor_divergence_attributed,
+            "consensus_multi_source_rate": (
+                self.promotion_gate_floor_consensus_multi_source
+            ),
+        }
+
+    def resolve_promotion_gate_baseline_path(self) -> Path:
+        path = Path(self.promotion_gate_baseline_path)
+        if path.is_absolute():
+            return path
+        package_root = Path(__file__).resolve().parents[2]
+        return (package_root / path).resolve()
