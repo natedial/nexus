@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""
+"""Deprecated (Phase 2): uses Supabase PostgREST. Theme normalization is not
+written by the current parser path; prefer re-derive over backfill.
+
 Backfill script for theme normalization.
 
 Usage:

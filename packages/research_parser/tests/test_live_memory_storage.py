@@ -1,90 +1,7 @@
 from src.parser import BlockType, TextBlock
 from src.research_memory import ResearchArtifactContext
 from src.source import SourceDocument
-from src.storage.supabase import SupabaseClient
-
-
-class _FakeResponse:
-    def __init__(self, data):
-        self.data = data
-
-
-class _FakeTable:
-    def __init__(self, client, name: str):
-        self._client = client
-        self._name = name
-        self._action = "select"
-        self._filters = []
-        self._payload = None
-        self._on_conflict = []
-
-    def select(self, _columns: str):
-        self._action = "select"
-        return self
-
-    def eq(self, column: str, value):
-        self._filters.append((column, value))
-        return self
-
-    def limit(self, _value: int):
-        return self
-
-    def delete(self):
-        self._action = "delete"
-        return self
-
-    def upsert(self, payload, on_conflict: str):
-        self._action = "upsert"
-        self._payload = payload
-        self._on_conflict = [item.strip() for item in on_conflict.split(",") if item]
-        return self
-
-    def execute(self):
-        rows = self._client.tables.setdefault(self._name, [])
-
-        if self._action == "select":
-            matched = [row for row in rows if self._matches(row)]
-            return _FakeResponse(matched)
-
-        if self._action == "delete":
-            self._client.tables[self._name] = [
-                row for row in rows if not self._matches(row)
-            ]
-            return _FakeResponse([])
-
-        if self._action == "upsert":
-            payloads = self._payload if isinstance(self._payload, list) else [self._payload]
-            stored = []
-            for payload in payloads:
-                updated = False
-                for row in rows:
-                    if all(row.get(column) == payload.get(column) for column in self._on_conflict):
-                        row.update(payload)
-                        stored.append(dict(row))
-                        updated = True
-                        break
-                if not updated:
-                    row = dict(payload)
-                    if "id" not in row:
-                        row["id"] = self._client.next_ids.setdefault(self._name, 1)
-                        self._client.next_ids[self._name] += 1
-                    rows.append(row)
-                    stored.append(dict(row))
-            return _FakeResponse(stored)
-
-        raise AssertionError(f"Unsupported action: {self._action}")
-
-    def _matches(self, row: dict) -> bool:
-        return all(row.get(column) == value for column, value in self._filters)
-
-
-class _FakeSupabase:
-    def __init__(self):
-        self.tables = {"parsed_research": []}
-        self.next_ids = {"parsed_research": 1}
-
-    def table(self, name: str):
-        return _FakeTable(self, name)
+from tests.fake_source_store import FakeSourceStore, _FakePostgrestClient, _FakeTable
 
 
 def _source(**kwargs) -> SourceDocument:
@@ -102,9 +19,8 @@ def _source(**kwargs) -> SourceDocument:
 
 
 def test_insert_research_writes_block_backed_spans_and_artifacts():
-    fake = _FakeSupabase()
-    client = SupabaseClient.__new__(SupabaseClient)
-    client._client = fake
+    fake = _FakePostgrestClient()
+    client = FakeSourceStore(fake)
     context = ResearchArtifactContext(
         parse_backend="docling",
         parse_confidence_score=0.88,
@@ -141,7 +57,7 @@ def test_insert_research_writes_block_backed_spans_and_artifacts():
     assert parsed_data["parse"]["ocr_retry_reasons"] == []
     assert "themes" not in parsed_data
     assert "trades" not in parsed_data
-    assert "research_themes" not in fake.tables
+    assert not fake.tables.get("research_themes")
 
     artifacts = fake.tables["research_document_artifacts"]
     assert len(artifacts) == 1
@@ -160,7 +76,7 @@ def test_insert_research_writes_block_backed_spans_and_artifacts():
 
 
 def test_insert_research_memory_failure_blocks_the_run():
-    fake = _FakeSupabase()
+    fake = _FakePostgrestClient()
 
     def _boom_table(name: str):
         if name in {
@@ -172,8 +88,7 @@ def test_insert_research_memory_failure_blocks_the_run():
         return _FakeTable(fake, name)
 
     fake.table = _boom_table  # type: ignore[method-assign]
-    client = SupabaseClient.__new__(SupabaseClient)
-    client._client = fake
+    client = FakeSourceStore(fake)
 
     try:
         client.insert_research(

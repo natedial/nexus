@@ -35,13 +35,14 @@ class Settings(BaseSettings):
         ...,
         description="Google Drive folder ID to watch for new PDFs",
     )
-    supabase_url: str = Field(
+    database_url: str = Field(
         ...,
-        description="Supabase project URL",
-    )
-    supabase_key: str = Field(
-        ...,
-        description="Supabase anon or service role key",
+        validation_alias=AliasChoices(
+            f"{ENV_PREFIX}database_url".lower(),
+            "database_url",
+            "nexus_database_url",
+        ),
+        description="PostgreSQL connection URL for canonical source storage",
     )
 
     # Parser-owned: RESEARCH_PARSER_* in packages/research_parser/.env.

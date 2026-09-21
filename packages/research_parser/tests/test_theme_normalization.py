@@ -8,7 +8,8 @@ from scripts.backfill_theme_normalization import (
     _process_batch,
 )
 from src.source import SourceDocument
-from src.storage.supabase import SupabaseClient, _compute_document_hash
+from src.storage.source_store import compute_document_hash
+from tests.fake_source_store import FakeSourceStore, _FakePostgrestClient
 
 
 class _FakeResponse:
@@ -184,9 +185,8 @@ def test_extract_themes_from_parsed_data_normalizes_string_relevance():
 
 
 def test_insert_research_reuses_existing_row_and_preserves_themes():
-    fake_backend = _FakeSupabase()
-    client = SupabaseClient.__new__(SupabaseClient)
-    client._client = fake_backend
+    fake_backend = _FakePostgrestClient()
+    client = FakeSourceStore(fake_backend)
 
     source = SourceDocument(
         document_id="drive-ms",
@@ -198,7 +198,7 @@ def test_insert_research_reuses_existing_row_and_preserves_themes():
         document_uri="gdrive://drive-ms",
     )
 
-    document_hash = _compute_document_hash(source.full_text)
+    document_hash = compute_document_hash(source.full_text)
     fake_backend.tables["parsed_research"].append(
         {
             "id": 7,
@@ -272,9 +272,8 @@ def test_insert_research_reuses_existing_row_and_preserves_themes():
 
 
 def test_insert_research_requires_document_id():
-    fake_backend = _FakeSupabase()
-    client = SupabaseClient.__new__(SupabaseClient)
-    client._client = fake_backend
+    fake_backend = _FakePostgrestClient()
+    client = FakeSourceStore(fake_backend)
 
     source = SourceDocument(
         document_id="",
@@ -356,7 +355,7 @@ def test_backfill_replaces_partial_existing_normalized_rows():
     research_row = fake_backend.tables["parsed_research"][0]
     assert research_row["theme_count"] == 1
     assert research_row["trade_count"] == 1
-    assert research_row["document_hash"] == _compute_document_hash("Normalized document body")
+    assert research_row["document_hash"] == compute_document_hash("Normalized document body")
 
     themes = fake_backend.tables["research_themes"]
     assert len(themes) == 1
@@ -418,7 +417,7 @@ def test_backfill_clears_existing_normalized_rows_when_source_has_no_themes():
     research_row = fake_backend.tables["parsed_research"][0]
     assert research_row["theme_count"] == 0
     assert research_row["trade_count"] == 0
-    assert research_row["document_hash"] == _compute_document_hash(
+    assert research_row["document_hash"] == compute_document_hash(
         "Legacy note without stored themes"
     )
 

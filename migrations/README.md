@@ -26,6 +26,16 @@ ordering manifest.
 
 ## Runner
 
-No migration runner exists today. Phase 2 will add a plain ordered manifest
-(for example `apply.sh` or a numbered `NNN_*.sql` sequence). Until then this
-directory documents intent only.
+Apply parser schema migrations:
+
+```bash
+docker compose up -d postgres
+./migrations/apply.sh
+```
+
+Uses `RESEARCH_PARSER_DATABASE_URL` or `NEXUS_DATABASE_URL` (default
+`postgresql://nexus:nexus@localhost:5432/nexus`).
+
+| File | Status |
+| --- | --- |
+| `001_parser_schema.sql` | **Applied in Phase 2** — parser tables without 004 claims/entities/relations |

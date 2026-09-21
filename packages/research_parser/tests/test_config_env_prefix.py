@@ -6,8 +6,7 @@ from src.config import get_settings
 
 REQUIRED_SHARED = {
     "GOOGLE_DRIVE_FOLDER_ID": "folder-id",
-    "SUPABASE_URL": "https://project.supabase.co",
-    "SUPABASE_KEY": "service-key",
+    "NEXUS_DATABASE_URL": "postgresql://nexus:nexus@localhost:5432/nexus",
 }
 
 
@@ -27,7 +26,7 @@ def shared_env(monkeypatch):
 def test_shared_vars_stay_unprefixed(shared_env):
     settings = get_settings()
 
-    assert settings.supabase_url == "https://project.supabase.co"
+    assert settings.database_url == "postgresql://nexus:nexus@localhost:5432/nexus"
     assert settings.google_drive_folder_id == "folder-id"
 
 
