@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 ENV_PREFIX = "RESEARCH_DISPATCHER_"
@@ -13,7 +12,7 @@ load_dotenv(REPO_ROOT / ".env")
 load_dotenv(PACKAGE_ROOT / ".env", override=True)
 
 VALID_TRADE_CONVICTION_FILTERS = {"high", "medium", "all"}
-VALID_DISPATCH_INPUT_MODES = {"parser", "analyst"}
+VALID_DISPATCH_INPUT_MODES = {"analyst"}
 
 
 def _from_env(name: str, default: str | None = None, *, legacy: str | None = None):
@@ -62,22 +61,18 @@ def parse_trade_conviction_filter(raw: str | None, default: str = "high") -> str
     )
 
 
-def parse_dispatch_input_mode(raw: str | None, default: str = "parser") -> str:
+def parse_dispatch_input_mode(raw: str | None, default: str = "analyst") -> str:
     """Normalize dispatcher input mode and fail fast on invalid values."""
     candidate = (raw or "").strip().lower()
     if not candidate:
         return default
+    if candidate == "parser":
+        raise ValueError(
+            f"{ENV_PREFIX}INPUT_MODE=parser is no longer supported; use analyst"
+        )
     if candidate in VALID_DISPATCH_INPUT_MODES:
         return candidate
-    raise ValueError(f"{ENV_PREFIX}INPUT_MODE must be one of: parser, analyst")
-
-
-def _is_https_url(value: str | None) -> bool:
-    """Return True when the value is a valid HTTPS URL."""
-    if not value:
-        return False
-    parsed = urlparse(value)
-    return parsed.scheme == "https" and bool(parsed.netloc)
+    raise ValueError(f"{ENV_PREFIX}INPUT_MODE must be analyst")
 
 
 class Config:
@@ -89,9 +84,8 @@ class Config:
     fallback.
     """
 
-    # Supabase (shared)
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    # Local PostgreSQL (calendar reads; pipeline_ops lives in same instance)
+    DATABASE_URL = _from_env("DATABASE_URL") or os.getenv("NEXUS_DATABASE_URL")
 
     # LLM API keys (shared, account-scoped credentials)
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -133,23 +127,8 @@ class Config:
         legacy="DISPATCH_DB_PATH",
     )
 
-    # Mode: debug (doesn't update synthesized) or production (updates synthesized)
+    # Mode: debug or production (dispatch ledger is the source of truth)
     MODE = _from_env("MODE", "debug").lower()
-    LEGACY_SYNTHESIZED_UPDATES = _bool_from_env("LEGACY_SYNTHESIZED_UPDATES", True)
-
-    # Feedback links (Supabase Edge Function)
-    FEEDBACK_BASE_URL = _from_env(
-        "FEEDBACK_BASE_URL",
-        "https://qeyhmsqepsenhvtkryjh.supabase.co/functions/v1/feedback",
-    )
-
-    # Document viewer (static HTML page on S3)
-    DOCUMENT_VIEWER_URL = _from_env(
-        "DOCUMENT_VIEWER_URL",
-        "http://research-dispatch-viewer.s3-website-us-east-1.amazonaws.com/document-viewer.html",
-    )
-    DOCUMENT_LINK_SECRET = _from_env("DOCUMENT_LINK_SECRET", "")
-    DOCUMENT_LINK_TTL_DAYS = _int_from_env("DOCUMENT_LINK_TTL_DAYS", 7)
 
     # Filters
     DATE_RANGE_DAYS = _int_from_env("DATE_RANGE_DAYS", 3)  # Number of days to look back
@@ -169,15 +148,11 @@ class Config:
         "CALENDAR_COUNTRY", "US"
     )  # Country for calendar events
 
-    # Interactive links (feedback and document viewer)
-    FEEDBACK_ENABLED = _from_env("FEEDBACK_ENABLED", "false").lower() == "true"
-
     @classmethod
     def validate(cls):
         """Validate that all required configuration is present."""
         required = [
-            "SUPABASE_URL",
-            "SUPABASE_KEY",
+            "DATABASE_URL",
             "SMTP_USERNAME",
             "SMTP_PASSWORD",
             "EMAIL_FROM",
@@ -187,23 +162,9 @@ class Config:
         if missing:
             raise ValueError(f"Missing required configuration: {', '.join(missing)}")
         cls.DISPATCH_INPUT_MODE = parse_dispatch_input_mode(cls.DISPATCH_INPUT_MODE)
-        if cls.DISPATCH_INPUT_MODE == "analyst":
-            if not cls.ANALYST_BATCH_PATH:
-                raise ValueError(
-                    "ANALYST_BATCH_PATH is required when DISPATCH_INPUT_MODE=analyst"
-                )
-            if not os.path.isfile(cls.ANALYST_BATCH_PATH) or not os.access(
-                cls.ANALYST_BATCH_PATH, os.R_OK
-            ):
-                raise ValueError(
-                    "ANALYST_BATCH_PATH must point to a readable file when DISPATCH_INPUT_MODE=analyst"
-                )
-        if cls.FEEDBACK_ENABLED:
-            if not cls.DOCUMENT_LINK_SECRET:
-                raise ValueError(
-                    "DOCUMENT_LINK_SECRET is required when FEEDBACK_ENABLED=true"
-                )
-            if not _is_https_url(cls.DOCUMENT_VIEWER_URL):
-                raise ValueError(
-                    "DOCUMENT_VIEWER_URL must be a valid HTTPS URL when FEEDBACK_ENABLED=true"
-                )
+        if not cls.ANALYST_BATCH_PATH:
+            raise ValueError("ANALYST_BATCH_PATH is required")
+        if not os.path.isfile(cls.ANALYST_BATCH_PATH) or not os.access(
+            cls.ANALYST_BATCH_PATH, os.R_OK
+        ):
+            raise ValueError("ANALYST_BATCH_PATH must point to a readable file")

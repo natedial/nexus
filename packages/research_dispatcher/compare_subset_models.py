@@ -313,7 +313,11 @@ def main() -> int:
         raise SystemExit("DEEPINFRA_API_KEY is missing.")
 
     db = DatabaseClient()
-    records = db.query_analysis()
+    raise SystemExit(
+        "Parser-mode query_analysis() was removed in Phase 4. "
+        "Pass an analyst batch JSON path instead."
+    )
+    records = []
     subset = records[:SUBSET_SIZE]
     if not subset:
         raise SystemExit("No records returned by query_analysis().")

@@ -20,8 +20,8 @@ if str(_WORKSPACE_ROOT) not in sys.path:
 
 from config import Config
 from research_pipeline_ops import PipelineOpsClient
-from src.analyst_client import AnalystBatchClient
 from src.database import DatabaseClient
+from src.dispatch_loader import load_dispatch_documents
 from src.dispatch_store import DispatchStore
 from src.delta_engine import SynthesisDeltaTracker
 from src.formatter import ReportFormatter
@@ -48,22 +48,6 @@ def _derive_dispatch_batch_key(
     asset_focus = active_filters.get("asset_focus") or "all"
     sources = str(active_filters.get("sources") or "all").replace(" ", "")
     return f"legacy:{start}:{end}:{region}:{asset_focus}:{sources}"
-
-
-def _load_dispatch_documents(
-    *,
-    input_mode: str,
-    analyst_batch_path: str,
-    db_client: DatabaseClient,
-) -> tuple[list[dict], object | None, str]:
-    """Load dispatcher input from the explicitly selected source."""
-    if input_mode == "parser":
-        data = db_client.query_analysis()
-        return data, None, "parsed_research"
-    if input_mode == "analyst":
-        dispatch_batch = AnalystBatchClient(analyst_batch_path).load_batch()
-        return dispatch_batch.to_legacy_records(), dispatch_batch, "analyst_batch"
-    raise ValueError("DISPATCH_INPUT_MODE must be one of: parser, analyst")
 
 
 def main():
@@ -109,11 +93,7 @@ def main():
         logger.info("Connecting to data sources...")
         db_client = DatabaseClient()
         dispatch_batch = None
-        source_type = (
-            "analyst_batch"
-            if Config.DISPATCH_INPUT_MODE == "analyst"
-            else "parsed_research"
-        )
+        source_type = "analyst_batch"
 
         with ops.track_stage(
             repo_name="research_dispatcher",
@@ -122,32 +102,20 @@ def main():
             payload={
                 "input_mode": Config.DISPATCH_INPUT_MODE,
                 "source_type": source_type,
-                "analyst_batch_path": (
-                    Config.ANALYST_BATCH_PATH
-                    if Config.DISPATCH_INPUT_MODE == "analyst"
-                    else None
-                ),
+                "analyst_batch_path": Config.ANALYST_BATCH_PATH,
             },
         ):
-            if Config.DISPATCH_INPUT_MODE == "analyst":
-                logger.info(
-                    "Loading analyst dispatch batch: %s", Config.ANALYST_BATCH_PATH
-                )
-            else:
-                logger.info("Querying parsed_research documents")
-            data, dispatch_batch, source_type = _load_dispatch_documents(
-                input_mode=Config.DISPATCH_INPUT_MODE,
-                analyst_batch_path=Config.ANALYST_BATCH_PATH,
-                db_client=db_client,
+            logger.info(
+                "Loading analyst dispatch batch: %s", Config.ANALYST_BATCH_PATH
             )
-            if dispatch_batch is not None:
-                logger.info(
-                    "Loaded batch %s with %d document(s)",
-                    dispatch_batch.batch_key,
-                    len(dispatch_batch.documents),
-                )
-            else:
-                logger.info("Retrieved %d research records", len(data))
+            data, dispatch_batch, source_type = load_dispatch_documents(
+                analyst_batch_path=Config.ANALYST_BATCH_PATH,
+            )
+            logger.info(
+                "Loaded batch %s with %d document(s)",
+                dispatch_batch.batch_key,
+                len(dispatch_batch.documents),
+            )
 
         # Query calendar data
         with ops.track_stage(
@@ -176,9 +144,6 @@ def main():
                 completed=True,
             )
             return 0
-
-        # Extract document IDs for later update
-        document_ids = [record["id"] for record in data]
 
         # Build active filters for display in report and synthesis scope
         active_filters = {}
@@ -368,25 +333,6 @@ def main():
                 payload=synthesis_snapshot,
             )
             logger.info("Saved synthesis snapshot for delta tracking")
-
-        # Legacy compatibility path: optionally mirror dispatch completion into parser-owned state
-        if Config.DISPATCH_INPUT_MODE == "analyst":
-            logger.info("Analyst batch mode: skipping parser synthesized flag update")
-        elif not Config.LEGACY_SYNTHESIZED_UPDATES:
-            logger.info(
-                "Legacy parser synthesized updates disabled; dispatch ledger is the source of truth"
-            )
-        elif Config.MODE in ["production", "prod", "active"]:
-            logger.info(
-                "Legacy fallback enabled: marking %d document(s) synthesized in parser state",
-                len(document_ids),
-            )
-            if db_client.mark_as_synthesized(document_ids):
-                logger.info("Documents marked as synthesized")
-            else:
-                logger.warning("Failed to mark documents as synthesized")
-        else:
-            logger.info("Debug mode: Skipping legacy synthesized flag update")
 
         ops.emit_stage_event(
             repo_name="research_dispatcher",

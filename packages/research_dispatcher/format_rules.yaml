@@ -103,13 +103,6 @@ CALLOUT_ATTRIBUTION:
     font_color: '#666666'
     alignment: right
 
-# Feedback links style
-FEEDBACK_LINKS:
-  - font_size: 8
-    font_color: '#666666'
-    space_after: 8
-    space_before: 2
-
 # Indented body text (replaces &nbsp; hacks)
 INDENTED_BODY:
   - font_size: 11
