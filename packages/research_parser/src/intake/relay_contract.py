@@ -34,6 +34,20 @@ class RelayIntakeArtifact:
     def document_id(self) -> str:
         return relay_document_id(self.relay_key)
 
+    def storage_document_id(self) -> str:
+        """Identity shared with a Drive poll of the same archived PDF.
+
+        Bundle directories and ``document_id()`` stay on the relay-key hash.
+        When the primary PDF was archived to Drive, storage uses that file id
+        so one note is not stored twice.
+        """
+        pdf_path = self.primary_pdf_path()
+        if pdf_path is not None:
+            drive_id = str(self.archive_pdf_drive_ids.get(pdf_path.name, "")).strip()
+            if drive_id:
+                return drive_id
+        return relay_document_id(self.relay_key)
+
     def primary_pdf_path(self) -> Path | None:
         for item in self.attachments:
             if item.path.lower().endswith(".pdf"):

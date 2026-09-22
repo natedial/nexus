@@ -44,15 +44,18 @@ def build_parsed_research_record(
         source_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     document_hash = compute_document_hash(source.full_text)
+    identity = {
+        "document_id": document_id,
+        "document_uri": source.document_uri,
+        "document_link": source.document_link,
+        "source": source.source,
+        "source_date": source_date,
+    }
+    if source.relay_key:
+        identity["relay_key"] = source.relay_key
     parsed_data = {
         "full_text": source.full_text,
-        "identity": {
-            "document_id": document_id,
-            "document_uri": source.document_uri,
-            "document_link": source.document_link,
-            "source": source.source,
-            "source_date": source_date,
-        },
+        "identity": identity,
     }
     if artifact_context is not None:
         parsed_data["parse"] = {
