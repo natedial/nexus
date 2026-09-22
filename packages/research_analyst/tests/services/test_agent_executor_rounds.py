@@ -684,7 +684,10 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                 "first cut in Q2",
             },
         )
-        self.assertEqual(claims["services inflation is cooling"].support_strength, "evidenced")
+        cooling = claims["services inflation is cooling"]
+        self.assertEqual(cooling.support_strength, "reasoned")
+        self.assertIsNone(cooling.evidence[0].ref_key)
+        self.assertEqual(cooling.evidence[0].text, "3m saar decelerating")
         self.assertEqual(claims["the Fed is done hiking"].support_strength, "asserted")
         self.assertEqual(claims["first cut in Q2"].support_strength, "reasoned")
         self.assertEqual(analysis.argument_map_meta.extractor_version, ARGUMENT_MAP_VERSION)
@@ -1178,6 +1181,149 @@ class TestArgumentMapCoercion(unittest.TestCase):
         assert len(analysis.trading_opportunities) == 1
         assert len(analysis.trading_opportunities[0].rationale) == 200
         assert analysis.trading_opportunities[0].rationale == long_rationale[:200]
+
+    def test_unknown_ref_key_is_cleared_and_known_assertion_key_stays(self):
+        from research_analysis_layer.models.assertion_models import AssertionDraft
+
+        executor = self._make_executor()
+        model_output = {
+            "thesis": "t",
+            "contrarian_view": "c",
+            "recommended_positioning": "p",
+            "confidence": 0.7,
+            "argument_map": [
+                {
+                    "claim": "old prompt example",
+                    "support_strength": "evidenced",
+                    "claim_key": "claim:keep",
+                    "evidence": [
+                        {
+                            "text": "December dots",
+                            "ref_key": "assertion:chunk-2:1",
+                            "referent_key": "fact:dots",
+                        }
+                    ],
+                },
+                {
+                    "claim": "grounded assertion",
+                    "support_strength": "evidenced",
+                    "claim_key": "claim:also-keep",
+                    "evidence": [
+                        {
+                            "text": "December dots still",
+                            "ref_key": "chunk-2:assertion-1",
+                            "referent_key": "fact:dots",
+                        }
+                    ],
+                },
+            ],
+        }
+        analysis = executor._build_document_analysis(
+            final_results=[self._final_result(model_output)],
+            document=self._make_document(research_id=1, document_hash="h"),
+            chunks=[],
+            evidence_units=[],
+            assertions=[
+                AssertionDraft(
+                    chunk_order=2,
+                    assertion_order=1,
+                    assertion_type="observation",
+                    text="December dots",
+                    normalized_text="december dots",
+                    summary_text="December dots",
+                )
+            ],
+            run_id=1,
+            analysis_version="argmap-v1",
+            round_traces=[],
+        )
+        assert analysis is not None
+        claims = {claim.claim: claim for claim in analysis.argument_map}
+        stale = claims["old prompt example"]
+        self.assertEqual(stale.support_strength, "reasoned")
+        self.assertIsNone(stale.evidence[0].ref_key)
+        self.assertEqual(stale.evidence[0].text, "December dots")
+        self.assertEqual(stale.evidence[0].referent_key, "fact:dots")
+        self.assertEqual(stale.claim_key, "claim:keep")
+        grounded = claims["grounded assertion"]
+        self.assertEqual(grounded.support_strength, "evidenced")
+        self.assertEqual(grounded.evidence[0].ref_key, "chunk-2:assertion-1")
+        self.assertEqual(grounded.evidence[0].text, "December dots still")
+        self.assertEqual(grounded.evidence[0].referent_key, "fact:dots")
+        self.assertEqual(grounded.claim_key, "claim:also-keep")
+
+    def test_synthesizer_prompt_stamp_from_loaded_prompt_or_empty(self):
+        import hashlib
+        import textwrap
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt_dir = root / "prompts"
+            prompt_dir.mkdir()
+            prompt_file = prompt_dir / "synthesizer.md"
+            prompt_file.write_text("Synthesize the note.\n", encoding="utf-8")
+            config = root / "agent_config.yaml"
+            config.write_text(
+                textwrap.dedent(
+                    """
+                    agents:
+                      synthesizer:
+                        prompt_path: prompts/synthesizer.md
+                        model:
+                          primary: gpt-5-mini
+                          fallback: gpt-5-nano
+                        output_schema: DocumentAnalysis
+                    """
+                ).strip(),
+                encoding="utf-8",
+            )
+            from research_analysis_layer.services.agent_registry import AgentRegistry
+
+            registry = AgentRegistry(config)
+            executor = RoundExecutor(
+                registry=registry,
+                llm_client=MagicMock(),
+                input_builder=MagicMock(),
+            )
+            prompt_path, prompt_version = executor._synthesizer_prompt_stamp(
+                "synthesizer"
+            )
+            loaded = registry.load_prompt("synthesizer")
+            assert loaded
+            self.assertEqual(prompt_path, str(registry.resolve_prompt_path("synthesizer")))
+            self.assertTrue(prompt_path)
+            self.assertEqual(
+                prompt_version,
+                "prompt:" + hashlib.sha256(loaded.encode("utf-8")).hexdigest()[:16],
+            )
+
+            result = self._final_result(
+                {
+                    "thesis": "t",
+                    "contrarian_view": "c",
+                    "recommended_positioning": "p",
+                    "confidence": 0.4,
+                }
+            )
+            result.agent_name = "synthesizer"
+            analysis = executor._build_document_analysis(
+                final_results=[result],
+                document=self._make_document(research_id=1, document_hash="h"),
+                chunks=[],
+                evidence_units=[],
+                assertions=[],
+                run_id=3,
+                analysis_version="v1",
+                round_traces=[],
+            )
+            assert analysis is not None
+            self.assertEqual(analysis.metadata.prompt_path, prompt_path)
+            self.assertEqual(analysis.metadata.prompt_version, prompt_version)
+
+            prompt_file.write_text("{{include: missing-fragment.md}}\n", encoding="utf-8")
+            self.assertEqual(executor._synthesizer_prompt_stamp("synthesizer"), ("", ""))
+            self.assertEqual(executor._synthesizer_prompt_stamp("not-an-agent"), ("", ""))
 
 
 if __name__ == "__main__":

@@ -135,13 +135,14 @@ def build_source_document_from_relay(
         f"https://drive.google.com/file/d/{drive_ids[0]}/view" if drive_ids else None
     )
     return SourceDocument(
-        document_id=artifact.document_id(),
+        document_id=artifact.storage_document_id(),
         document_name=file_name,
         full_text=full_text,
         source=artifact.sender_address or "relay",
         source_date=artifact.source_date(),
         document_uri=f"relay://{artifact.relay_key}",
         document_link=document_link,
+        relay_key=artifact.relay_key,
     )
 
 
@@ -600,7 +601,7 @@ class Pipeline:
                 relay_key=artifact.relay_key,
             )
             return False
-        file_id = artifact.document_id()
+        file_id = artifact.storage_document_id()
         ok = self.process_file(
             file_id,
             pdf_path.name,

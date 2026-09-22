@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1208,6 +1209,12 @@ class RoundExecutor:
                 file_id=getattr(document, "file_id", None),
             )
             parsed["round_traces"] = [rt.model_dump() for rt in round_traces]
+            agent_name = (
+                result.agent_name
+                if isinstance(result.agent_name, str) and result.agent_name
+                else "synthesizer"
+            )
+            prompt_path, prompt_version = self._synthesizer_prompt_stamp(agent_name)
             parsed["metadata"] = {
                 "research_id": document.research_id,
                 "document_hash": document.document_hash,
@@ -1215,8 +1222,8 @@ class RoundExecutor:
                 "agent_type": "synthesizer",
                 "model_requested": result.model_used,
                 "model_used": result.model_used,
-                "prompt_path": "",
-                "prompt_version": "",
+                "prompt_path": prompt_path,
+                "prompt_version": prompt_version,
                 "run_id": run_id,
                 "attempt_count": result.attempt_count,
                 "analyzed_at": datetime.now(timezone.utc).isoformat(),
@@ -1286,7 +1293,13 @@ class RoundExecutor:
                 "forecast_candidates", []
             )
             parsed["argument_map"] = self._coerce_argument_map(
-                parsed.get("argument_map")
+                parsed.get("argument_map"),
+                allowed_ref_keys=self._allowed_argument_ref_keys(
+                    document=document,
+                    chunks=chunks,
+                    evidence_units=evidence_units,
+                    assertions=assertions,
+                ),
             )
             parsed["argument_map_meta"] = {
                 "extractor_version": ARGUMENT_MAP_VERSION,
@@ -1345,18 +1358,121 @@ class RoundExecutor:
                 logger.warning("%s: dropping invalid item: %s", label, e)
         return kept
 
+    def _synthesizer_prompt_stamp(self, agent_name: str) -> tuple[str, str]:
+        """Path and ``prompt:<sha256[:16]>`` for the prompt that actually ran.
+
+        Both fields stay empty when the include-resolved prompt cannot be loaded.
+        """
+        try:
+            path = self.registry.resolve_prompt_path(agent_name)
+            prompt = self.registry.load_prompt(agent_name)
+        except Exception as exc:
+            logger.warning(
+                "Synthesizer prompt could not be loaded for %s: %s",
+                agent_name,
+                exc,
+            )
+            return "", ""
+        if path is None or not isinstance(prompt, str) or not prompt:
+            return "", ""
+        digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+        return str(path), f"prompt:{digest}"
+
     @staticmethod
-    def _coerce_argument_map(raw: object) -> list[dict]:
-        """Keep well-formed ClaimNode dicts; log and drop the rest."""
+    def _value(obj: Any, name: str, default: Any = None) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
+    @classmethod
+    def _add_ref_key(cls, keys: set[str], value: Any) -> None:
+        if isinstance(value, str) and value:
+            keys.add(value)
+
+    @classmethod
+    def _allowed_argument_ref_keys(
+        cls,
+        *,
+        document: Any,
+        chunks: list[Any],
+        evidence_units: list[Any],
+        assertions: list[Any],
+    ) -> set[str]:
+        """Keys the model was given, matching AgentInputBuilder."""
+        keys: set[str] = set()
+        for chunk in chunks:
+            order = cls._value(chunk, "chunk_order")
+            if isinstance(order, int) and not isinstance(order, bool):
+                keys.add(f"chunk-{order}")
+            span_keys = cls._value(chunk, "span_keys") or []
+            if isinstance(span_keys, (list, tuple)):
+                for span_key in span_keys:
+                    cls._add_ref_key(keys, span_key)
+            cls._add_ref_key(keys, cls._value(chunk, "retrieval_chunk_key"))
+        for unit in evidence_units:
+            order = cls._value(unit, "chunk_order")
+            evidence_order = cls._value(unit, "evidence_order")
+            if isinstance(order, int) and not isinstance(order, bool):
+                keys.add(f"chunk-{order}")
+                if isinstance(evidence_order, int) and not isinstance(evidence_order, bool):
+                    keys.add(f"chunk-{order}:evidence-{evidence_order}")
+        for assertion in assertions:
+            order = cls._value(assertion, "chunk_order")
+            assertion_order = cls._value(assertion, "assertion_order")
+            if isinstance(order, int) and not isinstance(order, bool):
+                keys.add(f"chunk-{order}")
+                if isinstance(assertion_order, int) and not isinstance(
+                    assertion_order, bool
+                ):
+                    keys.add(f"chunk-{order}:assertion-{assertion_order}")
+        spans = cls._value(document, "spans") or []
+        if isinstance(spans, (list, tuple)):
+            for span in spans:
+                cls._add_ref_key(keys, cls._value(span, "span_key"))
+        return keys
+
+    @staticmethod
+    def _clear_unknown_ref_keys(item: dict, allowed_ref_keys: set[str]) -> dict:
+        """Null ref_keys the model was not given. Leave claim text and referent_key."""
+        evidence = item.get("evidence")
+        if not isinstance(evidence, list):
+            return item
+        cleaned: list[Any] = []
+        changed = False
+        for ref in evidence:
+            if isinstance(ref, dict) and ref.get("ref_key") not in allowed_ref_keys:
+                if ref.get("ref_key") is not None:
+                    ref = dict(ref)
+                    ref["ref_key"] = None
+                    changed = True
+            cleaned.append(ref)
+        if not changed:
+            return item
+        updated = dict(item)
+        updated["evidence"] = cleaned
+        return updated
+
+    @classmethod
+    def _coerce_argument_map(
+        cls, raw: object, allowed_ref_keys: set[str] | None = None
+    ) -> list[dict]:
+        """Keep well-formed ClaimNode dicts; log and drop the rest.
+
+        Unknown ref_keys are cleared, then ClaimNode downgrades ``evidenced``
+        claims that no longer cite a real key. Claims and evidence text stay.
+        """
         from research_analysis_layer.models.agent_outputs import ClaimNode
 
         if not isinstance(raw, list):
             return []
+        allowed = allowed_ref_keys if allowed_ref_keys is not None else set()
         kept: list[dict] = []
         for item in raw:
             if not isinstance(item, dict):
                 logger.warning("argument_map: dropping non-object item")
                 continue
+            if allowed_ref_keys is not None:
+                item = cls._clear_unknown_ref_keys(item, allowed)
             try:
                 kept.append(ClaimNode.model_validate(item).model_dump())
             except ValidationError as e:

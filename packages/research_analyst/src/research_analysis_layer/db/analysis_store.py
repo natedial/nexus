@@ -1015,7 +1015,6 @@ class AnalysisStore:
                         summary_text = excluded.summary_text,
                         status = excluded.status,
                         authority_band = excluded.authority_band,
-                        support_count = world_nodes.support_count + excluded.support_count,
                         last_seen_at = excluded.last_seen_at
                     """,
                     (
@@ -1025,7 +1024,7 @@ class AnalysisStore:
                         node.summary_text,
                         node.status,
                         node.authority_band,
-                        node.support_count,
+                        0,
                         now,
                         now,
                     ),
@@ -1057,7 +1056,6 @@ class AnalysisStore:
                         status = excluded.status,
                         authority_band = excluded.authority_band,
                         maturity = excluded.maturity,
-                        support_count = world_edges.support_count + excluded.support_count,
                         last_seen_at = excluded.last_seen_at
                     """,
                     (
@@ -1069,7 +1067,7 @@ class AnalysisStore:
                         edge.status,
                         edge.authority_band,
                         edge.maturity,
-                        edge.support_count,
+                        0,
                         now,
                         now,
                     ),
@@ -1107,7 +1105,7 @@ class AnalysisStore:
                         (node.node_key, alias_key, node.alias_text, now, now),
                     )
                 if node.evidence_text:
-                    conn.execute(
+                    inserted = conn.execute(
                         """
                         INSERT OR IGNORE INTO world_node_evidence (
                             node_key,
@@ -1131,9 +1129,19 @@ class AnalysisStore:
                             now,
                         ),
                     )
+                    if inserted.rowcount > 0:
+                        conn.execute(
+                            """
+                            UPDATE world_nodes
+                            SET support_count = support_count + 1
+                            WHERE node_key = ?
+                            """,
+                            (node.node_key,),
+                        )
             for edge in edges:
+                provenance_inserted = False
                 if edge.evidence_text:
-                    conn.execute(
+                    inserted = conn.execute(
                         """
                         INSERT OR IGNORE INTO world_edge_evidence (
                             edge_key,
@@ -1157,7 +1165,8 @@ class AnalysisStore:
                             now,
                         ),
                     )
-                conn.execute(
+                    provenance_inserted = inserted.rowcount > 0
+                inserted_history = conn.execute(
                     """
                     INSERT OR IGNORE INTO world_edge_history (
                         edge_key,
@@ -1187,6 +1196,15 @@ class AnalysisStore:
                         now,
                     ),
                 )
+                if provenance_inserted or inserted_history.rowcount > 0:
+                    conn.execute(
+                        """
+                        UPDATE world_edges
+                        SET support_count = support_count + 1
+                        WHERE edge_key = ?
+                        """,
+                        (edge.edge_key,),
+                    )
 
     def refresh_world_node_lifecycle(self, node_keys: list[str] | None = None) -> int:
         predicate = ""

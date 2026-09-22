@@ -16,6 +16,7 @@ class SourceDocument:
     source_date: str | None = None
     document_uri: str | None = None
     document_link: str | None = None
+    relay_key: str | None = None
 
     @property
     def document_title(self) -> str:
