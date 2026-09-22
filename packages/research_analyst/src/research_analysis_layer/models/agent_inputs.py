@@ -106,12 +106,22 @@ class AgentInputAssertion(BaseModel):
     object_text: str | None = None
 
 
+class AgentInputFigure(BaseModel):
+    """A chart the model can cite. Pixels stay in the parser cache and the source PDF."""
+
+    figure_key: str
+    label: str = ""
+    page: int | None = None
+    caption: str = ""
+
+
 class DeterministicAnalysisPayload(BaseModel):
     """Structured deterministic signal available to all agents."""
 
     chunks: list[AgentInputChunk] = Field(default_factory=list)
     evidence_units: list[AgentInputEvidenceUnit] = Field(default_factory=list)
     assertions: list[AgentInputAssertion] = Field(default_factory=list)
+    figures: list[AgentInputFigure] = Field(default_factory=list)
 
 
 class AgentInputPayload(BaseModel):
@@ -226,12 +236,20 @@ def render_payload_structure_markdown() -> str:
                 "subject_text": "<string or null>",
                 "object_text": "<string or null>"
               }
+            ],
+            "figures": [
+              {
+                "figure_key": "<figure:{content_hash[:16]}>",
+                "label": "<fig_001 display label>",
+                "page": <int or null>,
+                "caption": "<caption text>"
+              }
             ]
           }
         }
         ```
 
-        **Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, authority, and stable `assertion_key`s — do not re-derive these from the excerpt. Cite `span_key` from `chunks[].span_keys` or `evidence_units[].source_ref.span_key` — do not invent theme labels. `themes[]` is an optional extraction overlay and is often empty. Reach for `document.full_text_excerpt` only when assertions, chunks, and themes are silent on a point you need.
+        **Use the pre-extracted signal.** `deterministic_analysis.assertions` is already typed with polarity, time horizon, authority, and stable `assertion_key`s — do not re-derive these from the excerpt. Cite `span_key` from `chunks[].span_keys` or `evidence_units[].source_ref.span_key` — do not invent theme labels. Cite a chart with `figures[].figure_key`. `themes[]` is an optional extraction overlay and is often empty. Reach for `document.full_text_excerpt` only when assertions, chunks, and themes are silent on a point you need.
 
         ## Empty-payload fallback
 

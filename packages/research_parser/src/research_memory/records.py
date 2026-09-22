@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .spans import (
+    build_figure_spans,
     build_paragraph_spans,
     build_retrieval_chunks,
     build_spans_from_blocks,
@@ -68,6 +69,16 @@ def build_memory_records(
         )
         source = "parsed_research.full_text"
 
+    spans.extend(
+        build_figure_spans(
+            context.figure_manifest,
+            document_hash=document_hash,
+            span_version=context.span_version,
+            key_namespace=key_namespace,
+            start_order=len(spans) + 1,
+        )
+    )
+
     chunks = build_retrieval_chunks(
         spans,
         document_hash=document_hash,
@@ -110,7 +121,7 @@ def build_memory_records(
                 "research_id": research_id,
                 "section_path": list(span.section_path),
                 "coordinates": span.coordinates,
-                "metadata": {},
+                "metadata": dict(span.metadata) if span.metadata else {},
             }
         )
         span_records.append(record)

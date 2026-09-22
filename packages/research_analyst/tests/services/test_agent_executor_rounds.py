@@ -1252,6 +1252,75 @@ class TestArgumentMapCoercion(unittest.TestCase):
         self.assertEqual(grounded.evidence[0].referent_key, "fact:dots")
         self.assertEqual(grounded.claim_key, "claim:also-keep")
 
+    def test_chart_ref_key_copies_figure_and_drops_unknown_chart_key(self):
+        from research_analysis_layer.models.document_models import ParsedDocumentArtifacts
+
+        executor = self._make_executor()
+        document = self._make_document(research_id=1, document_hash="h")
+        document.document.document_id = "drive-pdf-1"
+        document.artifacts = ParsedDocumentArtifacts(
+            figure_manifest=[
+                {
+                    "figure_id": "fig_001",
+                    "figure_key": "figure:abcdef1234567890",
+                    "page": 4,
+                    "bbox": [0.1, 0.2, 0.8, 0.5],
+                    "caption_text": "Fed dots",
+                    "content_hash": "abcdef1234567890ffff",
+                    "image_path": "figures/figure_abcdef1234567890.png",
+                }
+            ]
+        )
+        model_output = {
+            "thesis": "t",
+            "contrarian_view": "c",
+            "recommended_positioning": "p",
+            "confidence": 0.7,
+            "argument_map": [
+                {
+                    "claim": "invented chart",
+                    "support_strength": "evidenced",
+                    "evidence": [
+                        {"text": "a chart", "kind": "chart", "ref_key": "fig_001"}
+                    ],
+                },
+                {
+                    "claim": "dots removed the hike",
+                    "support_strength": "evidenced",
+                    "evidence": [
+                        {
+                            "text": "Fed dots",
+                            "kind": "chart",
+                            "ref_key": "figure:abcdef1234567890",
+                        }
+                    ],
+                },
+            ],
+        }
+        analysis = executor._build_document_analysis(
+            final_results=[self._final_result(model_output)],
+            document=document,
+            chunks=[],
+            evidence_units=[],
+            assertions=[],
+            run_id=1,
+            analysis_version="argmap-v1",
+            round_traces=[],
+        )
+        assert analysis is not None
+        claims = {claim.claim: claim for claim in analysis.argument_map}
+        invented = claims["invented chart"]
+        self.assertEqual(invented.support_strength, "reasoned")
+        self.assertIsNone(invented.evidence[0].ref_key)
+        self.assertIsNone(invented.evidence[0].figure)
+        chart = claims["dots removed the hike"].evidence[0]
+        self.assertEqual(chart.ref_key, "figure:abcdef1234567890")
+        self.assertEqual(chart.figure["label"], "fig_001")
+        self.assertEqual(chart.figure["page"], 4)
+        self.assertEqual(chart.figure["caption"], "Fed dots")
+        self.assertEqual(chart.figure["document_id"], "drive-pdf-1")
+        self.assertNotIn("image_path", chart.figure)
+
     def test_synthesizer_prompt_stamp_from_loaded_prompt_or_empty(self):
         import hashlib
         import textwrap

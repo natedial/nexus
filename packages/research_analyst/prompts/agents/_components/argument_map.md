@@ -17,7 +17,7 @@ This is single-author extraction. There is **no agreement/disagreement here** â€
     {
       "text": "<the concrete support the author cites: a datapoint, quote, chart, prior event>",
       "kind": "data|quote|citation|chart|prior_view",
-      "ref_key": "<assertion_key|evidence_key|chunk_id|span_key>"
+      "ref_key": "<assertion_key|evidence_key|chunk_id|span_key|figure_key>"
     }
   ],
   "conditions": ["<caveat or condition the author attaches, if any>"],
@@ -74,4 +74,5 @@ This is single-author extraction. There is **no agreement/disagreement here** â€
 - One contention per `claim`, kept atomic, so the claim can be matched or contrasted against other authors point-for-point.
 - Set `horizon` whenever the author attaches a timeframe. Two authors often share a conclusion and split only on timing; without the timeframe that split is invisible.
 - Every `evidence` entry needs a real `ref_key` (`corpus` passages use the `research_search` `chunk_id`). Supply the provenance `ref_key` only â€” a downstream resolver maps it to the canonical fact/event it refers to, which is what lets the same evidence be compared across authors. Accurate provenance here is what makes that resolution possible.
+- A chart uses `kind: "chart"` and `ref_key` equal to `deterministic_analysis.figures[].figure_key`. Copy the caption into `text`. Do not invent a figure key.
 - Capture only what the author argues; if the author asserts something without support, keep it and mark `support_strength: "asserted"` rather than dropping it or inventing evidence.

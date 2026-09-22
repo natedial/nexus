@@ -29,6 +29,7 @@ class SpanDraft:
     char_start: int | None = None
     char_end: int | None = None
     coordinates: dict[str, object] | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +206,66 @@ def build_paragraph_spans(
             )
         )
 
+    return spans
+
+
+def build_figure_spans(
+    figures: list[dict],
+    *,
+    document_hash: str,
+    span_version: str = "span-v3",
+    key_namespace: str | None = None,
+    start_order: int = 1,
+) -> list[SpanDraft]:
+    """One citeable span per chart that has a content-addressed figure_key."""
+    key_namespace = key_namespace or document_hash
+    spans: list[SpanDraft] = []
+    for figure in figures:
+        if not isinstance(figure, dict):
+            continue
+        figure_key = figure.get("figure_key")
+        if not isinstance(figure_key, str) or not figure_key.strip():
+            continue
+        figure_key = figure_key.strip()
+        caption = figure.get("caption_text")
+        label = figure.get("figure_id") or figure_key
+        text = caption.strip() if isinstance(caption, str) and caption.strip() else str(label)
+        page = figure.get("page")
+        page_number = int(page) if isinstance(page, int) and page > 0 else None
+        bbox = figure.get("bbox")
+        coordinates = {"bbox": bbox} if isinstance(bbox, list) else None
+        text_hash = _hash_text(text)
+        span_order = start_order + len(spans)
+        spans.append(
+            SpanDraft(
+                span_key=_stable_key(
+                    "span",
+                    key_namespace,
+                    span_version,
+                    "figure",
+                    figure_key,
+                    str(page_number or ""),
+                    text_hash,
+                ),
+                document_hash=document_hash,
+                span_version=span_version,
+                span_type="figure",
+                span_order=span_order,
+                text=text,
+                text_hash=text_hash,
+                page_start=page_number,
+                page_end=page_number,
+                coordinates=coordinates,
+                metadata={
+                    "figure_key": figure_key,
+                    "figure_id": str(label),
+                    "caption_text": text,
+                    "content_hash": figure.get("content_hash") or "",
+                    "page": page_number,
+                    "bbox": bbox if isinstance(bbox, list) else None,
+                },
+            )
+        )
     return spans
 
 

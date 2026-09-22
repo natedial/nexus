@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 
@@ -79,6 +80,34 @@ def test_figures_jsonl_serializes_correctly(tmp_path):
     assert payload["section_path"] == ["Section A", "Section B"]
     assert payload["image_path"] == "figures/fig-1.png"
     assert payload["content_hash"] == "hash123"
+    assert payload["figure_key"] == "figure:hash123"
+
+
+def test_write_artifacts_hashes_figure_bytes_into_citation_key(tmp_path):
+    text_result = TextParseResult(blocks=[], raw_output="raw")
+    artifact_dir = tmp_path / "artifacts"
+    source = tmp_path / "chart.png"
+    source.write_bytes(b"png-bytes")
+    figures = [
+        FigureRecord(
+            figure_id="fig_001",
+            page=4,
+            section_path=[],
+            bbox=[0.1, 0.2, 0.9, 0.6],
+            caption_text="Fed dots",
+            image_path=str(source),
+        )
+    ]
+
+    write_artifacts(artifact_dir, text_result, figures)
+
+    payload = json.loads((artifact_dir / "figures.jsonl").read_text(encoding="utf-8"))
+    digest = hashlib.sha256(b"png-bytes").hexdigest()
+    assert payload["content_hash"] == digest
+    assert payload["figure_key"] == f"figure:{digest[:16]}"
+    assert payload["figure_id"] == "fig_001"
+    assert payload["image_path"] == f"figures/figure_{digest[:16]}.png"
+    assert (artifact_dir / payload["image_path"]).read_bytes() == b"png-bytes"
 
 
 def test_artifact_dir_created_if_missing(tmp_path):

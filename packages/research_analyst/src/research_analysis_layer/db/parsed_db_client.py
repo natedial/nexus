@@ -421,10 +421,38 @@ class ParsedDbClient:
             return {"x0": value[0], "y0": value[1], "x1": value[2], "y1": value[3]}
         return None
 
+    @staticmethod
+    def _object_dict(value: object) -> dict:
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str) and value.strip().startswith("{"):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    @staticmethod
+    def _object_list(value: object) -> list[dict]:
+        if isinstance(value, str) and value.strip().startswith("["):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(value, list):
+            return []
+        return [dict(item) for item in value if isinstance(item, dict)]
+
     @classmethod
     def _span_from_row(cls, row: dict) -> ParsedSpan:
         span_id = row.get("span_id") or row.get("id")
         heading = row.get("heading_path") or row.get("heading")
+        bbox = cls._bbox(row.get("bbox"))
+        if bbox is None:
+            coordinates = cls._object_dict(row.get("coordinates"))
+            bbox = cls._bbox(coordinates.get("bbox"))
         return ParsedSpan(
             span_key=str(row.get("span_key") or span_id or ""),
             text=str(row.get("text") or ""),
@@ -433,10 +461,11 @@ class ParsedDbClient:
                 row.get("page_start") if row.get("page_start") is not None else row.get("page")
             ),
             page_end=cls._optional_int(row.get("page_end")),
-            bbox=cls._bbox(row.get("bbox")),
+            bbox=bbox,
             heading_path=cls._str_list(heading),
             span_id=str(span_id) if span_id is not None else None,
             span_order=cls._optional_int(row.get("span_order")),
+            metadata=cls._object_dict(row.get("metadata")),
         )
 
     @classmethod
@@ -476,6 +505,7 @@ class ParsedDbClient:
             clean_text_path=row.get("clean_text_path"),
             blocks_path=blocks_path,
             artifact_manifest=manifest,
+            figure_manifest=cls._object_list(row.get("figure_manifest")),
         )
 
     @classmethod
