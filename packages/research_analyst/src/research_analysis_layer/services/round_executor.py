@@ -38,6 +38,7 @@ from research_analysis_layer.parsed_payload import (
     legacy_metadata,
     legacy_trades,
 )
+from research_analysis_layer.services.figures import figures_for_document
 from research_analysis_layer.services.agent_input_builder import AgentInputBuilder
 from research_analysis_layer.services.agent_llm_client import (
     AgentCallResult,
@@ -1292,6 +1293,7 @@ class RoundExecutor:
             parsed["forecast_candidates"] = parsed["payload_json"].get(
                 "forecast_candidates", []
             )
+            figures_by_key = figures_for_document(document)
             parsed["argument_map"] = self._coerce_argument_map(
                 parsed.get("argument_map"),
                 allowed_ref_keys=self._allowed_argument_ref_keys(
@@ -1299,7 +1301,9 @@ class RoundExecutor:
                     chunks=chunks,
                     evidence_units=evidence_units,
                     assertions=assertions,
+                    figure_keys=set(figures_by_key),
                 ),
+                figures_by_key=figures_by_key,
             )
             parsed["argument_map_meta"] = {
                 "extractor_version": ARGUMENT_MAP_VERSION,
@@ -1397,6 +1401,7 @@ class RoundExecutor:
         chunks: list[Any],
         evidence_units: list[Any],
         assertions: list[Any],
+        figure_keys: set[str] | None = None,
     ) -> set[str]:
         """Keys the model was given, matching AgentInputBuilder."""
         keys: set[str] = set()
@@ -1429,6 +1434,11 @@ class RoundExecutor:
         if isinstance(spans, (list, tuple)):
             for span in spans:
                 cls._add_ref_key(keys, cls._value(span, "span_key"))
+                metadata = cls._value(span, "metadata") or {}
+                if isinstance(metadata, dict):
+                    cls._add_ref_key(keys, metadata.get("figure_key"))
+        for figure_key in figure_keys or ():
+            cls._add_ref_key(keys, figure_key)
         return keys
 
     @staticmethod
@@ -1454,12 +1464,16 @@ class RoundExecutor:
 
     @classmethod
     def _coerce_argument_map(
-        cls, raw: object, allowed_ref_keys: set[str] | None = None
+        cls,
+        raw: object,
+        allowed_ref_keys: set[str] | None = None,
+        figures_by_key: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict]:
         """Keep well-formed ClaimNode dicts; log and drop the rest.
 
         Unknown ref_keys are cleared, then ClaimNode downgrades ``evidenced``
         claims that no longer cite a real key. Claims and evidence text stay.
+        A chart ref_key that matches a figure copies that figure onto the evidence.
         """
         from research_analysis_layer.models.agent_outputs import ClaimNode
 
@@ -1474,10 +1488,26 @@ class RoundExecutor:
             if allowed_ref_keys is not None:
                 item = cls._clear_unknown_ref_keys(item, allowed)
             try:
-                kept.append(ClaimNode.model_validate(item).model_dump())
+                dumped = ClaimNode.model_validate(item).model_dump()
             except ValidationError as e:
                 logger.warning("argument_map: dropping invalid claim: %s", e)
+                continue
+            if figures_by_key:
+                cls._attach_figures(dumped, figures_by_key)
+            kept.append(dumped)
         return kept
+
+    @staticmethod
+    def _attach_figures(claim: dict, figures_by_key: dict[str, dict[str, Any]]) -> None:
+        evidence = claim.get("evidence")
+        if not isinstance(evidence, list):
+            return
+        for ref in evidence:
+            if not isinstance(ref, dict):
+                continue
+            figure = figures_by_key.get(ref.get("ref_key"))
+            if figure is not None:
+                ref["figure"] = dict(figure)
 
     def _build_deterministic_payload(
         self,

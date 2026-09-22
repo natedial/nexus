@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -232,6 +233,31 @@ def _resolve_value(value):
     return value
 
 
+def figure_key_for_hash(content_hash: str) -> str:
+    """Citation key for one chart. Same pixels keep the same key across re-parses."""
+    digest = content_hash.strip()
+    return f"figure:{digest[:16]}"
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _assign_figure_identity(record: FigureRecord, image_file: Path | None) -> None:
+    if image_file is not None and image_file.is_file():
+        record.content_hash = _hash_file(image_file)
+    content_hash = _resolve_value(record.content_hash)
+    if isinstance(content_hash, str) and content_hash.strip():
+        record.content_hash = content_hash.strip()
+        record.figure_key = figure_key_for_hash(record.content_hash)
+    else:
+        record.figure_key = None
+
+
 def _figure_to_dict(record: FigureRecord) -> dict:
     caption = _resolve_value(record.caption_text)
     image_path = _resolve_value(record.image_path)
@@ -258,6 +284,7 @@ def _figure_to_dict(record: FigureRecord) -> dict:
             if isinstance(content_hash, str) or content_hash is None
             else str(content_hash)
         ),
+        "figure_key": record.figure_key,
     }
 
 
@@ -271,16 +298,24 @@ def write_artifacts(
         figures_dir.mkdir(parents=True, exist_ok=True)
         for record in figures:
             if not record.image_path:
+                _assign_figure_identity(record, None)
                 continue
             src = Path(record.image_path)
             if not src.exists():
+                _assign_figure_identity(record, None)
                 continue
+            content_hash = _hash_file(src)
+            record.content_hash = content_hash
             ext = src.suffix or ".png"
-            filename = f"{record.figure_id}{ext}"
+            filename = f"figure_{content_hash[:16]}{ext}"
             dest = figures_dir / filename
             if dest.resolve() != src.resolve():
                 shutil.copyfile(src, dest)
             record.image_path = str(Path("figures") / filename)
+            _assign_figure_identity(record, dest)
+    else:
+        for record in figures:
+            _assign_figure_identity(record, None)
 
     content = (
         text_result.raw_output

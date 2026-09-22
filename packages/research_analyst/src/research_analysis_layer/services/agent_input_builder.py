@@ -12,6 +12,7 @@ from research_analysis_layer.models import (
     AgentInputChunk,
     AgentInputDocument,
     AgentInputEvidenceUnit,
+    AgentInputFigure,
     AgentInputPayload,
     AgentInputTheme,
     AssertionDraft,
@@ -19,6 +20,7 @@ from research_analysis_layer.models import (
     EvidenceUnitDraft,
     HydratedParsedDocument,
 )
+from research_analysis_layer.services.figures import figures_for_document
 from research_analysis_layer.parsed_payload import (
     full_text as payload_full_text,
     identity_fields,
@@ -144,6 +146,15 @@ class AgentInputBuilder:
                 assertions=[
                     AgentInputAssertion(**self._assertion_dict(assertion))
                     for assertion in assertions
+                ],
+                figures=[
+                    AgentInputFigure(
+                        figure_key=item["figure_key"],
+                        label=str(item.get("label") or ""),
+                        page=item.get("page") if isinstance(item.get("page"), int) else None,
+                        caption=str(item.get("caption") or ""),
+                    )
+                    for item in figures_for_document(document).values()
                 ],
             ),
         )

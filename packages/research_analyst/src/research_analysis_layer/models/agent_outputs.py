@@ -122,6 +122,7 @@ class EvidenceRef(BaseModel):
     kind: Literal["data", "quote", "citation", "chart", "prior_view"] = "data"
     ref_key: str | None = None  # provenance (where it came from)
     referent_key: str | None = None  # resolved canonical fact/event — Slice 2; LLM leaves null
+    figure: dict[str, Any] | None = None  # chart citation copied from the parser manifest
 
 
 class ClaimNode(BaseModel):

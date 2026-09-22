@@ -75,6 +75,7 @@ class ParsedSpan:
     heading_path: list[str] = field(default_factory=list)
     span_id: str | None = None
     span_order: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -104,6 +105,7 @@ class ParsedDocumentArtifacts:
     clean_text_path: str | None = None
     blocks_path: str | None = None
     artifact_manifest: dict[str, Any] | None = None
+    figure_manifest: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
