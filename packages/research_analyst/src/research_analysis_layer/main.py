@@ -179,9 +179,7 @@ def build_app(settings: Settings) -> RunBatchPipeline:
     )
 
     ops = PipelineOpsClient.from_env(
-        default_spool_db_path=str(
-            settings.analysis_db_path.parent / "pipeline_ops_spool.db"
-        ),
+        default_spool_db_path=str(settings.pipeline_ops_spool_path()),
         emitted_by="research_analyst",
     )
     pipeline = RunBatchPipeline(
@@ -716,7 +714,9 @@ def command_doctor(settings: Settings) -> int:
         "calendar_db_message": calendar_message,
         "calendar_match_source": settings.calendar_match_source,
         "calendar_source_name": settings.calendar_source_name,
-        "analysis_store_path": str(settings.analysis_db_path),
+        "analysis_store_path": (
+            settings.analysis_database_url or str(settings.analysis_db_path)
+        ),
         "analysis_store_counts": analysis_counts,
         "agent_execution": {
             "enabled": settings.agent_execution_enabled,
