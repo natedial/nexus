@@ -9,6 +9,7 @@ from typing import Any
 
 from research_analysis_layer.config import Settings
 from research_analysis_layer.db import AnalysisStore, CalendarDbClient, ParsedDbClient, StateDbReader
+from research_analysis_layer.db.parsed_db_client import coerce_optional_date
 from research_analysis_layer.models import ParserStateRecord
 from research_analysis_layer.pipelines.analyze_document import AnalyzeDocumentPipeline
 from research_analysis_layer.services import Hydrator, QualityReviewer, Selector
@@ -574,7 +575,7 @@ class RunBatchPipeline:
         return {
             "document_name": hydrated.document.document_name,
             "source": hydrated.document.source,
-            "source_date": hydrated.document.source_date,
+            "source_date": coerce_optional_date(hydrated.document.source_date),
             "publisher": hydrated.document.publisher,
             "region": hydrated.document.region,
             "asset_focus": hydrated.document.asset_focus,
