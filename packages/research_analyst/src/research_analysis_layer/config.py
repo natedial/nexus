@@ -344,6 +344,12 @@ class Settings:
     def uses_postgres(self) -> bool:
         return self.analysis_database_url is not None
 
+    def pipeline_ops_spool_path(self) -> Path:
+        """Local SQLite path for pipeline-ops spool when analysis store is remote."""
+        if self.uses_postgres:
+            return Path("data") / "pipeline_ops_spool.db"
+        return self.analysis_db_path.parent / "pipeline_ops_spool.db"
+
     def validate(self) -> list[str]:
         """Return human-readable configuration errors."""
         errors: list[str] = []
