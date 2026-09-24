@@ -21,6 +21,18 @@ from research_analysis_layer.models.document_models import (
 from research_analysis_layer.parsed_payload import file_id_from_payload, parse_fields
 
 
+def coerce_optional_date(value: object) -> str | None:
+    """Normalize Postgres DATE / Python date values to ISO strings for JSON."""
+    if value is None:
+        return None
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        return isoformat()
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
 class ParsedDbClient:
     """Very small read-only client over Supabase PostgREST."""
 
@@ -509,7 +521,7 @@ class ParsedDbClient:
             id=int(row["id"]),
             document_name=row.get("document_name") or "",
             source=row.get("source"),
-            source_date=row.get("source_date"),
+            source_date=coerce_optional_date(row.get("source_date")),
             parsed_data=row.get("parsed_data") or {},
             document_title=row.get("document_title"),
             publisher=row.get("publisher"),
