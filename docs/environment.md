@@ -103,6 +103,42 @@ the macOS Keychain or a mode-600 secrets file, not from a `.env`. Its variables
 `RESEARCH_RELAY_PROTON_PASSWORD`, `RESEARCH_RELAY_HMAC_KEY`) already follow the
 prefix convention.
 
+### Pipeline ops (`research_pipeline_ops`) — mini cutover
+
+Parser and analyst construct `PipelineOpsClient.from_env(...)` (see
+`packages/research_parser/src/pipeline.py` and
+`packages/research_analysis_layer/main.py`). The shared `research_pipeline_ops`
+package is **not** vendored in this monorepo; mount or install it via
+`RESEARCH_PROCESSING_ROOT` (see root `.env.example`).
+
+Legacy deployments often still set `SUPABASE_URL` and `SUPABASE_KEY` at the
+repo root. When those are present, the ops client prefers Supabase PostgREST
+(`https://` is added if the host omits it). That path targets the hosted
+`pipeline_ops` schema and fails once you rely on local PostgreSQL (for example
+HTTP 406 when PostgREST exposes only `public`).
+
+For a **mini cutover** on local Nexus PostgreSQL:
+
+1. **Remove** `SUPABASE_URL` and `SUPABASE_KEY` from the repo-root `.env` (and
+   from package `.env` files if copied there). Nexus `.env.example` files no
+   longer document these vars; only legacy checkouts still carry them.
+2. **Apply** consolidated migrations, including pipeline ops:
+   `docker compose up -d postgres && ./migrations/apply.sh` (runs
+   `003_pipeline_ops_schema.sql` among others). Uses `NEXUS_DATABASE_URL` or
+   `RESEARCH_PARSER_DATABASE_URL`.
+3. **Point** pipeline ops at Postgres: set `NEXUS_DATABASE_URL` at the repo
+   root (same URL parser/analyst/dispatcher already use). Newer
+   `research_pipeline_ops` builds read `PIPELINE_OPS_DATABASE_URL` or
+   `NEXUS_DATABASE_URL` for direct writes to the `pipeline_ops` schema; this
+   repo does not define those names in `.env.example` — confirm against your
+   installed ops package (`PipelineOpsClient.from_env` docstring or
+   `client.py`).
+4. **Install** a Postgres-capable ops package on the analyst/ parser Python
+   path (Docker bind-mount at `../research_pipeline_ops` per package READMEs).
+
+Without Supabase vars and with migration 003 applied, stage events should land
+in `pipeline_ops.*` on the same database as parsed research and analyst tables.
+
 ## Adding a variable
 
 1. Decide whether it is shared (one value per service or account) or owned by one
