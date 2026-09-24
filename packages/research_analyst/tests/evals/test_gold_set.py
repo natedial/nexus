@@ -6,16 +6,17 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from research_analysis_layer.env import PACKAGE_ROOT
 from research_analysis_layer.evals.gold_set import (
-    DEFAULT_GOLDEN_PATH,
     GoldSetError,
     load_records,
     main,
     put_record,
     register_document,
+    resolve_gold_dir,
     summarize_record,
-    validate_record,
 )
 
 SPEECH = (
@@ -212,14 +213,43 @@ class GoldSetTest(unittest.TestCase):
             main(["--golden", str(self.golden), "show", "--document-id", "missing-doc"]), 1
         )
 
-    def test_repository_gold_records_validate(self) -> None:
-        for document_id, record in load_records(DEFAULT_GOLDEN_PATH).items():
-            text_path = DEFAULT_GOLDEN_PATH / record["document_path"]
-            text = text_path.read_text(encoding="utf-8") if text_path.is_file() else None
-            errors, incomplete = validate_record(record, document_text=text)
-            if record.get("status") == "final":
-                errors += incomplete
-            self.assertEqual(errors, [], document_id)
+    def test_gold_dir_inside_the_public_repo_is_refused(self) -> None:
+        inside = PACKAGE_ROOT / "evals" / "golden"
+        with self.assertRaises(GoldSetError) as caught:
+            resolve_gold_dir(inside)
+        self.assertIn("public", caught.exception.errors[0])
+        with self.assertRaises(GoldSetError):
+            register_document(
+                document_id="powell-2026-09-17",
+                text_file=self.text_file,
+                document={"speaker": "Jerome Powell", "doc_kind": "speech"},
+                golden_path=inside,
+            )
+        self.assertFalse((inside / "arguments.jsonl").exists())
+
+    def test_missing_gold_dir_setting_fails_with_instructions(self) -> None:
+        with mock.patch("research_analysis_layer.evals.gold_set.env", return_value=None):
+            with self.assertRaises(GoldSetError) as caught:
+                resolve_gold_dir()
+            self.assertIn("RESEARCH_ANALYST_GOLD_DIR", caught.exception.errors[0])
+            self.assertEqual(main(["list"]), 1)
+
+    def test_gold_dir_setting_is_used_when_no_flag_is_given(self) -> None:
+        with mock.patch(
+            "research_analysis_layer.evals.gold_set.env", return_value=str(self.golden)
+        ):
+            self.assertEqual(resolve_gold_dir(), self.golden.resolve())
+
+    def test_changed_source_text_is_caught(self) -> None:
+        record = self._register()
+        self.assertTrue(record["text_sha256"])
+        put_record(_record(), golden_path=self.golden)
+        stored = self.golden / "documents" / "powell-2026-09-17.md"
+        stored.write_text(SPEECH + "\nAn edit after labeling.\n", encoding="utf-8")
+        with self.assertRaises(GoldSetError) as caught:
+            put_record(_record(), golden_path=self.golden)
+        self.assertTrue(any("changed since" in message for message in caught.exception.errors))
+        self.assertEqual(main(["--golden", str(self.golden), "validate"]), 1)
 
 
 if __name__ == "__main__":

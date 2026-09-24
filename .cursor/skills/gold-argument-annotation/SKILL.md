@@ -11,6 +11,16 @@ Gold records train and grade the analyst's argument extraction. A record that re
 
 ## Where things live
 
+The `nexus` repository is public. Source texts and gold records contain verbatim research excerpts, so they live in a separate private gold repository, never in `nexus`. The command refuses to write anywhere inside the `nexus` checkout.
+
+`RESEARCH_ANALYST_GOLD_DIR` points at the private gold checkout, normally set in `packages/research_analyst/.env`:
+
+```bash
+RESEARCH_ANALYST_GOLD_DIR=~/devwork/nexus-gold
+```
+
+If the command reports that no gold directory is configured, stop and ask the user where their private gold checkout is. Do not create a gold directory inside `nexus` or anywhere the user has not named.
+
 All commands run from `packages/research_analyst`:
 
 ```bash
@@ -19,12 +29,12 @@ uv run python -m research_analysis_layer.evals.gold_set <command>
 # without uv: PYTHONPATH=src python3 -m research_analysis_layer.evals.gold_set <command>
 ```
 
-| Path | Contents |
+| Path in the gold checkout | Contents |
 |---|---|
-| `evals/golden/arguments.jsonl` | One gold record per document. Written only by the command. |
-| `evals/golden/documents/<document_id>.md` | The source text that evidence quotes are checked against. |
+| `arguments.jsonl` | One gold record per document. Written only by the command. |
+| `documents/<document_id>.md` | The source text that evidence quotes are checked against. Its hash is stored on the record, so an edit after labeling is caught. |
 
-Do not edit `arguments.jsonl` by hand, do not touch `annotations.jsonl` (a different, older eval), and do not write to Postgres.
+Do not edit `arguments.jsonl` by hand, do not touch `evals/golden/annotations.jsonl` in `nexus` (a different, older eval), and do not write to Postgres.
 
 ## 1. Get the text
 
@@ -36,7 +46,7 @@ Use the first source that works:
 
 Do not clean up or rewrite the text. Evidence quotes are matched against it.
 
-The document text is committed with the gold set. If it is bank research or anything else the user may not want in the repository, ask before registering it.
+Keep scratch files in `/tmp/gold/` or in the gold checkout, never inside `nexus`.
 
 ## 2. Register the document
 
@@ -154,12 +164,16 @@ Start from `show --document-id <id> --json` so the header from `register` carrie
 1. Run `show --document-id <id>` and walk the user through the whole readback: each claim with its role, reasoning, and evidence, then each link.
 2. When they confirm, set `"status": "final"` and `put` again. A final record must have at least one conclusion, a rationale on every claim, and evidence on every `evidenced` claim.
 3. Run `validate`. It must exit cleanly.
-4. If the user wants the record saved to the repository, commit only the two files:
+4. If the user wants the record saved, commit it in the private gold checkout, never in `nexus`:
 
 ```bash
-git add evals/golden/arguments.jsonl evals/golden/documents/<document_id>.md
+cd "$RESEARCH_ANALYST_GOLD_DIR"
+git add arguments.jsonl documents/<document_id>.md
 git commit -m "Add gold argument map for <document_id>"
+git push
 ```
+
+Before pushing, confirm with `git remote -v` that the remote is the user's private gold repository.
 
 ## Keep in mind
 
