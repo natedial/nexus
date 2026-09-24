@@ -31,6 +31,11 @@ _INSERT_OR_REPLACE_CONFLICTS: dict[str, str] = {
     "debate_verdicts": "(verdict_id)",
 }
 
+# Tables whose primary key is not `id`, or inserts that never read lastrowid.
+_INSERT_RETURNING_COLUMN: dict[str, str | None] = {
+    "analysis_documents": None,
+}
+
 
 class _PostgresRow(dict[str, Any]):
     """Dict row that also supports sqlite3.Row-style key access."""
@@ -94,6 +99,29 @@ def _translate_insert_or_replace(sql: str) -> str:
     return translated
 
 
+def _insert_table_name(sql: str) -> str | None:
+    match = re.search(
+        r"INSERT(?: OR REPLACE| OR IGNORE)? INTO\s+(\w+)",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
+def returning_column_for_insert(sql: str) -> str | None:
+    """Column name for INSERT RETURNING, or None when lastrowid is not needed."""
+    if not sql.lstrip().upper().startswith("INSERT"):
+        return None
+    if "RETURNING" in sql.upper():
+        return None
+    table = _insert_table_name(sql)
+    if table is None:
+        return "id"
+    if table in _INSERT_RETURNING_COLUMN:
+        return _INSERT_RETURNING_COLUMN[table]
+    return "id"
+
+
 def adapt_sql(sql: str) -> str:
     translated = _translate_insert_or_replace(sql)
     translated = _translate_insert_or_ignore(translated)
@@ -108,15 +136,15 @@ class PostgresCompatConnection:
 
     def execute(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> _PostgresCursor:
         adapted = adapt_sql(sql)
-        wants_id = adapted.lstrip().upper().startswith("INSERT") and "RETURNING" not in adapted.upper()
-        if wants_id:
-            adapted = adapted.rstrip().rstrip(";") + " RETURNING id"
+        returning_column = returning_column_for_insert(adapted)
+        if returning_column is not None:
+            adapted = adapted.rstrip().rstrip(";") + f" RETURNING {returning_column}"
         cursor = self._conn.execute(adapted, params)
         lastrowid = None
-        if wants_id:
+        if returning_column is not None:
             row = cursor.fetchone()
             if row is not None:
-                lastrowid = int(row["id"])
+                lastrowid = int(row[returning_column])
         return _PostgresCursor(cursor, lastrowid)
 
     def executescript(self, script: str) -> None:
