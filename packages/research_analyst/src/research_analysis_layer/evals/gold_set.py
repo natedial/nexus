@@ -1,8 +1,10 @@
 """Gold argument maps written from a co-reading session.
 
-One record per document in `evals/golden/arguments.jsonl`, with the source text
-in `evals/golden/documents/`. Records carry claim roles and author-stated links
-between claims, which the older `annotations.jsonl` output eval does not.
+Records and source texts live in a private gold directory outside this public
+repository, set by `RESEARCH_ANALYST_GOLD_DIR` or `--golden`: one record per
+document in `arguments.jsonl`, with source text in `documents/`. Records carry
+claim roles and author-stated links between claims, which the older
+`annotations.jsonl` output eval does not.
 
     python -m research_analysis_layer.evals.gold_set register --document-id ... --text-file ...
     python -m research_analysis_layer.evals.gold_set put --file draft.json
@@ -14,6 +16,7 @@ between claims, which the older `annotations.jsonl` output eval does not.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -22,10 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from research_analysis_layer.env import REPO_ROOT, env
+
 SCHEMA_VERSION = 1
 ARGUMENTS_FILENAME = "arguments.jsonl"
 DOCUMENTS_DIRNAME = "documents"
-DEFAULT_GOLDEN_PATH = Path(__file__).resolve().parents[3] / "evals" / "golden"
+GOLD_DIR_SETTING = "RESEARCH_ANALYST_GOLD_DIR"
 
 DOC_KINDS = (
     "note",
@@ -68,6 +73,35 @@ class GoldSetError(ValueError):
     def __init__(self, errors: list[str]):
         super().__init__("; ".join(errors))
         self.errors = errors
+
+
+def resolve_gold_dir(explicit: Path | None = None) -> Path:
+    """Private gold directory. Source texts and quotes must not land in the public repo."""
+    configured = explicit
+    if configured is None:
+        value = env("GOLD_DIR", legacy=())
+        if value:
+            configured = Path(value).expanduser()
+    if configured is None:
+        raise GoldSetError(
+            [
+                f"no gold directory configured; set {GOLD_DIR_SETTING} to your private "
+                "gold checkout or pass --golden"
+            ]
+        )
+    resolved = configured.resolve()
+    if resolved == REPO_ROOT.resolve() or REPO_ROOT.resolve() in resolved.parents:
+        raise GoldSetError(
+            [
+                f"{resolved} is inside the nexus checkout, which is public; "
+                "use a private directory outside it"
+            ]
+        )
+    return resolved
+
+
+def text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _match_text(value: str) -> str:
@@ -123,6 +157,10 @@ def validate_record(
 
     if document_text is None:
         errors.append(f"document text not found at {record.get('document_path')}")
+    elif record.get("text_sha256") and record["text_sha256"] != text_sha256(document_text):
+        errors.append(
+            "document text changed since it was registered; evidence quotes may no longer match"
+        )
     haystack = _match_text(document_text or "")
 
     claims = record.get("claims")
@@ -276,7 +314,7 @@ def _claim_sort_key(claim_id: str) -> tuple[int, str]:
     return (int(digits), claim_id) if digits.isdigit() else (sys.maxsize, claim_id)
 
 
-def load_records(golden_path: Path = DEFAULT_GOLDEN_PATH) -> dict[str, dict[str, Any]]:
+def load_records(golden_path: Path) -> dict[str, dict[str, Any]]:
     path = golden_path / ARGUMENTS_FILENAME
     if not path.exists():
         return {}
@@ -307,11 +345,15 @@ def _document_text(golden_path: Path, record: dict[str, Any]) -> str | None:
 def put_record(
     record: dict[str, Any],
     *,
-    golden_path: Path = DEFAULT_GOLDEN_PATH,
+    golden_path: Path,
     now: datetime | None = None,
 ) -> list[str]:
     """Validate and upsert one record by document_id. Returns completeness warnings."""
+    golden_path = resolve_gold_dir(golden_path)
     normalized = normalize_record(record)
+    existing = load_records(golden_path).get(normalized.get("document_id"))
+    if existing and existing.get("text_sha256") and not normalized.get("text_sha256"):
+        normalized["text_sha256"] = existing["text_sha256"]
     errors, incomplete = validate_record(
         normalized, document_text=_document_text(golden_path, normalized)
     )
@@ -333,10 +375,11 @@ def register_document(
     text_file: Path,
     document: dict[str, Any],
     annotator: str = "",
-    golden_path: Path = DEFAULT_GOLDEN_PATH,
+    golden_path: Path,
     replace_text: bool = False,
 ) -> dict[str, Any]:
-    """Copy the source text into the gold set and start a draft record."""
+    """Copy the source text into the private gold set and start a draft record."""
+    golden_path = resolve_gold_dir(golden_path)
     if not _DOCUMENT_ID_RE.match(document_id):
         raise GoldSetError(["document_id must be lowercase letters, digits, '.', '_' or '-'"])
     if not text_file.is_file():
@@ -356,6 +399,7 @@ def register_document(
     record = {
         "document_id": document_id,
         "document_path": f"{DOCUMENTS_DIRNAME}/{document_id}.md",
+        "text_sha256": text_sha256(target.read_text(encoding="utf-8")),
         "document": {**existing.get("document", {}), **document},
         "status": existing.get("status", "draft"),
         "annotator": annotator or existing.get("annotator", ""),
@@ -402,7 +446,12 @@ def summarize_record(record: dict[str, Any]) -> str:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="gold_set", description=__doc__.splitlines()[0])
-    parser.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN_PATH)
+    parser.add_argument(
+        "--golden",
+        type=Path,
+        default=None,
+        help=f"private gold directory (default: {GOLD_DIR_SETTING})",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     register = sub.add_parser("register", help="Copy source text in and start a draft")
@@ -431,8 +480,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    golden: Path = args.golden
     try:
+        golden = resolve_gold_dir(args.golden)
         if args.command == "register":
             document = {
                 key: value
