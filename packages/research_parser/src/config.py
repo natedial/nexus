@@ -8,7 +8,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ENV_PREFIX = "RESEARCH_PARSER_"
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = PACKAGE_ROOT.parents[1]
+REPO_ROOT = (
+    PACKAGE_ROOT.parent.parent
+    if PACKAGE_ROOT.parent.name == "packages"
+    else PACKAGE_ROOT
+)
 
 
 def _env(name: str) -> AliasChoices:
