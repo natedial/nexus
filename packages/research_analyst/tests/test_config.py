@@ -232,6 +232,50 @@ class ConfigTest(unittest.TestCase):
             )
         )
 
+    def test_nexus_database_url_promotes_analysis_store_to_postgres(self) -> None:
+        env = {
+            **_NEXUS_ENV,
+        }
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("RESEARCH_ANALYST_ANALYSIS_DB_URL", None)
+            os.environ.pop("ANALYSIS_DB_URL", None)
+            settings = Settings.from_env()
+
+        self.assertTrue(settings.uses_postgres)
+        self.assertEqual(
+            settings.analysis_db_url,
+            "postgresql://nexus:nexus@localhost:5432/nexus",
+        )
+        with self.assertRaises(ValueError):
+            _ = settings.analysis_db_path
+
+    def test_pipeline_ops_spool_path_uses_data_dir_for_postgres(self) -> None:
+        env = {
+            **_NEXUS_ENV,
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.from_env()
+
+        self.assertEqual(
+            settings.pipeline_ops_spool_path(),
+            Path("data") / "pipeline_ops_spool.db",
+        )
+
+    def test_pipeline_ops_spool_path_uses_analysis_db_parent_for_sqlite(self) -> None:
+        env = {
+            "ANALYSIS_DB_URL": "sqlite:///tmp/custom/analysis.db",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("NEXUS_DATABASE_URL", None)
+            os.environ.pop("RESEARCH_ANALYST_DATABASE_URL", None)
+            settings = Settings.from_env()
+
+        self.assertFalse(settings.uses_postgres)
+        self.assertEqual(
+            settings.pipeline_ops_spool_path(),
+            Path("tmp/custom") / "pipeline_ops_spool.db",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

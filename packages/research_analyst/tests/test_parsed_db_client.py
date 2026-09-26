@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 
 from research_analysis_layer.db.calendar_db_client import CalendarDbClient
 from research_analysis_layer.db.parsed_db_client import ParsedDbClient
@@ -19,6 +20,18 @@ class RecordingParsedDbClient(ParsedDbClient):
 
 
 class ParsedDbClientTest(unittest.TestCase):
+    def test_document_from_row_coerces_source_date_to_iso_string(self) -> None:
+        document = ParsedDbClient._document_from_row(
+            {
+                "id": 42,
+                "document_name": "rates-outlook.pdf",
+                "source": "Example Bank",
+                "source_date": date(2026, 3, 27),
+                "parsed_data": {},
+            }
+        )
+        self.assertEqual(document.source_date, "2026-03-27")
+
     def test_search_documents_uses_combined_filters(self) -> None:
         client = RecordingParsedDbClient()
         client.search_documents(
