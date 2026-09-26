@@ -24,8 +24,9 @@ services:
       # Persist SQLite state database
       - ./data:/app/data
 
-      # Mount Google service account credentials (read-only)
-      - ./credentials:/app/credentials:ro
+      # Repo-root credentials (read-only). Override host dir via GOOGLE_CREDENTIALS_HOST_DIR
+      # in this package's .env or the shell — Compose does not read pydantic-loaded ../../.env.
+      - ${GOOGLE_CREDENTIALS_HOST_DIR:-../../credentials}:/app/credentials:ro
 
       # Mount config (boilerplate rules)
       - ./config:/app/config:ro
@@ -69,7 +70,7 @@ services:
       - RESEARCH_PROCESSING_ROOT=/app
     volumes:
       - ./data:/app/data
-      - ./credentials:/app/credentials:ro
+      - ${GOOGLE_CREDENTIALS_HOST_DIR:-../../credentials}:/app/credentials:ro
       - ./config:/app/config:ro
       - ../research_pipeline_ops:/app/research_pipeline_ops:ro
       - ./src:/app/src:ro  # Mount source for changes

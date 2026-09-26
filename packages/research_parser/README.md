@@ -172,8 +172,11 @@ research_parser/
 
 ### Build and Run
 
+Docker binds the repo-root `credentials/` directory by default (not a package-local
+`credentials/` folder).
+
 ```bash
-mkdir -p data credentials
+mkdir -p data
 docker compose up -d
 ```
 
@@ -192,7 +195,7 @@ services:
         required: false
     volumes:
       - ./data:/app/data              # SQLite state
-      - ./credentials:/app/credentials:ro  # Google service account
+      - ${GOOGLE_CREDENTIALS_HOST_DIR:-../../credentials}:/app/credentials:ro
       - ./config:/app/config:ro       # Boilerplate rules / optional config
 ```
 

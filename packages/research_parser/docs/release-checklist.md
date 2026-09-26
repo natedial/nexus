@@ -32,7 +32,7 @@ Use this checklist to validate quality before deploying a new branch to producti
 ## Deployment Readiness
 - `docker compose build`
 - `docker compose up -d` and verify logs.
-- Confirm mounted paths exist: `data/`, `credentials/`, `config/`.
+- Confirm mounted paths exist: package `data/`, repo-root `credentials/` (Docker default), `config/`.
 
 ## Operational Readiness
 - Verify logs via `docker compose logs -f`.
