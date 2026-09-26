@@ -80,6 +80,8 @@ Run validation:
 pytest tests/evals/test_golden_dataset.py -v
 ```
 
+Gold argument maps with claim roles and links between claims live in a private gold repository set by `RESEARCH_ANALYST_GOLD_DIR`, never in this public repository. They are written only through `python -m research_analysis_layer.evals.gold_set`, usually while co-reading a document with the user. Follow [`.cursor/skills/gold-argument-annotation/SKILL.md`](../../.cursor/skills/gold-argument-annotation/SKILL.md).
+
 ### CLI Commands
 
 Run eval on golden set:

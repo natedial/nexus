@@ -1,5 +1,7 @@
 from src.parser import BlockType, TextBlock
 from src.research_memory import (
+    ResearchArtifactContext,
+    build_memory_records,
     build_paragraph_spans,
     build_retrieval_chunks,
     build_spans_from_blocks,
@@ -112,3 +114,33 @@ def test_build_spans_from_blocks_is_stable_for_same_input():
     second = build_spans_from_blocks(blocks, document_hash="doc-hash")
 
     assert [span.span_key for span in first] == [span.span_key for span in second]
+
+
+def test_memory_records_add_a_figure_span_without_reusing_the_ordinal_id():
+    context = ResearchArtifactContext(
+        blocks=[TextBlock(block_type=BlockType.PARAGRAPH, text="Body text.", page=1)],
+        figure_manifest=[
+            {
+                "figure_id": "fig_001",
+                "figure_key": "figure:abcdef1234567890",
+                "page": 4,
+                "bbox": [0.1, 0.2, 0.8, 0.5],
+                "caption_text": "Fed dots",
+                "content_hash": "abcdef1234567890ffff",
+            }
+        ],
+    )
+    records = build_memory_records(
+        research_id=7,
+        document_hash="doc-hash",
+        clean_text="Body text.",
+        context=context,
+    )
+    figure_spans = [span for span in records["spans"] if span["span_type"] == "figure"]
+    assert len(figure_spans) == 1
+    span = figure_spans[0]
+    assert span["text"] == "Fed dots"
+    assert span["page_start"] == 4
+    assert span["metadata"]["figure_key"] == "figure:abcdef1234567890"
+    assert span["span_key"] != "figure:abcdef1234567890"
+    assert span["span_key"] != "fig_001"

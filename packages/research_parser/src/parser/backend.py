@@ -36,6 +36,7 @@ class FigureRecord:
     caption_text: str | None = None
     image_path: str | None = None
     content_hash: str | None = None
+    figure_key: str | None = None
 
 
 @dataclass
