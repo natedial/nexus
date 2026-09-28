@@ -175,6 +175,15 @@ class Settings:
     promotion_gate_floor_divergence_grounded: float = 0.0
     promotion_gate_floor_divergence_attributed: float = 0.0
     promotion_gate_floor_consensus_multi_source: float = 0.0
+    # Shadow decision-model providers (eval/CLI only in PR2).
+    decision_model_provider: str = "fake"
+    jev_enabled: bool = False
+    jev_api_key: str | None = None
+    jev_base_url: str = "https://api.typesafe.ai"
+    jev_model: str = "jev-1.13.0"
+    jev_timeout_seconds: int = 30
+    jev_max_retries: int = 2
+    jev_live_tests: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -322,6 +331,16 @@ class Settings:
             promotion_gate_floor_consensus_multi_source=_env_float(
                 "PROMOTION_GATE_FLOOR_CONSENSUS_MULTI_SOURCE", 0.0
             ),
+            decision_model_provider=(
+                env("DECISION_MODEL_PROVIDER", "fake") or "fake"
+            ).strip().lower(),
+            jev_enabled=_env_bool("JEV_ENABLED", False),
+            jev_api_key=env("JEV_API_KEY") or None,
+            jev_base_url=env("JEV_BASE_URL", "https://api.typesafe.ai"),
+            jev_model=env("JEV_MODEL", "jev-1.13.0") or "jev-1.13.0",
+            jev_timeout_seconds=_env_int("JEV_TIMEOUT_SECONDS", 30),
+            jev_max_retries=_env_int("JEV_MAX_RETRIES", 2),
+            jev_live_tests=_env_bool("JEV_LIVE", False),
         )
 
     @property
@@ -495,6 +514,35 @@ class Settings:
         ):
             if value < 0:
                 errors.append(f"invalid {label}: must be >= 0, received {value}")
+        provider = (self.decision_model_provider or "fake").strip().lower()
+        if provider not in {"fake", "jev"}:
+            errors.append(
+                "invalid decision_model_provider: expected fake or jev, "
+                f"received {self.decision_model_provider!r}"
+            )
+        if self.jev_timeout_seconds <= 0:
+            errors.append(
+                "invalid jev_timeout_seconds: must be positive, "
+                f"received {self.jev_timeout_seconds}"
+            )
+        if self.jev_max_retries < 0:
+            errors.append(
+                "invalid jev_max_retries: must be >= 0, "
+                f"received {self.jev_max_retries}"
+            )
+        if not (self.jev_model or "").strip():
+            errors.append("invalid jev_model: must not be empty")
+        if provider == "jev":
+            if not self.jev_enabled:
+                errors.append(
+                    "decision_model_provider=jev requires "
+                    f"{ENV_PREFIX}JEV_ENABLED=true"
+                )
+            if not (self.jev_api_key or "").strip():
+                errors.append(
+                    "decision_model_provider=jev requires "
+                    f"{ENV_PREFIX}JEV_API_KEY"
+                )
         return errors
 
     @property
