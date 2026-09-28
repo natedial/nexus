@@ -10,6 +10,8 @@ from .consensus_cluster import ConsensusClusterer
 from .consensus_shift import ConsensusShiftDetector
 from .debate_ranker import DebateRanker
 from .debate_session_builder import DebateSessionBuilder
+from .decision_model import DecisionModel
+from .fake_decision_model import FakeDecisionModel
 from .evidence_builder import EvidenceBuilder
 from .evidence_referent_resolver import EvidenceReferentResolver
 from .forecast_extractor import ForecastExtractor
@@ -42,6 +44,8 @@ __all__ = [
     "ConsensusShiftDetector",
     "DebateRanker",
     "DebateSessionBuilder",
+    "DecisionModel",
+    "FakeDecisionModel",
     "EvidenceBuilder",
     "EvidenceReferentResolver",
     "ForecastExtractor",

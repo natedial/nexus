@@ -1,0 +1,119 @@
+{
+  "document_key": "decision-shadow-fixture-v1",
+  "document_hash": "fixture-sha256-decision-shadow-v1",
+  "shared_context": "Macro research note excerpt used only for offline shadow-classification tests.",
+  "units": [
+    {
+      "unit_id": "chunk-1:assertion-1",
+      "chunk_order": 1,
+      "assertion_order": 1,
+      "assertion_type": "forecast",
+      "text": "We expect the Fed to deliver two cuts in the second half of 2026.",
+      "section_context": "Outlook",
+      "provenance": {
+        "assertion_key": "chunk-1:assertion-1",
+        "chunk_key": "chunk-1",
+        "span_key": "span-outlook-1"
+      },
+      "case": "clear_forecast"
+    },
+    {
+      "unit_id": "chunk-1:assertion-2",
+      "chunk_order": 1,
+      "assertion_order": 2,
+      "assertion_type": "observation",
+      "text": "Core PCE printed 2.4% year over year in the latest release.",
+      "section_context": "Data",
+      "provenance": {
+        "assertion_key": "chunk-1:assertion-2",
+        "chunk_key": "chunk-1",
+        "span_key": "span-data-1"
+      },
+      "case": "evidence_heavy"
+    },
+    {
+      "unit_id": "chunk-2:assertion-1",
+      "chunk_order": 2,
+      "assertion_order": 1,
+      "assertion_type": "causal_claim",
+      "text": "Sticky services inflation will delay cuts and therefore keep the long end under pressure.",
+      "section_context": "Rates",
+      "provenance": {
+        "assertion_key": "chunk-2:assertion-1",
+        "chunk_key": "chunk-2",
+        "span_key": "span-rates-1"
+      },
+      "case": "compound_causal_forecast_market"
+    },
+    {
+      "unit_id": "chunk-2:assertion-2",
+      "chunk_order": 2,
+      "assertion_order": 2,
+      "assertion_type": "risk_condition",
+      "text": "If labor demand re-accelerates, the disinflation path could stall.",
+      "section_context": "Risks",
+      "provenance": {
+        "assertion_key": "chunk-2:assertion-2",
+        "chunk_key": "chunk-2",
+        "span_key": "span-risks-1"
+      },
+      "case": "qualified_risk"
+    },
+    {
+      "unit_id": "chunk-3:assertion-1",
+      "chunk_order": 3,
+      "assertion_order": 1,
+      "assertion_type": "open_question",
+      "text": "How durable is the recent cooling in shelter inflation?",
+      "section_context": "Open questions",
+      "provenance": {
+        "assertion_key": "chunk-3:assertion-1",
+        "chunk_key": "chunk-3",
+        "span_key": "span-q-1"
+      },
+      "case": "clear_question"
+    },
+    {
+      "unit_id": "chunk-3:assertion-2",
+      "chunk_order": 3,
+      "assertion_order": 2,
+      "assertion_type": "trade_claim",
+      "text": "We recommend overweighting front-end Treasuries versus the long bond.",
+      "section_context": "Positioning",
+      "provenance": {
+        "assertion_key": "chunk-3:assertion-2",
+        "chunk_key": "chunk-3",
+        "span_key": "span-pos-1"
+      },
+      "case": "recommendation_comparative"
+    },
+    {
+      "unit_id": "chunk-4:assertion-1",
+      "chunk_order": 4,
+      "assertion_order": 1,
+      "assertion_type": "observation",
+      "text": "This section summarizes the sample construction and data sources used in the study.",
+      "section_context": "Methodology",
+      "provenance": {
+        "assertion_key": "chunk-4:assertion-1",
+        "chunk_key": "chunk-4",
+        "span_key": "span-method-1"
+      },
+      "case": "non_substantive_background"
+    },
+    {
+      "unit_id": "chunk-4:assertion-2",
+      "chunk_order": 4,
+      "assertion_order": 2,
+      "assertion_type": "interpretation",
+      "text": "The balance of risks looks mixed amid still-elevated policy uncertainty.",
+      "section_context": "Assessment",
+      "provenance": {
+        "assertion_key": "chunk-4:assertion-2",
+        "chunk_key": "chunk-4",
+        "span_key": "span-assess-1"
+      },
+      "case": "ambiguous_mixed"
+    }
+  ]
+}

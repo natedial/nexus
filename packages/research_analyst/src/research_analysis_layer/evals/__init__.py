@@ -59,6 +59,23 @@ from research_analysis_layer.evals.training_capture import (
     TrainingCaptureManager,
 )
 
+from research_analysis_layer.evals.decision_baseline import (
+    CHOICE_BASELINE_MAP,
+    SUBTYPE_BASELINE_MAP,
+    map_choice_baseline,
+    map_subtype_baseline,
+)
+from research_analysis_layer.evals.decision_classifier import (
+    ShadowDecisionClassifier,
+    assertion_unit_id,
+)
+from research_analysis_layer.evals.decision_metrics import (
+    ClassificationMetricsReport,
+    GoldUnitLabel,
+    evaluate_shadow_artifact,
+    load_gold_labels,
+)
+
 __all__ = [
     "Alert",
     "AlertHandler",
@@ -95,4 +112,14 @@ __all__ = [
     "CAPTURE_THRESHOLD",
     "TrainingCapture",
     "TrainingCaptureManager",
+    "CHOICE_BASELINE_MAP",
+    "SUBTYPE_BASELINE_MAP",
+    "map_choice_baseline",
+    "map_subtype_baseline",
+    "ShadowDecisionClassifier",
+    "assertion_unit_id",
+    "ClassificationMetricsReport",
+    "GoldUnitLabel",
+    "evaluate_shadow_artifact",
+    "load_gold_labels",
 ]
