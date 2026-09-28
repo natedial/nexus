@@ -31,4 +31,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "jev_live: optional live Jev API tests (requires RESEARCH_ANALYST_JEV_LIVE=1 and credentials)",
 ]

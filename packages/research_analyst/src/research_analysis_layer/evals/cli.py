@@ -155,8 +155,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         type=str,
         default="fake",
-        choices=["fake"],
-        help="Decision-model provider (PR1 supports fake only)",
+        choices=["fake", "jev"],
+        help="Decision-model provider (fake default; jev requires credentials)",
     )
     shadow_parser.add_argument(
         "--batch-size",
@@ -366,7 +366,7 @@ def cmd_rubric_report(args: argparse.Namespace) -> int:
 
 
 def cmd_shadow_classify(args: argparse.Namespace) -> int:
-    """Run offline shadow classification with the fake decision model."""
+    """Run offline shadow classification via fake or configured Jev provider."""
     from research_analysis_layer.evals.decision_artifacts import write_shadow_artifact
     from research_analysis_layer.evals.decision_classifier import ShadowDecisionClassifier
     from research_analysis_layer.evals.decision_fixture import (
@@ -378,7 +378,10 @@ def cmd_shadow_classify(args: argparse.Namespace) -> int:
         load_fixture_units,
     )
     from research_analysis_layer.evals.decision_metrics import evaluate_shadow_artifact
-    from research_analysis_layer.services.fake_decision_model import FakeDecisionModel
+    from research_analysis_layer.services.decision_model_factory import (
+        DecisionModelConfigError,
+        build_decision_model,
+    )
 
     fixture_path = args.fixture or fixture_dir()
     units_path = fixture_path / "units.json"
@@ -390,17 +393,16 @@ def cmd_shadow_classify(args: argparse.Namespace) -> int:
         )
         return 1
 
-    if args.provider != "fake":
-        print(
-            "Error: PR1 only supports --provider fake; Jev lands in PR2",
-            file=sys.stderr,
-        )
+    settings = Settings.from_env()
+    try:
+        model = build_decision_model(settings, provider=args.provider)
+    except DecisionModelConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     payload = load_fixture_units(units_path)
     assertions = fixture_assertions(units_path)
     labels = load_fixture_labels(labels_path)
-    model = FakeDecisionModel()
     classifier = ShadowDecisionClassifier(model, batch_size=args.batch_size)
     artifact = classifier.classify_assertions(
         assertions,
@@ -421,7 +423,7 @@ def cmd_shadow_classify(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
 
-    print("=== Shadow classification (fake provider) ===")
+    print(f"=== Shadow classification ({args.provider} provider) ===")
     print(f"Units: {report.unit_count}")
     print(f"Choice accuracy: {report.choice_accuracy}")
     print(f"Choice macro-F1: {report.choice_macro_f1}")

@@ -11,7 +11,12 @@ from .consensus_shift import ConsensusShiftDetector
 from .debate_ranker import DebateRanker
 from .debate_session_builder import DebateSessionBuilder
 from .decision_model import DecisionModel
+from .decision_model_factory import (
+    DecisionModelConfigError,
+    build_decision_model,
+)
 from .fake_decision_model import FakeDecisionModel
+from .jev_decision_model import JevDecisionModel
 from .evidence_builder import EvidenceBuilder
 from .evidence_referent_resolver import EvidenceReferentResolver
 from .forecast_extractor import ForecastExtractor
@@ -45,7 +50,10 @@ __all__ = [
     "DebateRanker",
     "DebateSessionBuilder",
     "DecisionModel",
+    "DecisionModelConfigError",
     "FakeDecisionModel",
+    "JevDecisionModel",
+    "build_decision_model",
     "EvidenceBuilder",
     "EvidenceReferentResolver",
     "ForecastExtractor",
