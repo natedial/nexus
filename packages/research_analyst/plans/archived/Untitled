@@ -1,0 +1,9 @@
+spool_dir = (
+    settings.analysis_db_path.parent
+    if not settings.uses_postgres
+    else Path("data")
+)
+ops = PipelineOpsClient.from_env(
+    default_spool_db_path=str(spool_dir / "pipeline_ops_spool.db"),
+    emitted_by="research_analyst",
+)
