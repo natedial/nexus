@@ -1,0 +1,154 @@
+[
+  {
+    "unit_id": "chunk-1:assertion-1",
+    "assertion_type": "forecast",
+    "statement_type": "assertion",
+    "noul_labels": {
+      "is_observation": false,
+      "is_forecast": true,
+      "is_causal": false,
+      "is_market_impact": false,
+      "is_policy_claim": true,
+      "is_risk_or_scenario": false,
+      "is_comparative": false,
+      "is_trade_or_action": false,
+      "contains_verifiable_evidence": false,
+      "contains_reasoning_bridge": false,
+      "is_substantive_author_claim": true
+    },
+    "notes": "clear forecast"
+  },
+  {
+    "unit_id": "chunk-1:assertion-2",
+    "assertion_type": "observation",
+    "statement_type": "evidence_report",
+    "noul_labels": {
+      "is_observation": true,
+      "is_forecast": false,
+      "is_causal": false,
+      "is_market_impact": false,
+      "is_policy_claim": false,
+      "is_risk_or_scenario": false,
+      "is_comparative": false,
+      "is_trade_or_action": false,
+      "contains_verifiable_evidence": true,
+      "contains_reasoning_bridge": false,
+      "is_substantive_author_claim": false
+    },
+    "notes": "evidence-heavy print; Choice gold is evidence_report while deterministic baseline maps observation->assertion"
+  },
+  {
+    "unit_id": "chunk-2:assertion-1",
+    "assertion_type": "causal_claim",
+    "statement_type": "assertion",
+    "noul_labels": {
+      "is_observation": false,
+      "is_forecast": true,
+      "is_causal": true,
+      "is_market_impact": true,
+      "is_policy_claim": true,
+      "is_risk_or_scenario": false,
+      "is_comparative": false,
+      "is_trade_or_action": false,
+      "contains_verifiable_evidence": false,
+      "contains_reasoning_bridge": true,
+      "is_substantive_author_claim": true
+    },
+    "notes": "compound claim"
+  },
+  {
+    "unit_id": "chunk-2:assertion-2",
+    "assertion_type": "risk_condition",
+    "statement_type": "assertion",
+    "noul_labels": {
+      "is_observation": false,
+      "is_forecast": true,
+      "is_causal": false,
+      "is_market_impact": false,
+      "is_policy_claim": false,
+      "is_risk_or_scenario": true,
+      "is_comparative": false,
+      "is_trade_or_action": false,
+      "contains_verifiable_evidence": false,
+      "contains_reasoning_bridge": false,
+      "is_substantive_author_claim": true
+    },
+    "notes": "qualified/conditional risk"
+  },
+  {
+    "unit_id": "chunk-3:assertion-1",
+    "assertion_type": "open_question",
+    "statement_type": "question",
+    "noul_labels": {
+      "is_observation": false,
+      "is_forecast": false,
+      "is_causal": false,
+      "is_market_impact": false,
+      "is_policy_claim": false,
+      "is_risk_or_scenario": false,
+      "is_comparative": false,
+      "is_trade_or_action": false,
+      "contains_verifiable_evidence": false,
+      "contains_reasoning_bridge": false,
+      "is_substantive_author_claim": true
+    },
+    "notes": "clear question"
+  },
+  {
+    "unit_id": "chunk-3:assertion-2",
+    "assertion_type": "trade_claim",
+    "statement_type": "recommendation",
+    "noul_labels": {
+      "is_observation": false,
+      "is_forecast": false,
+      "is_causal": false,
+      "is_market_impact": false,
+      "is_policy_claim": false,
+      "is_risk_or_scenario": false,
+      "is_comparative": true,
+      "is_trade_or_action": true,
+      "contains_verifiable_evidence": false,
+      "contains_reasoning_bridge": false,
+      "is_substantive_author_claim": true
+    },
+    "notes": "recommendation with comparative framing"
+  },
+  {
+    "unit_id": "chunk-4:assertion-1",
+    "assertion_type": "observation",
+    "statement_type": "background_methodology",
+    "noul_labels": {
+      "is_observation": false,
+      "is_forecast": false,
+      "is_causal": false,
+      "is_market_impact": false,
+      "is_policy_claim": false,
+      "is_risk_or_scenario": false,
+      "is_comparative": false,
+      "is_trade_or_action": false,
+      "contains_verifiable_evidence": false,
+      "contains_reasoning_bridge": false,
+      "is_substantive_author_claim": false
+    },
+    "notes": "non-substantive methodology prose; Choice gold unmapped from deterministic baseline"
+  },
+  {
+    "unit_id": "chunk-4:assertion-2",
+    "assertion_type": "interpretation",
+    "statement_type": "other_or_unclear",
+    "noul_labels": {
+      "is_observation": false,
+      "is_forecast": false,
+      "is_causal": false,
+      "is_market_impact": false,
+      "is_policy_claim": true,
+      "is_risk_or_scenario": true,
+      "is_comparative": false,
+      "is_trade_or_action": false,
+      "contains_verifiable_evidence": false,
+      "contains_reasoning_bridge": false,
+      "is_substantive_author_claim": true
+    },
+    "notes": "ambiguous mixed assessment"
+  }
+]

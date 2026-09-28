@@ -18,6 +18,19 @@ from .agent_outputs import (
     ShortTimeHorizonInsight,
 )
 from .assertion_models import AssertionDraft
+from .decision_models import (
+    ARTIFACT_SCHEMA_VERSION,
+    QUESTION_SET_VERSION,
+    AnswerDistribution,
+    DecisionBatch,
+    DecisionBatchResult,
+    DecisionModelMetadata,
+    DecisionQuestion,
+    DecisionResult,
+    DecisionUnit,
+    ShadowClassificationArtifact,
+    UnitClassificationRecord,
+)
 from .chunk_models import AnalysisChunkDraft, EvidenceUnitDraft
 from .document_models import (
     HydratedParsedDocument,
@@ -68,6 +81,17 @@ __all__ = [
     "AgentInputPayload",
     "AgentInputTheme",
     "AssertionDraft",
+    "ARTIFACT_SCHEMA_VERSION",
+    "QUESTION_SET_VERSION",
+    "AnswerDistribution",
+    "DecisionBatch",
+    "DecisionBatchResult",
+    "DecisionModelMetadata",
+    "DecisionQuestion",
+    "DecisionResult",
+    "DecisionUnit",
+    "ShadowClassificationArtifact",
+    "UnitClassificationRecord",
     "DeterministicAnalysisPayload",
     "EdgeResolution",
     "EvidenceUnitDraft",

@@ -132,6 +132,39 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model for ArgumentJudge (default: gpt-5-mini)",
     )
 
+    shadow_parser = subparsers.add_parser(
+        "shadow-classify",
+        help=(
+            "Run provider-neutral shadow decision classification on the "
+            "hand-authored fixture (fake provider only in PR1)"
+        ),
+    )
+    shadow_parser.add_argument(
+        "--fixture",
+        type=Path,
+        default=None,
+        help="Fixture directory containing units.json and labels.json",
+    )
+    shadow_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("evals/results"),
+        help="Output directory for shadow artifacts and metrics",
+    )
+    shadow_parser.add_argument(
+        "--provider",
+        type=str,
+        default="fake",
+        choices=["fake"],
+        help="Decision-model provider (PR1 supports fake only)",
+    )
+    shadow_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=4,
+        help="Max assertion units per decision batch",
+    )
+
     return parser
 
 
@@ -332,6 +365,73 @@ def cmd_rubric_report(args: argparse.Namespace) -> int:
     return 1 if payload.get("regressions") else 0
 
 
+def cmd_shadow_classify(args: argparse.Namespace) -> int:
+    """Run offline shadow classification with the fake decision model."""
+    from research_analysis_layer.evals.decision_artifacts import write_shadow_artifact
+    from research_analysis_layer.evals.decision_classifier import ShadowDecisionClassifier
+    from research_analysis_layer.evals.decision_fixture import (
+        fixture_assertions,
+        fixture_dir,
+        fixture_provenance,
+        fixture_section_context,
+        load_fixture_labels,
+        load_fixture_units,
+    )
+    from research_analysis_layer.evals.decision_metrics import evaluate_shadow_artifact
+    from research_analysis_layer.services.fake_decision_model import FakeDecisionModel
+
+    fixture_path = args.fixture or fixture_dir()
+    units_path = fixture_path / "units.json"
+    labels_path = fixture_path / "labels.json"
+    if not units_path.exists() or not labels_path.exists():
+        print(
+            f"Error: fixture requires units.json and labels.json under {fixture_path}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.provider != "fake":
+        print(
+            "Error: PR1 only supports --provider fake; Jev lands in PR2",
+            file=sys.stderr,
+        )
+        return 1
+
+    payload = load_fixture_units(units_path)
+    assertions = fixture_assertions(units_path)
+    labels = load_fixture_labels(labels_path)
+    model = FakeDecisionModel()
+    classifier = ShadowDecisionClassifier(model, batch_size=args.batch_size)
+    artifact = classifier.classify_assertions(
+        assertions,
+        document_key=payload.get("document_key"),
+        document_hash=payload.get("document_hash"),
+        shared_context=str(payload.get("shared_context") or ""),
+        provenance_by_unit=fixture_provenance(units_path),
+        section_context_by_unit=fixture_section_context(units_path),
+    )
+    report = evaluate_shadow_artifact(artifact, labels)
+
+    output_dir = args.output
+    output_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = write_shadow_artifact(artifact, output_dir)
+    metrics_path = output_dir / f"decision_shadow_metrics_{artifact_path.stem}.json"
+    metrics_path.write_text(
+        json.dumps(report.as_dict(), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    print("=== Shadow classification (fake provider) ===")
+    print(f"Units: {report.unit_count}")
+    print(f"Choice accuracy: {report.choice_accuracy}")
+    print(f"Choice macro-F1: {report.choice_macro_f1}")
+    print(f"Coverage full rate: {report.coverage_full_rate:.1%}")
+    print(f"Baseline choice agreement: {report.baseline_choice_agreement}")
+    print(f"Artifact: {artifact_path}")
+    print(f"Metrics: {metrics_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -342,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "rubric-report":
         return cmd_rubric_report(args)
+    if args.command == "shadow-classify":
+        return cmd_shadow_classify(args)
 
     settings = Settings()
 
