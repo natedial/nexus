@@ -45,9 +45,15 @@ class DoclingBackend(ParserBackend):
             pipeline_options.do_table_structure = True
             if self.do_ocr:
                 try:
-                    from docling.datamodel.pipeline_options import EasyOcrOptions
+                    # RapidOCR is already in the Docling image; EasyOCR is not.
+                    # Default RapidOCR backend is onnxruntime (also missing) — use torch.
+                    from docling.datamodel.pipeline_options import RapidOcrOptions
 
-                    pipeline_options.ocr_options = EasyOcrOptions(force_full_page_ocr=False)
+                    pipeline_options.ocr_options = RapidOcrOptions(
+                        force_full_page_ocr=False,
+                        backend="torch",
+                        lang=["english"],
+                    )
                 except Exception:
                     pass
             try:
