@@ -135,9 +135,9 @@
   {
     "unit_id": "chunk-4:assertion-2",
     "assertion_type": "interpretation",
-    "statement_type": "other_or_unclear",
+    "statement_type": "assertion",
     "noul_labels": {
-      "is_observation": false,
+      "is_observation": true,
       "is_forecast": false,
       "is_causal": false,
       "is_market_impact": false,
@@ -149,7 +149,7 @@
       "contains_reasoning_bridge": false,
       "is_substantive_author_claim": true
     },
-    "notes": "ambiguous mixed assessment"
+    "notes": "soft judgment; gold = assertion + is_observation (was other_or_unclear)"
   },
   {
     "unit_id": "chunk-5:assertion-1",
@@ -306,9 +306,9 @@
   {
     "unit_id": "chunk-9:assertion-1",
     "assertion_type": "interpretation",
-    "statement_type": "other_or_unclear",
+    "statement_type": "assertion",
     "noul_labels": {
-      "is_observation": false,
+      "is_observation": true,
       "is_forecast": false,
       "is_causal": false,
       "is_market_impact": false,
@@ -320,7 +320,7 @@
       "contains_reasoning_bridge": false,
       "is_substantive_author_claim": true
     },
-    "notes": "ambiguous vague market tone"
+    "notes": "vague market tone; gold = assertion + is_observation (was other_or_unclear)"
   },
   {
     "unit_id": "chunk-9:assertion-2",
