@@ -265,7 +265,7 @@ class FixtureEvalTest(unittest.TestCase):
         )
         report = evaluate_shadow_artifact(artifact, labels)
         payload = report.as_dict()
-        self.assertEqual(report.unit_count, 8)
+        self.assertEqual(report.unit_count, 18)
         self.assertGreater(report.choice_support, 0)
         self.assertIsNotNone(report.choice_macro_f1)
         self.assertIn("is_forecast", report.noul_precision)

@@ -231,10 +231,13 @@ class JevDecisionModel:
             ),
         }
         if question.question_kind == "noul":
-            return {
+            payload: dict[str, Any] = {
                 "type": "noul",
                 "instructions": base_instructions,
             }
+            if question.noul_criteria:
+                payload["criteria"] = dict(question.noul_criteria)
+            return payload
         criteria = {option: None for option in (question.options or [])}
         return {
             "type": "choice",

@@ -12,7 +12,7 @@ BatchStatus = Literal["complete", "partial", "failed"]
 CoverageStatus = Literal["full", "partial", "missing", "failed"]
 
 ARTIFACT_SCHEMA_VERSION = "decision-shadow-artifact-v1"
-QUESTION_SET_VERSION = "decision-question-set-v1"
+QUESTION_SET_VERSION = "decision-question-set-v2"
 
 STATEMENT_TYPE_OPTIONS: tuple[str, ...] = (
     "assertion",
@@ -59,12 +59,16 @@ class DecisionQuestion(BaseModel):
     wording: str
     question_set_version: str = QUESTION_SET_VERSION
     options: list[str] | None = None
+    # Optional Noul true/false criteria (provider-neutral; adapters may map).
+    noul_criteria: dict[str, str] | None = None
 
     @model_validator(mode="after")
     def _validate_choice_options(self) -> DecisionQuestion:
         if self.question_kind == "choice":
             if not self.options:
                 raise ValueError("choice questions require options")
+            if self.noul_criteria:
+                raise ValueError("choice questions must not supply noul_criteria")
         elif self.options:
             raise ValueError("noul questions must not supply options")
         return self
