@@ -1,7 +1,7 @@
 {
-  "document_key": "decision-shadow-fixture-v1",
-  "document_hash": "fixture-sha256-decision-shadow-v1",
-  "shared_context": "Macro research note excerpt used only for offline shadow-classification tests.",
+  "document_key": "decision-shadow-fixture-v2",
+  "document_hash": "fixture-sha256-decision-shadow-v2",
+  "shared_context": "Macro research note excerpt used only for offline shadow-classification tests. Question-set v2 clarifies verifiable-evidence criteria.",
   "units": [
     {
       "unit_id": "chunk-1:assertion-1",
@@ -29,7 +29,7 @@
         "chunk_key": "chunk-1",
         "span_key": "span-data-1"
       },
-      "case": "evidence_heavy"
+      "case": "evidence_heavy_statistic"
     },
     {
       "unit_id": "chunk-2:assertion-1",
@@ -114,6 +114,146 @@
         "span_key": "span-assess-1"
       },
       "case": "ambiguous_mixed"
+    },
+    {
+      "unit_id": "chunk-5:assertion-1",
+      "chunk_order": 5,
+      "assertion_order": 1,
+      "assertion_type": "observation",
+      "text": "According to the BLS employment report, nonfarm payrolls rose 142,000 in August.",
+      "section_context": "Labor",
+      "provenance": {
+        "assertion_key": "chunk-5:assertion-1",
+        "chunk_key": "chunk-5",
+        "span_key": "span-labor-1"
+      },
+      "case": "evidence_heavy_citation"
+    },
+    {
+      "unit_id": "chunk-5:assertion-2",
+      "chunk_order": 5,
+      "assertion_order": 2,
+      "assertion_type": "observation",
+      "text": "As Chair Powell put it, \"the labor market has cooled but remains solid.\"",
+      "section_context": "Labor",
+      "provenance": {
+        "assertion_key": "chunk-5:assertion-2",
+        "chunk_key": "chunk-5",
+        "span_key": "span-labor-2"
+      },
+      "case": "evidence_heavy_quote"
+    },
+    {
+      "unit_id": "chunk-6:assertion-1",
+      "chunk_order": 6,
+      "assertion_order": 1,
+      "assertion_type": "observation",
+      "text": "Figure 3 shows the 2s10s curve has steepened by 35 basis points since March.",
+      "section_context": "Charts",
+      "provenance": {
+        "assertion_key": "chunk-6:assertion-1",
+        "chunk_key": "chunk-6",
+        "span_key": "span-chart-1"
+      },
+      "case": "evidence_heavy_chart_ref"
+    },
+    {
+      "unit_id": "chunk-6:assertion-2",
+      "chunk_order": 6,
+      "assertion_order": 2,
+      "assertion_type": "interpretation",
+      "text": "However, some strategists argue the soft landing narrative is already priced and leave little room for disappointment.",
+      "section_context": "Debate",
+      "provenance": {
+        "assertion_key": "chunk-6:assertion-2",
+        "chunk_key": "chunk-6",
+        "span_key": "span-debate-1"
+      },
+      "case": "counterpoint"
+    },
+    {
+      "unit_id": "chunk-7:assertion-1",
+      "chunk_order": 7,
+      "assertion_order": 1,
+      "assertion_type": "interpretation",
+      "text": "We disagree: incoming data still support further disinflation, and the priced path looks consistent with our base case.",
+      "section_context": "Debate",
+      "provenance": {
+        "assertion_key": "chunk-7:assertion-1",
+        "chunk_key": "chunk-7",
+        "span_key": "span-debate-2"
+      },
+      "case": "rebuttal"
+    },
+    {
+      "unit_id": "chunk-7:assertion-2",
+      "chunk_order": 7,
+      "assertion_order": 2,
+      "assertion_type": "market_impact",
+      "text": "Unless inflation reaccelerates, lower policy rates should compress credit spreads into year-end.",
+      "section_context": "Credit",
+      "provenance": {
+        "assertion_key": "chunk-7:assertion-2",
+        "chunk_key": "chunk-7",
+        "span_key": "span-credit-1"
+      },
+      "case": "qualified_market_impact"
+    },
+    {
+      "unit_id": "chunk-8:assertion-1",
+      "chunk_order": 8,
+      "assertion_order": 1,
+      "assertion_type": "policy_claim",
+      "text": "Tariff escalation would raise goods inflation and force the Fed to keep rates restrictive for longer, pressuring equities.",
+      "section_context": "Policy",
+      "provenance": {
+        "assertion_key": "chunk-8:assertion-1",
+        "chunk_key": "chunk-8",
+        "span_key": "span-policy-1"
+      },
+      "case": "compound_policy_forecast_market"
+    },
+    {
+      "unit_id": "chunk-8:assertion-2",
+      "chunk_order": 8,
+      "assertion_order": 2,
+      "assertion_type": "observation",
+      "text": "Please see the appendix for definitions of the variables used throughout this note.",
+      "section_context": "Appendix",
+      "provenance": {
+        "assertion_key": "chunk-8:assertion-2",
+        "chunk_key": "chunk-8",
+        "span_key": "span-appendix-1"
+      },
+      "case": "non_substantive_boilerplate"
+    },
+    {
+      "unit_id": "chunk-9:assertion-1",
+      "chunk_order": 9,
+      "assertion_order": 1,
+      "assertion_type": "interpretation",
+      "text": "Markets appear somewhat unsettled around the next policy meeting.",
+      "section_context": "Tone",
+      "provenance": {
+        "assertion_key": "chunk-9:assertion-1",
+        "chunk_key": "chunk-9",
+        "span_key": "span-tone-1"
+      },
+      "case": "ambiguous_vague"
+    },
+    {
+      "unit_id": "chunk-9:assertion-2",
+      "chunk_order": 9,
+      "assertion_order": 2,
+      "assertion_type": "observation",
+      "text": "Compared with last month, consensus growth forecasts for 2026 have been revised down by 0.3 percentage points.",
+      "section_context": "Consensus",
+      "provenance": {
+        "assertion_key": "chunk-9:assertion-2",
+        "chunk_key": "chunk-9",
+        "span_key": "span-consensus-1"
+      },
+      "case": "evidence_heavy_comparative_stat"
     }
   ]
 }

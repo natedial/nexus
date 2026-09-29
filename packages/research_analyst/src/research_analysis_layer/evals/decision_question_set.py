@@ -49,8 +49,10 @@ SUBTYPE_WORDINGS: dict[str, str] = {
 
 SUPPORT_WORDINGS: dict[str, str] = {
     "contains_verifiable_evidence": (
-        "Does the target unit contain verifiable evidence such as data, a quote, "
-        "a citation, or a chart reference?"
+        "Does the target unit report verifiable evidence? Answer yes if it includes "
+        "a concrete statistic or measured figure, quoted source text, an external "
+        "citation, a chart/table/figure reference, or a named data release. Answer "
+        "no for pure interpretation, forecast, or recommendation without such content."
     ),
     "contains_reasoning_bridge": (
         "Does the target unit contain an explicit reasoning bridge linking evidence "
@@ -60,6 +62,20 @@ SUPPORT_WORDINGS: dict[str, str] = {
         "Is the target unit a substantive author claim rather than non-substantive "
         "background or boilerplate?"
     ),
+}
+
+# Optional Noul true/false criteria passed through Jev for sharper boundaries.
+SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
+    "contains_verifiable_evidence": {
+        "true": (
+            "Contains checkable factual content: statistic/figure, quote, citation, "
+            "chart/table reference, or named data release."
+        ),
+        "false": (
+            "No checkable factual content; only interpretation, forecast, question, "
+            "recommendation, or background."
+        ),
+    },
 }
 
 
@@ -97,6 +113,7 @@ def build_questions_for_unit(
                 question_kind="noul",
                 wording=SUPPORT_WORDINGS[question_id],
                 question_set_version=question_set_version,
+                noul_criteria=SUPPORT_NOUL_CRITERIA.get(question_id),
             )
         )
     return questions

@@ -110,6 +110,9 @@ class JevAdapterContractTest(unittest.TestCase):
         )
         noul_key = f"{unit.unit_id}::is_forecast"
         self.assertEqual(request["questions"][noul_key]["type"], "noul")
+        evidence_key = f"{unit.unit_id}::contains_verifiable_evidence"
+        self.assertIn("criteria", request["questions"][evidence_key])
+        self.assertIn("true", request["questions"][evidence_key]["criteria"])
 
         self.assertEqual(result.status, "complete")
         self.assertEqual(result.metadata.provider_name, "jev")
@@ -291,15 +294,15 @@ class DecisionModelFactoryTest(unittest.TestCase):
 @pytest.mark.jev_live
 def test_live_jev_smoke_opt_in() -> None:
     """Live smoke test — skipped unless RESEARCH_ANALYST_JEV_LIVE=1 + creds."""
-    live = os.getenv("RESEARCH_ANALYST_JEV_LIVE", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    from research_analysis_layer.env import load_env_files
+
+    load_env_files()
+    settings = Settings.from_env()
+    live = settings.jev_live_tests or os.getenv(
+        "RESEARCH_ANALYST_JEV_LIVE", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
     if not live:
         pytest.skip("RESEARCH_ANALYST_JEV_LIVE not set")
-    settings = Settings.from_env()
     if not settings.jev_enabled or not (settings.jev_api_key or "").strip():
         pytest.skip("Jev credentials not configured")
 
