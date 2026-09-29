@@ -47,8 +47,24 @@ class DoclingBackend(ParserBackend):
                 try:
                     # RapidOCR is already in the Docling image; EasyOCR is not.
                     # Default RapidOCR backend is onnxruntime (also missing) — use torch.
+                    # Without a writable artifacts_path, RapidOCR downloads into
+                    # site-packages (PermissionError under non-root appuser). Prefer
+                    # /app/data (compose volume) so models survive container recreates.
                     from docling.datamodel.pipeline_options import RapidOcrOptions
+                    from docling.models.stages.ocr.rapid_ocr_model import RapidOcrModel
 
+                    artifacts_root = Path("/app/data/docling-models")
+                    if not artifacts_root.parent.is_dir():
+                        from docling.datamodel.settings import settings as docling_settings
+
+                        artifacts_root = Path(docling_settings.cache_dir) / "models"
+                    artifacts_root.mkdir(parents=True, exist_ok=True)
+                    RapidOcrModel.download_models(
+                        backend="torch",
+                        local_dir=artifacts_root / RapidOcrModel._model_repo_folder,
+                        progress=False,
+                    )
+                    pipeline_options.artifacts_path = artifacts_root
                     pipeline_options.ocr_options = RapidOcrOptions(
                         force_full_page_ocr=False,
                         backend="torch",
