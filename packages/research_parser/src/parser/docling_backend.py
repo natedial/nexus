@@ -47,28 +47,43 @@ class DoclingBackend(ParserBackend):
                 try:
                     # RapidOCR is already in the Docling image; EasyOCR is not.
                     # Default RapidOCR backend is onnxruntime (also missing) — use torch.
-                    # Without a writable artifacts_path, RapidOCR downloads into
-                    # site-packages (PermissionError under non-root appuser). Prefer
-                    # /app/data (compose volume) so models survive container recreates.
+                    # Pin model paths under /app/data (compose volume). Do not set
+                    # pipeline_options.artifacts_path — that redirects Docling layout
+                    # weights too and breaks with Missing safe tensors file.
                     from docling.datamodel.pipeline_options import RapidOcrOptions
                     from docling.models.stages.ocr.rapid_ocr_model import RapidOcrModel
 
-                    artifacts_root = Path("/app/data/docling-models")
-                    if not artifacts_root.parent.is_dir():
+                    package_data = Path(__file__).resolve().parents[2] / "data" / "docling-models"
+                    candidates = (
+                        Path("/app/data/docling-models"),
+                        package_data,
+                        Path("data/docling-models"),
+                    )
+                    artifacts_root = next(
+                        (path for path in candidates if path.parent.is_dir() or path.is_dir()),
+                        None,
+                    )
+                    if artifacts_root is None:
                         from docling.datamodel.settings import settings as docling_settings
 
                         artifacts_root = Path(docling_settings.cache_dir) / "models"
-                    artifacts_root.mkdir(parents=True, exist_ok=True)
+                    repo = artifacts_root / RapidOcrModel._model_repo_folder
+                    repo.mkdir(parents=True, exist_ok=True)
                     RapidOcrModel.download_models(
                         backend="torch",
-                        local_dir=artifacts_root / RapidOcrModel._model_repo_folder,
+                        local_dir=repo,
                         progress=False,
                     )
-                    pipeline_options.artifacts_path = artifacts_root
+                    torch_models = RapidOcrModel._default_models["torch"]
                     pipeline_options.ocr_options = RapidOcrOptions(
                         force_full_page_ocr=False,
                         backend="torch",
                         lang=["english"],
+                        det_model_path=str(repo / torch_models["det_model_path"]["path"]),
+                        cls_model_path=str(repo / torch_models["cls_model_path"]["path"]),
+                        rec_model_path=str(repo / torch_models["rec_model_path"]["path"]),
+                        rec_keys_path=str(repo / torch_models["rec_keys_path"]["path"]),
+                        font_path=str(repo / torch_models["font_path"]["path"]),
                     )
                 except Exception:
                     pass
