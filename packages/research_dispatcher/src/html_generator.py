@@ -11,25 +11,26 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 
+from .pattern_router import PatternRouter
+
 _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_STYLES_DIR = _PACKAGE_ROOT / "styles"
 _DEFAULT_TEMPLATES_DIR = _PACKAGE_ROOT / "templates"
 _KIT_CSS = "snippets/print-infographic-patterns.css"
 _KIT_MANIFEST = "snippets/print-infographic-pattern-manifest.json"
 _SECTION_CSS = "report_sections.css"
+_ROUTING = "pattern_routing.yaml"
 
 
 class HtmlReportGenerator:
     """Renders formatted report_data to a self-contained print HTML file."""
-
-    # Patterns referenced by this generator (for tests / composition bookkeeping).
-    BASE_PATTERNS = ("metric_strip", "context_table", "annotation")
 
     def __init__(
         self,
         output_dir: str = ".",
         styles_dir: str | Path | None = None,
         templates_dir: str | Path | None = None,
+        routing_path: str | Path | None = None,
     ):
         self.output_dir = output_dir
         self.styles_dir = Path(styles_dir) if styles_dir else _DEFAULT_STYLES_DIR
@@ -37,6 +38,11 @@ class HtmlReportGenerator:
             Path(templates_dir) if templates_dir else _DEFAULT_TEMPLATES_DIR
         )
         self.manifest = self._load_manifest()
+        self.router = PatternRouter(
+            routing_path=routing_path or (self.styles_dir / _ROUTING),
+            manifest=self.manifest,
+            styles_dir=self.styles_dir,
+        )
         self.env = Environment(
             loader=FileSystemLoader(str(self.templates_dir)),
             autoescape=select_autoescape(["html", "xml", "j2"]),
@@ -56,12 +62,13 @@ class HtmlReportGenerator:
         return path.read_text(encoding="utf-8")
 
     def compose_css(self, used_patterns: set[str] | None = None) -> str:
-        """Compose kit BASE/PRINT CSS plus dispatcher section chrome.
+        """Compose kit CSS plus dispatcher section chrome.
 
-        Phase 1 embeds the full kit stylesheet (patterns are inert without markup).
-        ``used_patterns`` is recorded for callers/tests.
+        Full kit stylesheet is embedded for now (unused pattern rules are inert
+        without markup). ``used_patterns`` comes from ``PatternRouter`` and is
+        exposed on the view for tests / future selective extraction.
         """
-        del used_patterns  # reserved for selective CSS extraction later
+        self._last_used_patterns = set(used_patterns or ())
         parts = [
             self._read_css(_KIT_CSS),
             self._read_css(_SECTION_CSS),
@@ -187,7 +194,13 @@ class HtmlReportGenerator:
         self,
         report_data: dict[str, Any],
     ) -> tuple[dict[str, Any], set[str]]:
-        used: set[str] = set()
+        routing = self.router.resolve_report(report_data)
+        used = self.router.applied_patterns(routing)
+
+        def applies(slot: str, pattern_id: str) -> bool:
+            decision = routing.get(slot) or {}
+            return decision.get("applied") == pattern_id
+
         title = str(report_data.get("title") or "Research Dispatch")
         through_lines_raw = report_data.get("through_lines") or []
         subtitle_prefix = (
@@ -217,8 +230,8 @@ class HtmlReportGenerator:
             filter_parts.append(f"Conviction: {active_filters['trade_conviction']}")
 
         metrics = self._build_metrics(report_data)
-        if metrics:
-            used.add("metric_strip")
+        if not applies("cover_metrics", "metric_strip"):
+            metrics = []
 
         executive_summary = [
             str(item).strip()
@@ -278,8 +291,8 @@ class HtmlReportGenerator:
             if tl.get("document"):
                 meta_bits.append(str(tl["document"]))
             callout = callouts_by_tl.get(lead)
-            if callout:
-                used.add("annotation")
+            if callout and not applies("throughline_callout", "annotation"):
+                callout = None
             through_lines.append(
                 {
                     "lead": lead,
@@ -353,8 +366,11 @@ class HtmlReportGenerator:
                     "value": str(len(themes)),
                 }
             )
-        if theme_density:
-            used.add("metric_strip")
+        if theme_density and applies("theme_density", "metric_strip"):
+            # Soft-cap display per routing max_groups (default 6).
+            theme_density = theme_density[:6]
+        else:
+            theme_density = []
 
         themes_flat = []
         if not theme_groups:
@@ -411,8 +427,9 @@ class HtmlReportGenerator:
                     }
                 )
             if rows:
-                used.add("context_table")
                 economic_calendar.append({"label": str(day), "rows": rows})
+        if not applies("economic_calendar", "context_table"):
+            economic_calendar = []
 
         supply_calendar = []
         for day, events in (report_data.get("supply_calendar") or {}).items():
@@ -428,8 +445,9 @@ class HtmlReportGenerator:
                     }
                 )
             if rows:
-                used.add("context_table")
                 supply_calendar.append({"label": str(day), "rows": rows})
+        if not applies("supply_calendar", "context_table"):
+            supply_calendar = []
 
         details = report_data.get("details") or []
         details_headers: list[str] = []
@@ -445,8 +463,20 @@ class HtmlReportGenerator:
                         value = value[:40] + "…"
                     row.append(value)
                 details_rows.append(row)
-            if details_rows:
-                used.add("context_table")
+        if not applies("details_table", "context_table"):
+            details_headers = []
+            details_rows = []
+
+        # Recompute used from what we actually emit (router + gating).
+        used = set()
+        if metrics:
+            used.add("metric_strip")
+        if theme_density:
+            used.add("metric_strip")
+        if any(tl.get("callout") for tl in through_lines):
+            used.add("annotation")
+        if economic_calendar or supply_calendar or details_rows:
+            used.add("context_table")
 
         view = {
             "title": title,
@@ -472,6 +502,7 @@ class HtmlReportGenerator:
             "details_headers": details_headers,
             "details_rows": details_rows,
             "used_patterns": sorted(used),
+            "pattern_routing": routing,
         }
         return view, used
 

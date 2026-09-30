@@ -1,0 +1,143 @@
+# Dispatcher → print-infographic pattern routing
+#
+# This file tells the report generator (and coding agents) WHEN to apply a kit
+# pattern versus leaving content as prose/section chrome.
+#
+# Chart-vs-text judgement for borderline evidence is OUT OF SCOPE here — that
+# comes later. Until then: follow these hard routes; if `when` fails, use
+# `fallback` (usually prose).
+#
+# Pattern ids must exist in snippets/print-infographic-pattern-manifest.json.
+# Kit selection_rules still apply (simplest pattern, no invented values, etc.).
+
+version: 1
+manifest: snippets/print-infographic-pattern-manifest.json
+deferred: |
+  Do not yet invent numeric charts from narrative-only fields. When a slot's
+  required_fields cannot be filled from validated report_data, keep prose.
+  A later pass will add judgement for optional graphics.
+
+# Global rules copied/adapted from the kit (agents should re-read the manifest).
+selection_rules:
+  - Start with the reader's question, then inspect the data shape and required fields.
+  - Prefer the simplest pattern that preserves the decisive comparison.
+  - If required_fields cannot be populated from validated data, use fallback — never invent values.
+  - Use a context table when exact values matter more than a visual.
+  - State units, period, and source wherever they affect interpretation.
+
+routes:
+  # Cover / summary headline scalars
+  - slot: cover_metrics
+    report_keys: [summary.total_documents, summary.by_source, source_date_range, through_lines]
+    reader_question: What are the few current numbers a reader must retain?
+    pattern: metric_strip
+    when:
+      min_metrics: 2
+      max_metrics: 6
+    fallback: prose
+    notes: Documents / sources / date range / through-line count. Not for distributions.
+
+  # Theme cluster counts across through-lines
+  - slot: theme_density
+    report_keys: [themes_by_through_line]
+    reader_question: What are the few current numbers a reader must retain?
+    pattern: metric_strip
+    when:
+      min_groups: 1
+      max_groups: 6
+    fallback: prose
+    notes: One metric per theme cluster (count of themes). Cap display at 6.
+
+  # Callout under a through-line
+  - slot: throughline_callout
+    report_keys: [callouts]
+    reader_question: What interpretation, definition, or caveat changes the reading?
+    pattern: annotation
+    when:
+      has_content: true
+      tied_to_through_line: true
+    fallback: omit
+    notes: Use kit annotation chrome when a callout is linked via source_through_line.
+
+  # Economic calendar days
+  - slot: economic_calendar
+    report_keys: [economic_calendar]
+    reader_question: What are the exact values and definitions?
+    pattern: context_table
+    when:
+      has_rows: true
+    fallback: omit
+    notes: Exact time/event/consensus — table, not a chart.
+
+  # Treasury supply calendar
+  - slot: supply_calendar
+    report_keys: [supply_calendar]
+    reader_question: What are the exact values and definitions?
+    pattern: context_table
+    when:
+      has_rows: true
+    fallback: omit
+
+  # Detailed records footer
+  - slot: details_table
+    report_keys: [details]
+    reader_question: What are the exact values and definitions?
+    pattern: context_table
+    when:
+      has_rows: true
+    fallback: omit
+
+  # ——— Reserved routes (prose until numeric fields exist) ———
+
+  - slot: synthesis_delta
+    report_keys: [synthesis_delta]
+    reader_question: Which categories rose or fell, and by how much?
+    pattern: diverging_bars
+    when:
+      has_signed_category_changes: true
+      shared_unit: true
+    fallback: prose
+    status: deferred
+    notes: >
+      Today synthesis_delta is narrative bullets — keep prose. Activate
+      diverging_bars only when signed_change + common_domain are available.
+
+  - slot: street_agrees_splits
+    report_keys: [street_agrees_splits]
+    reader_question: How did the parts of a fixed whole shift?
+    pattern: composition_bars
+    when:
+      has_share_components: true
+    fallback: prose
+    status: deferred
+    notes: Lines today are prose; composition_bars needs shares summing to 100%.
+
+  - slot: conviction_mix
+    report_keys: [trades]
+    reader_question: How did the parts of a fixed whole shift?
+    pattern: composition_bars
+    when:
+      min_trades: 3
+      conviction_counts_available: true
+    fallback: prose
+    status: deferred
+    notes: Optional later — high/medium/low share of trade list.
+
+  - slot: event_milestones
+    report_keys: [economic_calendar]
+    reader_question: Which dated events provide context for a change?
+    pattern: event_timeline
+    when:
+      use_timeline_instead_of_table: true
+    fallback: context_table
+    status: deferred
+    notes: Prefer context_table for calendars; timeline only for short sourced milestones.
+
+# Slots that stay prose / section chrome (not kit patterns)
+prose_slots:
+  - executive_summary
+  - market_analysis
+  - through_lines
+  - document_digest
+  - thematic_blocks
+  - trade_list
