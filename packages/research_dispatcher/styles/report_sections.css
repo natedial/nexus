@@ -1,0 +1,192 @@
+/*
+ * Dispatcher report section chrome layered on the print-infographic kit.
+ * Kit tokens (--ink, --coral, --blue, …) stay authoritative.
+ */
+
+.sheet.report-cover { gap: 16px; }
+.sheet.report-section { gap: 14px; }
+
+.filter-line {
+  color: var(--muted);
+  font-size: 8px;
+  margin-top: 4px;
+}
+
+.prose-block p {
+  margin: 0 0 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  max-width: 650px;
+}
+
+.throughline-card {
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 12px;
+  background: #f9f9f9;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.throughline-lead {
+  font: 700 12px/1.25 var(--serif);
+  letter-spacing: -0.02em;
+}
+
+.throughline-detail {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.throughline-meta {
+  margin-top: 6px;
+  color: var(--quiet);
+  font-size: 7.5px;
+}
+
+.callout-quote {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--coral);
+  background: var(--coral-soft);
+  font: italic 11px/1.45 var(--serif);
+  color: #333;
+  break-inside: avoid;
+}
+
+.callout-attr {
+  margin-top: 4px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 8px;
+  font-style: normal;
+  font-family: var(--sans);
+}
+
+.theme-cluster-head {
+  margin: 12px 0 8px;
+  padding: 6px 10px;
+  background: #f5f5f5;
+  border-radius: 5px;
+  font: 700 12px/1.2 var(--serif);
+}
+
+.theme-block {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  break-inside: avoid;
+}
+
+.theme-label {
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.theme-strength {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 7.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--quiet);
+}
+
+.theme-strength.strong { color: var(--coral); }
+.theme-strength.moderate { color: var(--blue); }
+
+.theme-context {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 8.5px;
+  line-height: 1.4;
+}
+
+.theme-source {
+  margin-top: 4px;
+  color: var(--quiet);
+  font-size: 7.5px;
+  font-style: italic;
+}
+
+.trade-item {
+  margin: 0 0 12px;
+  break-inside: avoid;
+}
+
+.trade-head {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.conviction {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.conviction.high { color: #00875a; }
+.conviction.medium { color: #ff8b00; }
+.conviction.low { color: var(--quiet); }
+
+.trade-meta,
+.trade-rationale,
+.trade-source {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 8.5px;
+  line-height: 1.4;
+  padding-left: 14px;
+}
+
+.digest-day {
+  margin: 0 0 12px;
+}
+
+.digest-day-title {
+  font: 700 11px/1.2 var(--serif);
+  margin-bottom: 6px;
+}
+
+.digest-entry {
+  margin: 0 0 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--rule);
+}
+
+.digest-title {
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.digest-summary {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.bullet-list {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
+.bullet-list li {
+  margin: 0 0 4px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.overflow-note {
+  color: var(--quiet);
+  font-size: 8px;
+  font-style: italic;
+  margin: 4px 0 10px;
+}

@@ -1,0 +1,214 @@
+/*
+ * Print infographic pattern library
+ * Copy a pattern block plus the BASE and PRINT blocks into a report stylesheet.
+ * All specimen values in the companion HTML are illustrative.
+ */
+
+/* BASE — page, type, color, and shared panel framing. */
+:root {
+  --ink: #17232d;
+  --muted: #52616d;
+  --quiet: #71808b;
+  --rule: #dce3e6;
+  --grid: #e9eef0;
+  --paper: #ffffff;
+  --blue: #2e638f;
+  --blue-soft: #e7eff5;
+  --teal: #218d88;
+  --teal-soft: #e1f1ee;
+  --coral: #db7650;
+  --coral-soft: #f8e9e2;
+  --violet: #7868a9;
+  --serif: Georgia, "Times New Roman", serif;
+  --sans: Arial, Helvetica, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { background: #e7ecee; color: var(--ink); }
+body { margin: 0; font: 10px/1.45 var(--sans); }
+h1, h2, h3, p { margin: 0; }
+.sheet {
+  width: 8.5in;
+  min-height: 11in;
+  margin: 18px auto;
+  padding: .48in .55in .42in;
+  background: var(--paper);
+  box-shadow: 0 6px 26px #17232d19;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.sheet.compact { gap: 14px; }
+.eyebrow { color: var(--blue); font-size: 7.2px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.page-title { max-width: 650px; font: 700 31px/1.03 var(--serif); letter-spacing: -.032em; margin: 8px 0 7px; }
+.deck { max-width: 615px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+.folio { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--rule); display: flex; justify-content: space-between; color: var(--quiet); font-size: 7px; }
+.section-head { margin-bottom: 8px; }
+.section-number { color: var(--blue); text-transform: uppercase; letter-spacing: .12em; font-size: 7px; font-weight: 800; }
+.section-title { margin-top: 3px; font: 700 19px/1.13 var(--serif); letter-spacing: -.025em; }
+.section-intro { margin-top: 5px; max-width: 650px; color: var(--muted); font-size: 9px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.panel { border: 1px solid var(--rule); border-radius: 7px; padding: 12px; break-inside: avoid; }
+.panel-title { font-size: 9px; font-weight: 800; }
+.panel-subtitle { margin-top: 2px; color: var(--quiet); font-size: 7.6px; }
+.pattern-caption { margin-top: 8px; color: var(--muted); font-size: 7.5px; line-height: 1.35; }
+.pattern-caption b { color: var(--blue); text-transform: uppercase; letter-spacing: .06em; }
+.tag { display: inline-block; border: 1px solid var(--rule); border-radius: 20px; padding: 2px 7px; color: var(--muted); font-size: 7px; }
+.legend { display: flex; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 7.2px; }
+.legend i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+.legend .blue { background: var(--blue); } .legend .teal { background: var(--teal); }
+.legend .coral { background: var(--coral); } .legend .violet { background: var(--violet); }
+
+/* 01 METRIC STRIP — use for a small set of headline levels with one comparison each. */
+.metric-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.metric { min-height: 87px; border: 1px solid var(--rule); border-radius: 7px; padding: 10px; }
+.metric-label { display: block; color: var(--muted); font-size: 7.5px; }
+.metric-value { display: block; margin: 6px 0 4px; font: 700 20px/1 var(--serif); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.metric-context { display: block; color: var(--muted); font-size: 7.2px; }
+.metric-context strong { color: var(--coral); }
+
+/* 02 DIVERGING BARS — use when signed change and a shared zero matter more than exact levels.
+   Give each row --start and --end as percentages of the available plot width. */
+.delta-chart { margin-top: 10px; }
+.delta-row { display: grid; grid-template-columns: 46px 1fr 40px; align-items: center; gap: 7px; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.delta-label { color: var(--muted); font-size: 8px; }
+.delta-track { height: 13px; position: relative; background: linear-gradient(90deg, transparent 49.75%, var(--quiet) 49.75% 50.25%, transparent 50.25%), repeating-linear-gradient(90deg, transparent 0 24.7%, var(--grid) 24.7% 25%); }
+.delta-bar { position: absolute; top: 2px; left: var(--start); width: calc(var(--end) - var(--start)); height: 9px; border-radius: 2px; background: var(--coral); }
+.delta-row.negative .delta-bar { background: var(--blue); }
+.delta-value { text-align: right; font-size: 8px; font-weight: 700; }
+.delta-row.negative .delta-value { color: var(--blue); }
+.delta-row.positive .delta-value { color: #ad5538; }
+.axis-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; padding-left: 53px; padding-right: 47px; color: var(--quiet); font-size: 6.8px; }
+.axis-3 span:nth-child(2) { text-align: center; } .axis-3 span:nth-child(3) { text-align: right; }
+
+/* 03 SPARKLINE SMALL MULTIPLES — use for comparable time series sharing a window.
+   SVG paths are data geometry; these classes supply the report styling. */
+.small-multiples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 10px; }
+.mini-series { border: 1px solid var(--rule); border-radius: 5px; padding: 8px; }
+.mini-header { display: flex; justify-content: space-between; align-items: baseline; font-size: 7.5px; }
+.mini-header strong { font-size: 10px; font-variant-numeric: tabular-nums; }
+.mini-series svg { display: block; width: 100%; height: 54px; margin-top: 4px; overflow: visible; }
+.mini-series .gridline { stroke: var(--grid); stroke-width: 1; }
+.mini-series .trend { fill: none; stroke: var(--blue); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mini-series:nth-child(2) .trend { stroke: var(--teal); }
+.mini-series:nth-child(3) .trend { stroke: var(--violet); }
+.mini-series .last { fill: currentColor; color: var(--blue); }
+.mini-series:nth-child(2) .last { color: var(--teal); }
+.mini-series:nth-child(3) .last { color: var(--violet); }
+.mini-foot { display: flex; justify-content: space-between; color: var(--quiet); font-size: 6.7px; }
+
+/* 04 COMPOSITION BARS — use for a few parts of one whole across comparable periods.
+   Segment widths must sum to 100% within each row. */
+.composition { display: grid; gap: 8px; margin-top: 10px; }
+.composition-row { display: grid; grid-template-columns: 62px 1fr 34px; gap: 8px; align-items: center; color: var(--muted); font-size: 7.8px; }
+.composition-track { display: flex; height: 20px; overflow: hidden; border-radius: 3px; }
+.composition-track i { display: block; height: 100%; width: var(--share); }
+.composition-track .part-a { background: var(--blue); }
+.composition-track .part-b { background: var(--teal); }
+.composition-track .part-c { background: var(--coral); }
+.composition-total { text-align: right; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* 05 HEATMAP — use for repeated categories by period; label both dimensions and key.
+   Set --cell-color per cell using a named palette token. */
+.heatmap { display: grid; grid-template-columns: 48px repeat(8, 1fr); gap: 3px; margin-top: 11px; align-items: center; }
+.heatmap .row-label { color: var(--muted); font-size: 7px; }
+.heatmap .cell { height: 20px; border-radius: 2px; background: var(--cell-color); }
+.heatmap .col-label { text-align: center; color: var(--quiet); font-size: 6.6px; }
+.heat-key { margin-top: 10px; display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: var(--quiet); font-size: 6.8px; }
+.heat-key i { width: 17px; height: 8px; display: block; }
+
+/* 06 RANGE MARKERS — use when position within a meaningful min/max is the message.
+   Set --position as a percentage. Do not use without low/high labels. */
+.range-list { display: grid; gap: 14px; margin-top: 15px; }
+.range-row { display: grid; grid-template-columns: 52px 1fr 40px; gap: 9px; align-items: center; font-size: 7.6px; }
+.range-track { position: relative; height: 8px; border-radius: 8px; background: linear-gradient(90deg, var(--blue-soft), #d7e5e9 47%, var(--coral-soft)); }
+.range-track::after { content: ""; position: absolute; left: var(--position); top: -3px; width: 3px; height: 14px; border-radius: 2px; background: var(--ink); transform: translateX(-50%); }
+.range-value { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+.range-ends { display: flex; justify-content: space-between; margin: 5px 48px 0 61px; color: var(--quiet); font-size: 6.7px; }
+
+/* 07 PHASE CARDS — use when distinct named periods explain a sequence. */
+.phase-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 10px; }
+.phase { border: 1px solid var(--rule); border-top: 3px solid var(--blue); border-radius: 5px; padding: 8px; min-height: 105px; }
+.phase:nth-child(2) { border-top-color: var(--teal); } .phase:nth-child(3) { border-top-color: var(--coral); } .phase:nth-child(4) { border-top-color: var(--violet); }
+.phase-date { color: var(--quiet); font-size: 6.8px; }
+.phase-name { margin: 5px 0; font: 700 11px/1.1 var(--serif); }
+.phase-value { font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.phase-note { margin-top: 5px; color: var(--muted); font-size: 7.1px; line-height: 1.3; }
+
+/* 08 RANKED ROWS — use to surface extremes without hiding dates or signed values. */
+.ranked-list { margin-top: 8px; }
+.ranked-row { display: grid; grid-template-columns: 18px 1fr 55px 38px; gap: 7px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 7.7px; font-variant-numeric: tabular-nums; }
+.ranked-row:last-child { border-bottom: 0; }
+.rank { width: 16px; height: 16px; border-radius: 50%; background: var(--blue-soft); color: var(--blue); display: grid; place-items: center; font-weight: 800; }
+.ranked-date { color: var(--quiet); }
+.ranked-value { text-align: right; font-weight: 800; color: var(--coral); }
+.ranked-value.down { color: var(--blue); }
+
+/* 09 CONTEXT TABLE — use where exact values, definitions, and units must be auditable. */
+.context-table { width: 100%; border-collapse: collapse; margin-top: 9px; font-size: 7.4px; font-variant-numeric: tabular-nums; }
+.context-table th { color: var(--muted); font-weight: 800; text-align: right; border-bottom: 1px solid var(--rule); padding: 6px 5px; }
+.context-table td { text-align: right; border-bottom: 1px solid var(--grid); padding: 7px 5px; }
+.context-table th:first-child, .context-table td:first-child { text-align: left; padding-left: 0; }
+.context-table tr:last-child td { border-bottom: 0; }
+.context-table .up { color: #ad5538; font-weight: 800; } .context-table .down { color: var(--blue); font-weight: 800; }
+
+/* 10 ANNOTATION — use for one interpretive sentence, definition, or caveat. */
+.annotation { border-left: 3px solid var(--coral); background: #fcf7f4; padding: 9px 11px; color: var(--ink); font-size: 8px; line-height: 1.45; }
+.annotation strong { color: #a44f33; }
+.note-list { color: var(--muted); font-size: 7.3px; line-height: 1.55; padding-left: 15px; margin: 5px 0 0; }
+.note-list li + li { margin-top: 2px; }
+
+/* 11 THRESHOLD TRACKER — use when each item has a current value and a target.
+   Set --value and --target on the same normalized domain; label both numbers. */
+.threshold-list { display: grid; gap: 11px; margin-top: 12px; }
+.threshold-row { display: grid; grid-template-columns: 86px 1fr 74px; gap: 9px; align-items: center; font-size: 7.8px; }
+.threshold-row .name { font-weight: 700; }
+.threshold-track { height: 13px; position: relative; border-radius: 3px; background: var(--blue-soft); }
+.threshold-track .fill { display: block; width: var(--value); height: 100%; border-radius: 3px; background: var(--blue); }
+.threshold-track .target { position: absolute; left: var(--target); top: -4px; width: 2px; height: 21px; background: var(--ink); transform: translateX(-50%); }
+.threshold-row.below .fill { background: var(--coral); }
+.threshold-row .readout { text-align: right; font-variant-numeric: tabular-nums; }
+.threshold-row .readout strong { display: block; font-size: 9px; }
+.threshold-row .readout small { color: var(--quiet); font-size: 6.8px; }
+.threshold-key { margin: 7px 74px 0 95px; display: flex; justify-content: space-between; color: var(--quiet); font-size: 6.7px; }
+
+/* 12 DISTRIBUTION — use when shape, spread, or tails matter more than the mean.
+   Give each bin --height as a percentage of the common count scale. */
+.histogram { height: 124px; display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; align-items: end; border-bottom: 1px solid var(--quiet); background: repeating-linear-gradient(to top, transparent 0 30px, var(--grid) 30px 31px); margin-top: 12px; }
+.histogram .bin { display: block; height: var(--height); background: var(--blue); border-radius: 2px 2px 0 0; }
+.histogram .bin.tail { background: var(--coral); }
+.histogram-axis { display: flex; justify-content: space-between; color: var(--quiet); font-size: 6.8px; margin-top: 4px; }
+.distribution-stats { display: flex; gap: 18px; margin-top: 10px; font-size: 7.5px; }
+.distribution-stats strong { display: block; font-size: 11px; font-variant-numeric: tabular-nums; }
+.distribution-stats span { color: var(--muted); }
+
+/* 13 EVENT TIMELINE — use for a small number of dated events with contextual notes.
+   The vertical rule supplies sequence, not causal attribution. */
+.event-list { list-style: none; margin: 10px 0 0; padding: 0 0 0 16px; border-left: 1px solid var(--rule); }
+.event-list li { position: relative; padding: 0 0 13px 13px; }
+.event-list li:last-child { padding-bottom: 0; }
+.event-list li::before { content: ""; position: absolute; left: -20px; top: 2px; width: 7px; height: 7px; border: 2px solid var(--paper); border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.event-date { color: var(--blue); text-transform: uppercase; letter-spacing: .08em; font-size: 6.8px; font-weight: 800; }
+.event-title { margin-top: 2px; font-size: 8.4px; font-weight: 800; }
+.event-note { margin-top: 2px; color: var(--muted); font-size: 7.3px; }
+
+/* STRESS-TEST HELPERS — safe wrapping, missing values, and monochrome encoding. */
+.wrap-test { overflow-wrap: anywhere; hyphens: auto; }
+.missing { color: var(--quiet); font-style: italic; }
+.mono-demo { filter: grayscale(1); }
+.mono-swatches { display: flex; gap: 8px; margin-top: 8px; }
+.mono-swatch { flex: 1; min-height: 36px; padding: 8px; font-size: 7.2px; font-weight: 800; border: 1px solid #777; }
+.mono-swatch:nth-child(1) { background: #dae3e8; }
+.mono-swatch:nth-child(2) { background: repeating-linear-gradient(45deg, #d7d7d7 0 3px, #fff 3px 6px); }
+.mono-swatch:nth-child(3) { background: #555; color: #fff; }
+.source-line { border-top: 1px solid var(--rule); padding-top: 7px; color: var(--muted); font-size: 7.1px; line-height: 1.4; }
+
+/* PRINT — keep panels whole, remove screen chrome, and preserve the muted fills. */
+@page { size: letter; margin: 0; }
+@media print {
+  html, body { background: white; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sheet { width: 8.5in; height: 11in; min-height: 0; margin: 0; box-shadow: none; break-after: page; page-break-after: always; }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
+  .panel, .metric, .phase, .annotation, .grid-2, .grid-3 { break-inside: avoid; page-break-inside: avoid; }
+}

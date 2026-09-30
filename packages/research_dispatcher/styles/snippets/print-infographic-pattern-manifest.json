@@ -1,0 +1,146 @@
+{
+  "version": "0.2",
+  "specimen": "print-infographic-patterns.html",
+  "stylesheet": "print-infographic-patterns.css",
+  "page_format": "US Letter portrait",
+  "data_policy": "All specimen values are illustrative. Populate text, units, SVG geometry, CSS variables, and source notes from validated data.",
+  "selection_rules": [
+    "Start with the reader's question, then inspect the data shape and required fields.",
+    "Prefer the simplest pattern that preserves the decisive comparison.",
+    "Use a context table beside a visual when exact values are necessary.",
+    "State units, period, denominator, sign convention, sample size, and source wherever they affect interpretation.",
+    "Do not infer missing values or causal explanations from visual proximity."
+  ],
+  "patterns": [
+    {
+      "id": "metric_strip",
+      "selector": ".metric-strip",
+      "question": "What are the few current numbers a reader must retain?",
+      "data_shape": "Three to six distinct scalar measures",
+      "required_fields": ["label", "value", "unit", "as_of_or_window", "comparison_label", "comparison_value"],
+      "encoding": "Large number with one compact contextual comparison",
+      "checks": ["Keep units and comparison windows explicit", "Use consistent rounding within each measure"],
+      "avoid_when": "The measures need a common quantitative scale or detailed distribution."
+    },
+    {
+      "id": "diverging_bars",
+      "selector": ".delta-chart",
+      "question": "Which categories rose or fell, and by how much?",
+      "data_shape": "Signed changes across categories on a shared scale",
+      "required_fields": ["category", "signed_change", "unit", "comparison_window", "common_domain"],
+      "encoding": "Bar length from a visible shared zero",
+      "checks": ["Map all bars to the same domain", "Print signs and values, not color alone"],
+      "avoid_when": "Values are levels without a meaningful zero or mixed units."
+    },
+    {
+      "id": "small_multiples",
+      "selector": ".small-multiples",
+      "question": "How did several signals evolve over the same window?",
+      "data_shape": "Two to four aligned time series",
+      "required_fields": ["series_label", "date", "value", "unit", "window"],
+      "encoding": "One short line chart per series; SVG path supplies geometry",
+      "checks": ["Use a shared y-domain when comparing levels", "Label final values and dates"],
+      "avoid_when": "The series have incompatible units or irregular missing periods that are not shown."
+    },
+    {
+      "id": "composition_bars",
+      "selector": ".composition",
+      "question": "How did the parts of a fixed whole shift?",
+      "data_shape": "Category shares across a few comparable periods",
+      "required_fields": ["period", "component", "share", "denominator"],
+      "encoding": "Stacked segments summing to 100% per row",
+      "checks": ["Validate every row sums to 100% within rounding tolerance", "Print exact shares in a legend or table"],
+      "avoid_when": "Absolute totals vary and are central to the story."
+    },
+    {
+      "id": "heatmap",
+      "selector": ".heatmap",
+      "question": "Where are category-by-period clusters?",
+      "data_shape": "Ordered matrix with common numeric scale",
+      "required_fields": ["row", "column", "value", "unit", "color_domain"],
+      "encoding": "Cell fill on a labeled two-dimensional grid",
+      "checks": ["Provide a keyed scale", "Preserve meaningful row and column order", "Add a table when exact values matter"],
+      "avoid_when": "Cells use incompatible units or very small color differences carry the only meaning."
+    },
+    {
+      "id": "range_markers",
+      "selector": ".range-list",
+      "question": "Is the current value near its historical low or high?",
+      "data_shape": "Current observations with per-category low and high",
+      "required_fields": ["category", "current", "low", "high", "lookback", "position_method"],
+      "encoding": "Marker within a labeled low-high interval",
+      "checks": ["State whether position means percentile or linear fraction", "State the lookback and handle low equals high"],
+      "avoid_when": "Historical bounds are unstable, incomparable, or unavailable."
+    },
+    {
+      "id": "phase_cards",
+      "selector": ".phase-grid",
+      "question": "Which distinct episodes explain the sequence?",
+      "data_shape": "A small set of bounded, named time periods",
+      "required_fields": ["phase_name", "start", "end", "common_measure", "phase_value", "note"],
+      "encoding": "Chronological cards with a consistent measure",
+      "checks": ["Define boundary dates", "Keep the measured quantity comparable across cards"],
+      "avoid_when": "Boundaries are arbitrary or the series is better read as a continuous trend."
+    },
+    {
+      "id": "ranked_rows",
+      "selector": ".ranked-list",
+      "question": "Which observations are the largest or most exceptional?",
+      "data_shape": "Rankable observations with dates and signed values",
+      "required_fields": ["rank", "category", "date", "signed_value", "unit", "ranking_basis"],
+      "encoding": "Ordered rows with preserved sign and date",
+      "checks": ["State whether ranking uses absolute or signed values", "Do not mix windows in one ranking"],
+      "avoid_when": "The full distribution matters more than the top few observations."
+    },
+    {
+      "id": "context_table",
+      "selector": ".context-table",
+      "question": "What are the exact values and definitions?",
+      "data_shape": "Rows of comparable measures with several attributes",
+      "required_fields": ["row_label", "column_labels", "cell_values", "units", "as_of_or_window"],
+      "encoding": "Aligned numeric columns with tabular figures",
+      "checks": ["Right-align numeric columns", "Mark missing values explicitly", "Repeat units where ambiguous"],
+      "avoid_when": "A large raw table would obscure the decision; summarize or paginate first."
+    },
+    {
+      "id": "annotation",
+      "selector": ".annotation",
+      "question": "What interpretation, definition, or caveat changes the reading?",
+      "data_shape": "One concise statement tied to adjacent evidence",
+      "required_fields": ["statement", "evidence_reference", "certainty_level"],
+      "encoding": "Contrasting side rule and short text",
+      "checks": ["Separate observation from inference", "Keep causal language proportional to evidence"],
+      "avoid_when": "It repeats the chart title or introduces an unsupported claim."
+    },
+    {
+      "id": "threshold_tracker",
+      "selector": ".threshold-list",
+      "question": "Which items met their explicit targets?",
+      "data_shape": "Current values and targets on a common bounded domain",
+      "required_fields": ["item", "current", "target", "unit", "domain", "better_direction"],
+      "encoding": "Filled track with a separate target marker",
+      "checks": ["Label current and target values", "Use the same domain for every row", "Determine attainment from data rather than color"],
+      "avoid_when": "No defensible target exists or different rows require incompatible domains."
+    },
+    {
+      "id": "distribution",
+      "selector": ".histogram",
+      "question": "How spread out are observations, and are there tails?",
+      "data_shape": "Individual numeric observations or validated bin counts",
+      "required_fields": ["bin_edges", "bin_counts", "unit", "sample_size", "count_domain"],
+      "encoding": "Equal-width adjacent bins sharing a count scale",
+      "checks": ["Document bin boundaries", "Validate counts sum to sample size", "Label approximate summary statistics as approximate"],
+      "avoid_when": "The sample is too small for the chosen binning or bins have unequal widths without density adjustment."
+    },
+    {
+      "id": "event_timeline",
+      "selector": ".event-list",
+      "question": "Which dated events provide context for a change?",
+      "data_shape": "A short list of dated, sourced milestones",
+      "required_fields": ["date", "event_title", "context_note", "source"],
+      "encoding": "Chronological vertical list",
+      "checks": ["Use exact dates and source labels", "Do not imply causation from proximity alone"],
+      "avoid_when": "Events are unsourced or too numerous to scan as a short list."
+    }
+  ]
+}

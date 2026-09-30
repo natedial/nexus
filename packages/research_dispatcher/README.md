@@ -91,6 +91,14 @@ Gmail requires an App Password (not your regular password):
 python3 generate_pdf_only.py
 ```
 
+### Generate print HTML only (no email)
+
+```bash
+python3 generate_html_only.py
+```
+
+Produces a self-contained letter-sized HTML report (pattern kit + section chrome) you can open in a browser or Print → PDF. PDF generation remains available during the transition.
+
 ### Full pipeline (PDF + email)
 
 ```bash
