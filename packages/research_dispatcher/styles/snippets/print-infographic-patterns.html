@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Print infographic pattern library</title>
+  <link rel="stylesheet" href="print-infographic-patterns.css">
+</head>
+<body>
+  <main>
+    <article class="sheet">
+      <header>
+        <div class="eyebrow">Print infographic / pattern library / 01</div>
+        <h1 class="page-title">An editorial toolkit for dense, decision-ready data</h1>
+        <p class="deck">A modular print HTML specimen. Every number below is illustrative. Choose a pattern for the shape of the evidence, then replace the labels, values, and source line with real data.</p>
+      </header>
+
+      <section>
+        <div class="section-head"><div class="section-number">01 · headline levels</div><h2 class="section-title">Lead with the few numbers a reader must retain</h2><p class="section-intro">One large value, one unit, and one tightly scoped comparison per card.</p></div>
+        <div class="metric-strip">
+          <div class="metric"><span class="metric-label">Current level</span><span class="metric-value">84.2%</span><span class="metric-context"><strong>+6.4 pt</strong> versus prior period</span></div>
+          <div class="metric"><span class="metric-label">Items processed</span><span class="metric-value">12.8k</span><span class="metric-context"><strong>+18%</strong> over baseline</span></div>
+          <div class="metric"><span class="metric-label">Median delay</span><span class="metric-value">2.4 d</span><span class="metric-context">Down 0.8 d; lower is better</span></div>
+          <div class="metric"><span class="metric-label">At-risk share</span><span class="metric-value">7.1%</span><span class="metric-context">Above 5% watch threshold</span></div>
+        </div>
+        <p class="pattern-caption"><b>Borrow metric-strip</b> for 3–6 unrelated headline measures. Keep definitions directly beneath each value.</p>
+      </section>
+
+      <section>
+        <div class="section-head"><div class="section-number">02 · signed movement</div><h2 class="section-title">Show direction around a visible zero</h2><p class="section-intro">A diverging scale is useful when positive and negative changes are both meaningful.</p></div>
+        <div class="grid-2">
+          <div class="panel">
+            <h3 class="panel-title">Change by category</h3><p class="panel-subtitle">Percentage points from the same baseline</p>
+            <div class="delta-chart">
+              <div class="delta-row positive"><span class="delta-label">North</span><div class="delta-track"><i class="delta-bar" style="--start:50%;--end:86%"></i></div><span class="delta-value">+7.2</span></div>
+              <div class="delta-row positive"><span class="delta-label">East</span><div class="delta-track"><i class="delta-bar" style="--start:50%;--end:68%"></i></div><span class="delta-value">+3.6</span></div>
+              <div class="delta-row negative"><span class="delta-label">South</span><div class="delta-track"><i class="delta-bar" style="--start:32%;--end:50%"></i></div><span class="delta-value">−3.6</span></div>
+              <div class="delta-row negative"><span class="delta-label">West</span><div class="delta-track"><i class="delta-bar" style="--start:13%;--end:50%"></i></div><span class="delta-value">−7.4</span></div>
+            </div>
+            <div class="axis-3"><span>−10</span><span>0</span><span>+10</span></div>
+            <p class="pattern-caption"><b>Borrow delta-chart</b> for a shared signed scale. Set each bar’s start and end on that scale.</p>
+          </div>
+          <div class="panel">
+            <h3 class="panel-title">Three comparable trajectories</h3><p class="panel-subtitle">Same window and unit, with direct final values</p>
+            <div class="small-multiples">
+              <div class="mini-series"><div class="mini-header"><span>Signal A</span><strong>78</strong></div><svg viewBox="0 0 140 54" aria-label="Signal A rises over the period"><path class="gridline" d="M0 15H140 M0 35H140"/><path class="trend" d="M2 46 L18 41 L34 43 L49 32 L65 35 L80 27 L98 29 L114 17 L138 10"/><circle class="last" cx="138" cy="10" r="2.5"/></svg><div class="mini-foot"><span>Start</span><span>Now</span></div></div>
+              <div class="mini-series"><div class="mini-header"><span>Signal B</span><strong>62</strong></div><svg viewBox="0 0 140 54" aria-label="Signal B remains fairly stable"><path class="gridline" d="M0 15H140 M0 35H140"/><path class="trend" d="M2 31 L18 28 L34 32 L49 26 L65 29 L80 27 L98 25 L114 28 L138 23"/><circle class="last" cx="138" cy="23" r="2.5"/></svg><div class="mini-foot"><span>Start</span><span>Now</span></div></div>
+              <div class="mini-series"><div class="mini-header"><span>Signal C</span><strong>41</strong></div><svg viewBox="0 0 140 54" aria-label="Signal C declines over the period"><path class="gridline" d="M0 15H140 M0 35H140"/><path class="trend" d="M2 10 L18 16 L34 14 L49 21 L65 23 L80 31 L98 29 L114 38 L138 43"/><circle class="last" cx="138" cy="43" r="2.5"/></svg><div class="mini-foot"><span>Start</span><span>Now</span></div></div>
+            </div>
+            <p class="pattern-caption"><b>Borrow small-multiples</b> for short trends. Use the same y-domain for all three when comparing levels.</p>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div class="section-number">03 · composition</div><h2 class="section-title">Compare parts of a fixed whole</h2><p class="section-intro">The width encodes share; direct labels preserve the exact split.</p></div>
+        <div class="panel">
+          <h3 class="panel-title">Illustrative mix by period</h3><p class="panel-subtitle">Each row totals 100%</p>
+          <div class="composition">
+            <div class="composition-row"><span>Prior period</span><span class="composition-track"><i class="part-a" style="--share:46%"></i><i class="part-b" style="--share:34%"></i><i class="part-c" style="--share:20%"></i></span><span class="composition-total">100%</span></div>
+            <div class="composition-row"><span>Current</span><span class="composition-track"><i class="part-a" style="--share:52%"></i><i class="part-b" style="--share:29%"></i><i class="part-c" style="--share:19%"></i></span><span class="composition-total">100%</span></div>
+          </div>
+          <div class="legend" style="margin-top:8px"><span><i class="blue"></i>Core 46% → 52%</span><span><i class="teal"></i>Expansion 34% → 29%</span><span><i class="coral"></i>Other 20% → 19%</span></div>
+          <p class="pattern-caption"><b>Borrow composition</b> for a shared denominator. Use grouped bars instead when changes in absolute total are the main story.</p>
+        </div>
+      </section>
+      <div class="folio"><span>Specimen data · no factual claims</span><span>1 / 5</span></div>
+    </article>
+
+    <article class="sheet">
+      <header><div class="eyebrow">Print infographic / pattern library / 02</div><h1 class="page-title">Choose a form that matches the data</h1><p class="deck">Matrix, interval, and sequence views answer different questions. Reuse the panel shell, type hierarchy, and color tokens across them.</p></header>
+
+      <section>
+        <div class="section-head"><div class="section-number">04 · category × period</div><h2 class="section-title">Find clusters with a compact heatmap</h2></div>
+        <div class="panel">
+          <h3 class="panel-title">Activity intensity by segment</h3><p class="panel-subtitle">Illustrative index; pale = low, coral = high</p>
+          <div class="heatmap" role="img" aria-label="Heatmap of four segments across eight weeks, with high activity in segment B during weeks 3 and 4 and segment D during weeks 7 and 8">
+            <span class="row-label">Segment A</span><i class="cell" style="--cell-color:#e3edf2"></i><i class="cell" style="--cell-color:#d4e5ea"></i><i class="cell" style="--cell-color:#cadfe5"></i><i class="cell" style="--cell-color:#e2e9e8"></i><i class="cell" style="--cell-color:#efd8cb"></i><i class="cell" style="--cell-color:#f2c7b3"></i><i class="cell" style="--cell-color:#e8dcd5"></i><i class="cell" style="--cell-color:#dbe8ea"></i>
+            <span class="row-label">Segment B</span><i class="cell" style="--cell-color:#d5e5e9"></i><i class="cell" style="--cell-color:#f2d0bf"></i><i class="cell" style="--cell-color:#de8e6c"></i><i class="cell" style="--cell-color:#d87450"></i><i class="cell" style="--cell-color:#eed1c1"></i><i class="cell" style="--cell-color:#dce8e9"></i><i class="cell" style="--cell-color:#d3e4e8"></i><i class="cell" style="--cell-color:#e3eceb"></i>
+            <span class="row-label">Segment C</span><i class="cell" style="--cell-color:#e0eae9"></i><i class="cell" style="--cell-color:#d5e5e9"></i><i class="cell" style="--cell-color:#cadfe5"></i><i class="cell" style="--cell-color:#c2dce4"></i><i class="cell" style="--cell-color:#dbe8e9"></i><i class="cell" style="--cell-color:#f3d9ca"></i><i class="cell" style="--cell-color:#eed1c1"></i><i class="cell" style="--cell-color:#dfe9e9"></i>
+            <span class="row-label">Segment D</span><i class="cell" style="--cell-color:#dce8e9"></i><i class="cell" style="--cell-color:#d6e5e8"></i><i class="cell" style="--cell-color:#e2ebe9"></i><i class="cell" style="--cell-color:#eddccf"></i><i class="cell" style="--cell-color:#e9d8cf"></i><i class="cell" style="--cell-color:#f3c4ae"></i><i class="cell" style="--cell-color:#dc8764"></i><i class="cell" style="--cell-color:#d66f4c"></i>
+            <span></span><span class="col-label">W1</span><span class="col-label">W2</span><span class="col-label">W3</span><span class="col-label">W4</span><span class="col-label">W5</span><span class="col-label">W6</span><span class="col-label">W7</span><span class="col-label">W8</span>
+          </div>
+          <div class="heat-key"><span>Low</span><i style="background:#c2dce4"></i><i style="background:#dce8e9"></i><i style="background:#efd8cb"></i><i style="background:#de8e6c"></i><i style="background:#d66f4c"></i><span>High</span></div>
+          <p class="pattern-caption"><b>Borrow heatmap</b> when both row and column order matter. Supply a legend and a numeric table if exact cell values matter.</p>
+        </div>
+      </section>
+
+      <section>
+        <div class="grid-2">
+          <div class="panel">
+            <h3 class="panel-title">Where current values sit in their ranges</h3><p class="panel-subtitle">Marker position within each category’s own low–high interval</p>
+            <div class="range-list">
+              <div class="range-row"><span>Segment A</span><span class="range-track" style="--position:74%"></span><span class="range-value">74th</span></div>
+              <div class="range-row"><span>Segment B</span><span class="range-track" style="--position:91%"></span><span class="range-value">91st</span></div>
+              <div class="range-row"><span>Segment C</span><span class="range-track" style="--position:38%"></span><span class="range-value">38th</span></div>
+              <div class="range-row"><span>Segment D</span><span class="range-track" style="--position:57%"></span><span class="range-value">57th</span></div>
+            </div>
+            <div class="range-ends"><span>Historical low</span><span>Historical high</span></div>
+            <p class="pattern-caption"><b>Borrow range-list</b> for normalized positions. State the lookback and whether the marker is a percentile or linear range fraction.</p>
+          </div>
+          <div class="panel">
+            <h3 class="panel-title">Ranked exceptional moves</h3><p class="panel-subtitle">Preserve sign, date, unit, and ranking basis</p>
+            <div class="ranked-list">
+              <div class="ranked-row"><span class="rank">1</span><strong>Category A</strong><span class="ranked-date">12 Sep</span><span class="ranked-value">+8.3</span></div>
+              <div class="ranked-row"><span class="rank">2</span><strong>Category D</strong><span class="ranked-date">04 Jul</span><span class="ranked-value down">−7.4</span></div>
+              <div class="ranked-row"><span class="rank">3</span><strong>Category C</strong><span class="ranked-date">22 Aug</span><span class="ranked-value">+6.8</span></div>
+              <div class="ranked-row"><span class="rank">4</span><strong>Category B</strong><span class="ranked-date">19 Jun</span><span class="ranked-value down">−5.9</span></div>
+            </div>
+            <p class="pattern-caption"><b>Borrow ranked-list</b> for a move library. Sort by absolute value only when the caption says so.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head"><div class="section-number">05 · temporal regimes</div><h2 class="section-title">Name phases before plotting every observation</h2></div>
+        <div class="phase-grid">
+          <div class="phase"><div class="phase-date">Weeks 1–2</div><div class="phase-name">Quiet baseline</div><div class="phase-value">+1.2 pt</div><div class="phase-note">Stable levels; little cross-category dispersion.</div></div>
+          <div class="phase"><div class="phase-date">Weeks 3–4</div><div class="phase-name">Demand spike</div><div class="phase-value">+7.9 pt</div><div class="phase-note">Segment B leads the jump.</div></div>
+          <div class="phase"><div class="phase-date">Weeks 5–6</div><div class="phase-name">Normalization</div><div class="phase-value">−3.1 pt</div><div class="phase-note">Activity eases across most categories.</div></div>
+          <div class="phase"><div class="phase-date">Weeks 7–8</div><div class="phase-name">New cluster</div><div class="phase-value">+4.6 pt</div><div class="phase-note">Segment D becomes the dominant source.</div></div>
+        </div>
+        <p class="pattern-caption"><b>Borrow phase-grid</b> when the story has bounded, named periods. Keep each period’s measure and definition consistent.</p>
+      </section>
+      <div class="folio"><span>Specimen data · no factual claims</span><span>2 / 5</span></div>
+    </article>
+
+    <article class="sheet">
+      <header><div class="eyebrow">Print infographic / pattern library / 03</div><h1 class="page-title">Keep the evidence visible</h1><p class="deck">The exact values and assumptions belong close to the graphic. A compact table and one interpretive note often complete the page.</p></header>
+      <section>
+        <div class="section-head"><div class="section-number">06 · auditable detail</div><h2 class="section-title">Use a table when precision matters</h2></div>
+        <div class="panel">
+          <h3 class="panel-title">Context table</h3><p class="panel-subtitle">Illustrative units and time windows are explicit</p>
+          <table class="context-table">
+            <thead><tr><th>Category</th><th>Latest</th><th>Prior</th><th>Change</th><th>8-week low</th><th>8-week high</th></tr></thead>
+            <tbody>
+              <tr><td>Segment A</td><td>84.2%</td><td>77.8%</td><td class="up">+6.4 pt</td><td>71.6%</td><td>86.1%</td></tr>
+              <tr><td>Segment B</td><td>91.3%</td><td>87.2%</td><td class="up">+4.1 pt</td><td>76.4%</td><td>92.0%</td></tr>
+              <tr><td>Segment C</td><td>62.4%</td><td>66.0%</td><td class="down">−3.6 pt</td><td>58.0%</td><td>69.5%</td></tr>
+              <tr><td>Segment D</td><td>73.1%</td><td>68.5%</td><td class="up">+4.6 pt</td><td>61.7%</td><td>81.4%</td></tr>
+            </tbody>
+          </table>
+          <p class="pattern-caption"><b>Borrow context-table</b> for exact comparisons, units, and bounded ranges. Right-align numeric columns and use tabular figures.</p>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div class="section-number">07 · interpretation</div><h2 class="section-title">Separate the observation from the reading</h2></div>
+        <div class="annotation"><strong>Reading the pattern.</strong> The latest increase is broad, but Segment B is closest to its eight-week high. That is a descriptive observation; the sample does not establish a cause.</div>
+        <p class="pattern-caption"><b>Borrow annotation</b> for one sentence that changes how the reader interprets a chart. Keep attribution and uncertainty precise.</p>
+      </section>
+      <section>
+        <div class="section-head"><div class="section-number">08 · selection cues</div><h2 class="section-title">A small decision table for the agent</h2></div>
+        <div class="panel">
+          <table class="context-table" style="margin-top:0">
+            <thead><tr><th>Data question</th><th style="text-align:left">Borrow</th><th style="text-align:left">Check before use</th></tr></thead>
+            <tbody>
+              <tr><td>What is the current state?</td><td style="text-align:left">Metric strip</td><td style="text-align:left">Units, period, comparison</td></tr>
+              <tr><td>Which changes are positive or negative?</td><td style="text-align:left">Diverging bars</td><td style="text-align:left">Common zero and scale</td></tr>
+              <tr><td>How did several signals evolve?</td><td style="text-align:left">Small multiples</td><td style="text-align:left">Same window; shared y-domain if level comparison</td></tr>
+              <tr><td>How did a fixed mix shift?</td><td style="text-align:left">Composition bars</td><td style="text-align:left">Every row totals 100%</td></tr>
+              <tr><td>Where are category/time clusters?</td><td style="text-align:left">Heatmap</td><td style="text-align:left">Legend, row and column order</td></tr>
+              <tr><td>Is the latest value unusual?</td><td style="text-align:left">Range markers</td><td style="text-align:left">Lookback and position definition</td></tr>
+              <tr><td>What changed between episodes?</td><td style="text-align:left">Phase cards</td><td style="text-align:left">Boundary rule; comparable measures</td></tr>
+              <tr><td>Which extremes deserve attention?</td><td style="text-align:left">Ranked rows</td><td style="text-align:left">Ranking basis, sign, and date</td></tr>
+              <tr><td>What are the exact values?</td><td style="text-align:left">Context table</td><td style="text-align:left">Definitions, units, precision</td></tr>
+              <tr><td>Are results above a target?</td><td style="text-align:left">Threshold tracker</td><td style="text-align:left">Shared domain and target rule</td></tr>
+              <tr><td>What does the spread look like?</td><td style="text-align:left">Distribution</td><td style="text-align:left">Bins, counts, tails, sample size</td></tr>
+              <tr><td>Which events frame the change?</td><td style="text-align:left">Event timeline</td><td style="text-align:left">Dates, provenance, no implied causality</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div class="folio"><span>Pattern library v0.2 · see JSON manifest for selection rules</span><span>3 / 5</span></div>
+    </article>
+
+    <article class="sheet compact">
+      <header><div class="eyebrow">Print infographic / pattern library / 04</div><h1 class="page-title">Targets, distributions, and events</h1><p class="deck">These three patterns answer questions the first specimen cannot: whether an item met a benchmark, how observations are spread, and which dated events frame a move.</p></header>
+      <section>
+        <div class="section-head"><div class="section-number">09 · target comparison</div><h2 class="section-title">Make the target visible on the same scale</h2></div>
+        <div class="panel">
+          <h3 class="panel-title">Completion against target</h3><p class="panel-subtitle">All rows use a 0–100% domain; the black tick is the target</p>
+          <div class="threshold-list">
+            <div class="threshold-row"><span class="name">Team Alpha</span><span class="threshold-track" style="--value:84%;--target:80%"><i class="fill"></i><i class="target"></i></span><span class="readout"><strong>84%</strong><small>target 80%</small></span></div>
+            <div class="threshold-row below"><span class="name">Team Beta</span><span class="threshold-track" style="--value:63%;--target:75%"><i class="fill"></i><i class="target"></i></span><span class="readout"><strong>63%</strong><small>target 75%</small></span></div>
+            <div class="threshold-row"><span class="name">Team Gamma</span><span class="threshold-track" style="--value:91%;--target:90%"><i class="fill"></i><i class="target"></i></span><span class="readout"><strong>91%</strong><small>target 90%</small></span></div>
+          </div>
+          <div class="threshold-key"><span>0%</span><span>100%</span></div>
+          <p class="pattern-caption"><b>Borrow threshold-list</b> only when targets are explicit and the direction of “better” is known. Compute attainment from data, not color alone.</p>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div class="section-number">10 · distribution</div><h2 class="section-title">Show the spread behind a summary number</h2></div>
+        <div class="panel">
+          <h3 class="panel-title">Turnaround time distribution</h3><p class="panel-subtitle">53 illustrative observations · counts in 5-day bins</p>
+          <div class="histogram" role="img" aria-label="Histogram of turnaround time. Most observations fall between 10 and 25 days, with a sparse upper tail to 50 days.">
+            <i class="bin" style="--height:25%"></i><i class="bin" style="--height:42%"></i><i class="bin" style="--height:67%"></i><i class="bin" style="--height:100%"></i><i class="bin" style="--height:83%"></i><i class="bin" style="--height:58%"></i><i class="bin" style="--height:33%"></i><i class="bin tail" style="--height:17%"></i><i class="bin tail" style="--height:8%"></i><i class="bin tail" style="--height:8%"></i>
+          </div>
+          <div class="histogram-axis"><span>0 days</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50 days</span></div>
+          <div class="distribution-stats"><div><strong>18 d</strong><span>approx. median</span></div><div><strong>33 d</strong><span>approx. 90th percentile</span></div><div><strong>53</strong><span>observations</span></div></div>
+          <p class="pattern-caption"><b>Borrow histogram</b> for spread and tails. Document bin edges and show the sample size; a mean alone would conceal the upper tail.</p>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div class="section-number">11 · dated context</div><h2 class="section-title">Place events beside the measured change</h2></div>
+        <div class="panel">
+          <h3 class="panel-title">Illustrative event timeline</h3><p class="panel-subtitle">Event labels are contextual; they do not prove causation</p>
+          <ol class="event-list">
+            <li><div class="event-date">03 Jun · internal release</div><div class="event-title">New intake workflow begins</div><div class="event-note">A dated process change to compare with subsequent throughput.</div></li>
+            <li><div class="event-date">17 Jul · operations log</div><div class="event-title">Capacity added to the review queue</div><div class="event-note">The same week as a measured drop in median delay.</div></li>
+            <li><div class="event-date">09 Sep · status report</div><div class="event-title">Backlog returns near baseline</div><div class="event-note">Confirm the comparison window before attributing the change.</div></li>
+          </ol>
+          <p class="pattern-caption"><b>Borrow event-list</b> for a few sourced, dated milestones. Keep observations and causal claims separate.</p>
+        </div>
+      </section>
+      <div class="folio"><span>Specimen data · no factual claims</span><span>4 / 5</span></div>
+    </article>
+
+    <article class="sheet">
+      <header><div class="eyebrow">Print infographic / pattern library / 05</div><h1 class="page-title">Production print stress test</h1><p class="deck">This page tests content that often breaks a polished mockup: long names, unavailable observations, monochrome output, and provenance that must stay with the figure.</p></header>
+      <section>
+        <div class="section-head"><div class="section-number">12 · long and missing content</div><h2 class="section-title">Let labels wrap; mark absence explicitly</h2></div>
+        <div class="panel">
+          <table class="context-table">
+            <thead><tr><th style="width:48%">Measure</th><th>Current</th><th>Prior</th><th>Change</th></tr></thead>
+            <tbody>
+              <tr><td class="wrap-test">Share of records requiring multi-department exception review before final approval</td><td>12.4%</td><td>10.8%</td><td class="up">+1.6 pt</td></tr>
+              <tr><td class="wrap-test">Median elapsed time from initial intake to confirmed completion, including weekends</td><td class="missing">Unavailable</td><td>3.1 d</td><td class="missing">Not computed</td></tr>
+              <tr><td class="wrap-test">Very-long-unbroken-identifier-ABCDEF0123456789XYZ</td><td>7.0%</td><td>7.2%</td><td class="down">−0.2 pt</td></tr>
+            </tbody>
+          </table>
+          <p class="pattern-caption"><b>Stress check</b> Missing values are words, never zeroes. Long labels can wrap without clipping the numeric columns.</p>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div class="section-number">13 · color-independent reading</div><h2 class="section-title">Check the hierarchy in grayscale</h2></div>
+        <div class="panel mono-demo">
+          <h3 class="panel-title">Three states remain distinct without hue</h3>
+          <div class="mono-swatches"><div class="mono-swatch">Baseline · light fill</div><div class="mono-swatch">Watch · hatch</div><div class="mono-swatch">Alert · dark fill</div></div>
+          <p class="pattern-caption"><b>Stress check</b> The labels and textures carry the meaning even when colors collapse to gray.</p>
+        </div>
+      </section>
+      <section>
+        <div class="section-head"><div class="section-number">14 · provenance</div><h2 class="section-title">Keep method and source on the printed page</h2></div>
+        <div class="panel"><p class="source-line"><strong>Source:</strong> Illustrative local sample, prepared solely for this pattern library. <strong>Window:</strong> Eight weekly periods. <strong>Method:</strong> Percentage-point changes are current minus prior; missing comparisons are omitted, never imputed.</p><p class="pattern-caption"><b>Stress check</b> Replace this line with the real source, retrieval date, calculation, sample size, and any material exclusions.</p></div>
+      </section>
+      <section>
+        <div class="grid-2">
+          <div><h3 class="panel-title">Print defaults</h3><ul class="note-list"><li>Letter page; explicit page containers and folios.</li><li>Keep panels whole with <code>break-inside: avoid</code>.</li><li>Preserve subtle fills with <code>print-color-adjust: exact</code>.</li></ul></div>
+          <div><h3 class="panel-title">Data handoff</h3><ul class="note-list"><li>Render exact values and sources from data, not CSS.</li><li>Use inline SVG only for plotted geometry.</li><li>Check grayscale legibility and PDF page breaks.</li></ul></div>
+        </div>
+      </section>
+      <div class="folio"><span>Pattern library v0.2 · selection metadata in JSON manifest</span><span>5 / 5</span></div>
+    </article>
+  </main>
+</body>
+</html>

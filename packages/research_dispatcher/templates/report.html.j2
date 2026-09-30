@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+{{ composed_css }}
+  </style>
+</head>
+<body>
+  <main>
+    {# —— Cover / page 1 —— #}
+    <article class="sheet report-cover">
+      <header>
+        <div class="eyebrow">{{ subtitle_prefix }}</div>
+        <h1 class="page-title">{{ title }}</h1>
+        {% if date_range_label %}
+        <p class="deck">{{ date_range_label }}</p>
+        {% endif %}
+        <p class="filter-line">Generated: {{ generated_at }}</p>
+        {% if filter_line %}
+        <p class="filter-line">Filters: {{ filter_line }}</p>
+        {% endif %}
+      </header>
+
+      {% if metrics %}
+      <section data-pattern="metric_strip">
+        <div class="metric-strip" style="grid-template-columns: repeat({{ metrics|length }}, 1fr);">
+          {% for m in metrics %}
+          <div class="metric">
+            <span class="metric-label">{{ m.label }}</span>
+            <span class="metric-value">{{ m.value }}</span>
+            {% if m.context %}
+            <span class="metric-context">{{ m.context }}</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if executive_summary %}
+      <section>
+        <div class="section-head">
+          <div class="section-number">Exec</div>
+          <h2 class="section-title">Executive Summary</h2>
+        </div>
+        <div class="prose-block">
+          {% for para in executive_summary %}
+          <p>{{ para }}</p>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if market_analysis %}
+      <section>
+        <div class="section-head">
+          <div class="section-number">Market</div>
+          <h2 class="section-title">Market Analysis</h2>
+        </div>
+        <div class="prose-block">
+          {% for para in market_analysis %}
+          <p>{{ para }}</p>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if street_lines %}
+      <section>
+        <div class="section-head">
+          <div class="section-number">Street</div>
+          <h2 class="section-title">Where the Street Agrees / Splits</h2>
+        </div>
+        <ul class="bullet-list">
+          {% for line in street_lines %}
+          <li>{{ line }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      <div class="folio">
+        <span>{{ title }}</span>
+        <span>1</span>
+      </div>
+    </article>
+
+    {% if delta_sections %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Delta</div>
+        <h2 class="section-title">Change Tracking</h2>
+        {% if delta_summary %}
+        <p class="section-intro">{{ delta_summary }}</p>
+        {% endif %}
+        {% if delta_baseline %}
+        <p class="section-intro">Baseline window: {{ delta_baseline }}</p>
+        {% endif %}
+      </div>
+      {% for section in delta_sections %}
+      <section>
+        {% if section.title %}
+        <h3 class="panel-title">{{ section.title }}</h3>
+        {% endif %}
+            <ul class="bullet-list">
+              {% for item in section.bullets %}
+              <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+      </section>
+      {% endfor %}
+      <div class="folio"><span>Change Tracking</span><span></span></div>
+    </article>
+    {% endif %}
+
+    {% if through_lines %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Through lines</div>
+        <h2 class="section-title">Through Lines</h2>
+      </div>
+      {% for tl in through_lines %}
+      <section class="throughline-card">
+        <div class="throughline-lead">{{ tl.lead }}</div>
+        {% if tl.detail %}
+        <div class="throughline-detail">{{ tl.detail }}</div>
+        {% endif %}
+        {% if tl.meta %}
+        <div class="throughline-meta">{{ tl.meta }}</div>
+        {% endif %}
+        {% if tl.callout %}
+        <aside class="callout-quote" data-pattern="annotation">
+          {{ tl.callout.content }}
+          {% if tl.callout.attribution %}
+          <div class="callout-attr">— {{ tl.callout.attribution }}</div>
+          {% endif %}
+        </aside>
+        {% endif %}
+      </section>
+      {% endfor %}
+      <div class="folio"><span>Through Lines</span><span></span></div>
+    </article>
+    {% endif %}
+
+    {% if document_digest %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Digest</div>
+        <h2 class="section-title">Document Digest</h2>
+      </div>
+      {% for day in document_digest %}
+      <section class="digest-day">
+        <div class="digest-day-title">{{ day.date }}</div>
+        {% for entry in day.entries %}
+        <div class="digest-entry">
+          <div class="digest-title">{{ entry.source }}{% if entry.document %} — {{ entry.document }}{% endif %}</div>
+          {% if entry.summary %}
+          <div class="digest-summary">{{ entry.summary }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </section>
+      {% endfor %}
+      <div class="folio"><span>Document Digest</span><span></span></div>
+    </article>
+    {% endif %}
+
+    {% if theme_groups or themes_flat %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Themes</div>
+        <h2 class="section-title">Thematic Analysis</h2>
+      </div>
+      {% if theme_density %}
+      <section data-pattern="metric_strip">
+        <div class="metric-strip" style="grid-template-columns: repeat({{ theme_density|length }}, 1fr);">
+          {% for m in theme_density %}
+          <div class="metric">
+            <span class="metric-label">{{ m.label }}</span>
+            <span class="metric-value">{{ m.value }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      {% for group in theme_groups %}
+      <section>
+        <div class="theme-cluster-head">{{ group.lead }}</div>
+        {% for theme in group.themes %}
+        <div class="theme-block">
+          <div class="theme-label">
+            {{ theme.label }}
+            {% if theme.strength %}
+            <span class="theme-strength {{ theme.strength_class }}">{{ theme.strength }}</span>
+            {% endif %}
+          </div>
+          {% if theme.context %}
+          <div class="theme-context">{{ theme.context }}</div>
+          {% endif %}
+          {% if theme.source %}
+          <div class="theme-source">{{ theme.source }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+        {% if group.overflow_count %}
+        <p class="overflow-note">+ {{ group.overflow_count }} additional themes across documents</p>
+        {% endif %}
+      </section>
+      {% endfor %}
+      {% if themes_flat and not theme_groups %}
+      {% for theme in themes_flat %}
+      <div class="theme-block">
+        <div class="theme-label">
+          {{ theme.label }}
+          {% if theme.strength %}
+          <span class="theme-strength {{ theme.strength_class }}">{{ theme.strength }}</span>
+          {% endif %}
+        </div>
+        {% if theme.context %}
+        <div class="theme-context">{{ theme.context }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% endif %}
+      <div class="folio"><span>Thematic Analysis</span><span></span></div>
+    </article>
+    {% endif %}
+
+    {% if trades %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Trades</div>
+        <h2 class="section-title">Trade Recommendations</h2>
+      </div>
+      {% for trade in trades %}
+      <section class="trade-item">
+        <div class="trade-head">
+          <span class="conviction {{ trade.conviction_class }}">[{{ trade.conviction_label }}]</span>
+          {{ trade.text }}
+        </div>
+        <div class="trade-meta"><em>Exposure: {{ trade.exposure }} | Timeframe: {{ trade.timeframe }}</em></div>
+        {% if trade.rationale %}
+        <div class="trade-rationale">{{ trade.rationale }}</div>
+        {% endif %}
+        {% if trade.triggers %}
+        <div class="trade-meta"><em>Triggers: {{ trade.triggers }}</em></div>
+        {% endif %}
+        <div class="trade-source"><em>Source: {{ trade.source_line }}</em></div>
+      </section>
+      {% endfor %}
+      <div class="folio"><span>Trade Recommendations</span><span></span></div>
+    </article>
+    {% endif %}
+
+    {% if economic_calendar %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Calendar</div>
+        <h2 class="section-title">Economic Calendar</h2>
+      </div>
+      {% for day in economic_calendar %}
+      <section data-pattern="context_table">
+        <h3 class="panel-title">{{ day.label }}</h3>
+        <table class="context-table">
+          <thead>
+            <tr><th>Time NY</th><th>Event</th><th>Consensus</th></tr>
+          </thead>
+          <tbody>
+            {% for row in day.rows %}
+            <tr>
+              <td>{{ row.time }}</td>
+              <td>{{ row.event }}</td>
+              <td>{{ row.consensus }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% endfor %}
+      <div class="folio"><span>Economic Calendar</span><span></span></div>
+    </article>
+    {% endif %}
+
+    {% if supply_calendar %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Supply</div>
+        <h2 class="section-title">Treasury Supply Calendar</h2>
+      </div>
+      {% for day in supply_calendar %}
+      <section data-pattern="context_table">
+        <h3 class="panel-title">{{ day.label }}</h3>
+        <table class="context-table">
+          <thead>
+            <tr><th>Time NY</th><th>Description</th><th>Size (bn)</th></tr>
+          </thead>
+          <tbody>
+            {% for row in day.rows %}
+            <tr>
+              <td>{{ row.time }}</td>
+              <td>{{ row.description }}</td>
+              <td>{{ row.size }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% endfor %}
+      <div class="folio"><span>Treasury Supply</span><span></span></div>
+    </article>
+    {% endif %}
+
+    {% if details_headers and details_rows %}
+    <article class="sheet report-section">
+      <div class="section-head">
+        <div class="section-number">Records</div>
+        <h2 class="section-title">Detailed Records</h2>
+      </div>
+      <section data-pattern="context_table">
+        <table class="context-table">
+          <thead>
+            <tr>
+              {% for h in details_headers %}
+              <th>{{ h }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in details_rows %}
+            <tr>
+              {% for cell in row %}
+              <td>{{ cell }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      <div class="folio"><span>Detailed Records</span><span></span></div>
+    </article>
+    {% endif %}
+  </main>
+</body>
+</html>
