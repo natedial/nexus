@@ -170,6 +170,20 @@ class HtmlReportGeneratorTests(unittest.TestCase):
         self.assertIn("Research Dispatch", content)
         self.assertGreater(len(content), 1000)
 
+    def test_view_exposes_pattern_routing_decisions(self):
+        view, used = self.generator._build_view_model(_sample_report())
+        self.assertIn("cover_metrics", view["pattern_routing"])
+        self.assertEqual(
+            view["pattern_routing"]["cover_metrics"]["applied"],
+            "metric_strip",
+        )
+        self.assertEqual(
+            view["pattern_routing"]["synthesis_delta"]["status"],
+            "deferred",
+        )
+        self.assertIn("metric_strip", used)
+        self.assertIn("context_table", used)
+
 
 if __name__ == "__main__":
     unittest.main()
