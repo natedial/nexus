@@ -48,6 +48,10 @@ class ProtonImap:
         self._uids: dict[str, str] = {}
         self._bodies: dict[str, bytes] = {}
         self._gmail_copies: list[str] = []
+        # Ledger key -> UID for natives returned by the last search_pending.
+        # Kept after apply_sent so the breaker can see whether those UIDs
+        # are still in pending, instead of trusting the raw folder count.
+        self._native_uids: dict[str, str] = {}
 
     def connect(self) -> None:
         proton = self._cfg.proton
@@ -86,6 +90,7 @@ class ProtonImap:
         self._select(self._cfg.proton.folder_pending)
         self._gmail_copies = []
         self._uids = {}
+        self._native_uids = {}
         log.info("proton searching pending")
         uids = self._search_all_uids()
         if not uids:
@@ -105,6 +110,7 @@ class ProtonImap:
                     self._gmail_copies.append(key)
                 elif header_is_fresh(header, max_age_days):
                     native.append(key)
+                    self._native_uids[key] = uid
                 else:
                     stale += 1
                 hit_limit = limit is not None and len(native) >= max(0, int(limit))
@@ -136,27 +142,61 @@ class ProtonImap:
         if not uids:
             self._gmail_copies = []
             return len(copies)
-        imap = self._require()
-        self._select(self._cfg.proton.folder_pending)
-        dest = quote_mailbox(self._cfg.proton.folder_inbox)
-        try:
-            for start in range(0, len(uids), _DISMISS_CHUNK):
-                chunk = uids[start : start + _DISMISS_CHUNK]
-                typ, _ = imap.uid("MOVE", ",".join(chunk), dest)
-                if typ != "OK":
-                    raise TemporaryRelayError("failed to dismiss Proton Gmail copy")
-                log.info(
-                    "proton dismissed copies %s-%s/%s",
-                    start + 1,
-                    start + len(chunk),
-                    len(uids),
-                )
-        except TimeoutError as exc:
-            raise imap_timeout(exc) from exc
-        except (OSError, imaplib.IMAP4.error) as exc:
-            raise TemporaryRelayError(f"Proton IMAP MOVE failed: {exc.__class__.__name__}") from exc
+        self._move_pending_uids_to_inbox(uids)
         self._gmail_copies = []
         return len(copies)
+
+    def dismiss_arrived_copies(self, *, dry_run: bool = False) -> int:
+        """Dismiss own-relay and Gmail copies that landed in pending after classify.
+
+        Proton Bridge often re-deposits the outbound or Gmail echo into
+        Relay/pending during the same run that moved the native to sent.
+        Those UIDs were not in the initial dismiss list.
+        """
+        self._select(self._cfg.proton.folder_pending)
+        uids = self._search_all_uids()
+        # Dry-run leaves the initial dismiss list in the folder. Skip those
+        # UIDs so a second pass does not count them again.
+        already = {self._uids[key] for key in self._gmail_copies if key in self._uids}
+        copies: list[str] = []
+        try:
+            for uid in uids:
+                if uid in already:
+                    continue
+                header = self._fetch_header(uid)
+                if has_google_hops(header) or self._is_own_relay(uid, header):
+                    copies.append(uid)
+        except TimeoutError as exc:
+            raise imap_timeout(exc) from exc
+        if not copies:
+            return 0
+        if dry_run:
+            log.info("proton would dismiss arrived copies=%s", len(copies))
+            return len(copies)
+        log.info("proton dismissing arrived copies=%s", len(copies))
+        self._move_pending_uids_to_inbox(copies)
+        return len(copies)
+
+    def sent_natives_still_pending(self, keys: list[str]) -> list[str]:
+        """Return sent natives whose start-of-run UID is still in pending.
+
+        Echo copies arrive as new UIDs. A raw folder-count drop treats them
+        as mail we failed to move. Only the UIDs classified as native at
+        search time count as stuck.
+        """
+        wanted = [
+            (str(key), self._native_uids[str(key)])
+            for key in keys
+            if str(key) in self._native_uids
+        ]
+        if not wanted:
+            return []
+        self._select(self._cfg.proton.folder_pending)
+        current = set(self._search_all_uids())
+        stuck = [key for key, uid in wanted if uid in current]
+        if stuck:
+            log.info("proton sent natives still pending=%s", len(stuck))
+        return stuck
 
     def fetch_by_message_id(self, message_id: str) -> bytes:
         text = (message_id or "").strip()
@@ -367,6 +407,29 @@ class ProtonImap:
         except (OSError, imaplib.IMAP4.error) as exc:
             raise TemporaryRelayError(f"Proton IMAP search failed: {exc.__class__.__name__}") from exc
         return found
+
+    def _move_pending_uids_to_inbox(self, uids: list[str]) -> None:
+        if not uids:
+            return
+        imap = self._require()
+        self._select(self._cfg.proton.folder_pending)
+        dest = quote_mailbox(self._cfg.proton.folder_inbox)
+        try:
+            for start in range(0, len(uids), _DISMISS_CHUNK):
+                chunk = uids[start : start + _DISMISS_CHUNK]
+                typ, _ = imap.uid("MOVE", ",".join(chunk), dest)
+                if typ != "OK":
+                    raise TemporaryRelayError("failed to dismiss Proton Gmail copy")
+                log.info(
+                    "proton dismissed copies %s-%s/%s",
+                    start + 1,
+                    start + len(chunk),
+                    len(uids),
+                )
+        except TimeoutError as exc:
+            raise imap_timeout(exc) from exc
+        except (OSError, imaplib.IMAP4.error) as exc:
+            raise TemporaryRelayError(f"Proton IMAP MOVE failed: {exc.__class__.__name__}") from exc
 
     def _move_to_inbox(self, key: str) -> None:
         uid = self._uids.get(key)
