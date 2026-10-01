@@ -139,7 +139,7 @@ The job processes Gmail `Relay/pending` first, then Proton `Relay/pending`. Prot
 
 Reconstructed mail is stamped (`X-Research-Relay`, `Auto-Submitted: auto-generated`, and the same token in the Sender/Date preamble). Copies that re-enter `Relay/pending` are skipped and dismissed even if Proton rewrote `From` / `Message-ID`.
 
-If a live Proton pass sends mail and `Relay/pending` does not shrink, the circuit breaker opens: later live runs still dismiss copies but do not send until you run `research-relay breaker-reset`. Health reports the breaker as failed while it is open.
+If a live Proton pass sends mail and one of those natives is still in `Relay/pending` afterward, the circuit breaker opens. Own-relay and Gmail copies that Bridge deposits into `Relay/pending` during the run are dismissed before that check, so they do not open the breaker. Later live runs still dismiss copies but do not send until you run `research-relay breaker-reset`. Health reports the breaker as failed while it is open.
 
 ## Commands
 

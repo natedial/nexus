@@ -79,7 +79,9 @@ def process_messages(
             log.info("searching %s budget=%s", source.__class__.__name__, budget)
             pending = list(source.search_pending(limit=budget))
             pending = pending[:remaining]
+            sent_ids: list[str] = []
             for msgid in pending:
+                sent_before_one = result.sent
                 _process_one(
                     cfg,
                     imap=source,
@@ -92,29 +94,91 @@ def process_messages(
                     sleeper=sleeper,
                     hmac_key=hmac_key,
                 )
+                if result.sent > sent_before_one:
+                    sent_ids.append(str(msgid))
                 used += 1
             dismiss = getattr(source, "dismiss_gmail_copies", None)
             if callable(dismiss):
                 result.skipped += int(dismiss(dry_run=dry_run))
-            if (
-                not dry_run
-                and pending_before is not None
-                and result.sent > sent_before
-                and callable(counter)
-            ):
-                pending_after = int(counter())
-                sent_this_source = result.sent - sent_before
-                if pending_after > pending_before - sent_this_source:
-                    reason = (
-                        f"proton pending did not drop by sends before={pending_before} "
-                        f"after={pending_after} sent={sent_this_source}"
+            # Copies Bridge deposits during this pass were not in the initial
+            # dismiss list. Sweep them before the breaker looks at pending.
+            rescan = getattr(source, "dismiss_arrived_copies", None)
+            if callable(rescan):
+                try:
+                    result.skipped += int(rescan(dry_run=dry_run))
+                except Exception as exc:
+                    # Still run the breaker check. A dismiss error must not hide
+                    # a native that stayed in pending after SMTP accept.
+                    result.operational_failures += 1
+                    log.warning(
+                        "arrived-copy dismiss failed error=%s",
+                        exc.__class__.__name__,
                     )
-                    ledger.trip_circuit(reason)
-                    result.circuit_tripped = True
-                    log.error("circuit breaker tripped %s", reason)
+            if not dry_run and result.sent > sent_before:
+                _trip_if_proton_sends_stuck(
+                    source,
+                    ledger,
+                    result,
+                    pending_before=pending_before,
+                    sent_ids=sent_ids,
+                    counter=counter,
+                )
     finally:
         ledger.close()
     return result
+
+
+def _trip_if_proton_sends_stuck(
+    source: object,
+    ledger: Ledger,
+    result: RunResult,
+    *,
+    pending_before: int | None,
+    sent_ids: list[str],
+    counter,
+) -> None:
+    """Open the breaker when a native we just sent is still in pending.
+
+    Proton Bridge re-files own-relay and Gmail echoes into Relay/pending
+    during the send. Those are new UIDs, so the folder count often fails
+    to fall by `sent` even though apply_sent moved the original. Trip only
+    when a start-of-run native UID remains. Sources that cannot name those
+    UIDs keep the older count comparison.
+    """
+    sent_this_source = len(sent_ids)
+    stuck_fn = getattr(source, "sent_natives_still_pending", None)
+    if callable(stuck_fn):
+        stuck = [str(key) for key in stuck_fn(sent_ids)]
+        pending_after = int(counter()) if callable(counter) else None
+        log.info(
+            "proton pending check before=%s after=%s sent=%s stuck=%s",
+            pending_before,
+            pending_after,
+            sent_this_source,
+            len(stuck),
+        )
+        if not stuck:
+            return
+        after_text = f" after={pending_after}" if pending_after is not None else ""
+        reason = (
+            f"proton pending did not drop by sends before={pending_before}"
+            f"{after_text} sent={sent_this_source} stuck={len(stuck)}"
+        )
+        ledger.trip_circuit(reason)
+        result.circuit_tripped = True
+        log.error("circuit breaker tripped %s", reason)
+        return
+    if pending_before is None or not callable(counter):
+        return
+    pending_after = int(counter())
+    if pending_after > pending_before - sent_this_source:
+        reason = (
+            f"proton pending did not drop by sends before={pending_before} "
+            f"after={pending_after} sent={sent_this_source}"
+        )
+        ledger.trip_circuit(reason)
+        result.circuit_tripped = True
+        log.error("circuit breaker tripped %s", reason)
 
 
 def _process_one(

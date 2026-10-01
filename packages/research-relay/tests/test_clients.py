@@ -238,14 +238,17 @@ class ScriptedProtonImap:
                 bucket.append(uid)
             return "OK", [b""]
         if verb == "MOVE":
-            uid = str(args[0])
             dest = str(args[1])
-            current = self.mailboxes.get(self.selected, [])
-            if uid in current:
-                current.remove(uid)
-            bucket = self.mailboxes.setdefault(dest, [])
-            if uid not in bucket:
-                bucket.append(uid)
+            for uid in str(args[0]).split(","):
+                uid = uid.strip()
+                if not uid:
+                    continue
+                current = self.mailboxes.get(self.selected, [])
+                if uid in current:
+                    current.remove(uid)
+                bucket = self.mailboxes.setdefault(dest, [])
+                if uid not in bucket:
+                    bucket.append(uid)
             return "OK", [b""]
         return "OK", [b""]
 
@@ -278,6 +281,7 @@ def _proton_client(scripted: ScriptedProtonImap) -> ProtonImap:
     client._uids = {}
     client._bodies = {}
     client._gmail_copies = []
+    client._native_uids = {}
     client._password = "x"
     client._hmac_key = b"k"
     return client
@@ -425,6 +429,75 @@ def test_proton_count_pending_returns_uid_count() -> None:
     scripted = ScriptedProtonImap()
     client = _proton_client(scripted)
     assert client.count_pending() == 2
+
+
+def test_arrived_echo_is_dismissed_and_original_uid_is_not_stuck() -> None:
+    scripted = ScriptedProtonImap()
+    client = _proton_client(scripted)
+    pending_folder = quote_mailbox(r"Labels/Relay\/pending")
+    inbox = quote_mailbox("INBOX")
+    native = "proton:<native@proton.me>"
+    assert client.search_pending() == [native]
+    assert client._native_uids[native] == "1"
+    client.dismiss_gmail_copies(dry_run=False)
+    client.apply_sent(native)
+    # Same Message-ID as the native, new UID: a Gmail echo re-filed mid-run.
+    scripted.headers["3"] = (
+        b"From: Alice <alice@candidates.edu>\r\n"
+        b"Message-ID: <native@proton.me>\r\n"
+        b"Received: from mx.google.com by mx.google.com\r\n\r\n"
+    )
+    scripted.headers["4"] = (
+        b"From: relay@proton.me\r\n"
+        b"Message-ID: <echo@relay.local>\r\n"
+        b"Auto-Submitted: auto-generated\r\n\r\n"
+    )
+    scripted.headers["5"] = (
+        b"From: Bob <bob@proton.me>\r\n"
+        b"Message-ID: <later@proton.me>\r\n\r\n"
+    )
+    scripted.bodies["5"] = b"From: Bob <bob@proton.me>\r\n\r\nhello\r\n"
+    scripted.mailboxes[pending_folder].extend(["3", "4", "5"])
+    # The echo shares the native Message-ID but not its UID, so it is not stuck.
+    assert client.sent_natives_still_pending([native]) == []
+    dismissed = client.dismiss_arrived_copies(dry_run=False)
+    assert dismissed == 2
+    assert scripted.mailboxes[pending_folder] == ["5"]
+    assert "3" in scripted.mailboxes[inbox]
+    assert "4" in scripted.mailboxes[inbox]
+    assert client.count_pending() == 1
+
+
+def test_sent_native_uid_still_pending_is_reported() -> None:
+    scripted = ScriptedProtonImap()
+    client = _proton_client(scripted)
+    pending_folder = quote_mailbox(r"Labels/Relay\/pending")
+    native = "proton:<native@proton.me>"
+    client.search_pending()
+    scripted.headers["3"] = (
+        b"From: relay@proton.me\r\n"
+        b"Message-ID: <echo@relay.local>\r\n\r\n"
+    )
+    scripted.mailboxes[pending_folder].append("3")
+    assert client.sent_natives_still_pending([native]) == [native]
+    assert client.sent_natives_still_pending(["proton:<unsent@proton.me>"]) == []
+
+
+def test_dismiss_arrived_copies_dry_run_leaves_pending() -> None:
+    scripted = ScriptedProtonImap()
+    client = _proton_client(scripted)
+    pending_folder = quote_mailbox(r"Labels/Relay\/pending")
+    client.search_pending()
+    scripted.headers["3"] = (
+        b"From: relay@proton.me\r\n"
+        b"Message-ID: <echo@relay.local>\r\n\r\n"
+    )
+    scripted.mailboxes[pending_folder].append("3")
+    # uid 2 was already classified; only the new echo is counted.
+    assert client.dismiss_arrived_copies(dry_run=True) == 1
+    assert scripted.mailboxes[pending_folder] == ["1", "2", "3"]
+    move_cmds = [c for c in scripted.commands if c[0] == "uid" and str(c[1]).upper() == "MOVE"]
+    assert move_cmds == []
 
 
 def test_proton_search_pending_skips_stale_native() -> None:

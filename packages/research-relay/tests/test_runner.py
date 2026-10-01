@@ -326,12 +326,16 @@ class FakeProtonImap(FakeImap):
     def __init__(self, messages: dict[str, dict], gmail_copies: list[str] | None = None):
         super().__init__(messages)
         self._copies = list(gmail_copies or [])
+        self._arrived_copies: list[str] = []
+        self._native_uids: dict[str, str] = {}
         self.dismissed: list[str] = []
 
     def search_pending(self, limit: int | None = None) -> list[str]:
         pending = [msgid for msgid in super().search_pending() if msgid not in self._copies]
         if limit is not None:
-            return pending[: max(0, int(limit))]
+            pending = pending[: max(0, int(limit))]
+        # The message id stands in for the IMAP UID captured at classify time.
+        self._native_uids = {msgid: msgid for msgid in pending}
         return pending
 
     def count_pending(self) -> int:
@@ -344,6 +348,29 @@ class FakeProtonImap(FakeImap):
                 self.labels[msgid].discard("Relay/pending")
                 self.dismissed.append(msgid)
         return len(copies)
+
+    def dismiss_arrived_copies(self, *, dry_run: bool = False) -> int:
+        copies = [
+            msgid
+            for msgid in self._arrived_copies
+            if "Relay/pending" in self.labels.get(msgid, set())
+        ]
+        if dry_run:
+            return len(copies)
+        for msgid in copies:
+            self.labels[msgid].discard("Relay/pending")
+            self.dismissed.append(msgid)
+        return len(copies)
+
+    def sent_natives_still_pending(self, keys: list[str]) -> list[str]:
+        stuck: list[str] = []
+        for key in keys:
+            uid = self._native_uids.get(str(key))
+            if uid is None:
+                continue
+            if "Relay/pending" in self.labels.get(uid, set()):
+                stuck.append(str(key))
+        return stuck
 
 
 def test_proton_intake_sends_native_and_dismisses_gmail_copies(tmp_path: Path) -> None:
@@ -452,10 +479,13 @@ def test_daily_cap_stops_the_twenty_first_send(tmp_path: Path) -> None:
 def test_unchanged_proton_pending_trips_breaker(tmp_path: Path) -> None:
     cfg = _config(tmp_path, live=True)
     gmail = FakeImap({})
-    proton = FakeProtonImap(
-        {"proton:<native@proton.me>": {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}}
-    )
-    proton.count_pending = lambda: 55
+    native = "proton:<native@proton.me>"
+    proton = FakeProtonImap({native: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}})
+
+    def apply_sent(gmail_msgid: str) -> None:
+        raise ConnectionError("pending label stayed")
+
+    proton.apply_sent = apply_sent
     smtp = FakeSmtp()
     first = process_messages(
         cfg,
@@ -469,6 +499,7 @@ def test_unchanged_proton_pending_trips_breaker(tmp_path: Path) -> None:
     assert first.sent == 1
     assert first.circuit_tripped is True
     assert first.exit_code() == 1
+    assert "Relay/pending" in proton.labels[native]
     assert Ledger(cfg.paths.ledger).circuit_is_open()
 
     proton.messages["proton:<native-2@proton.me>"] = {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}
@@ -487,6 +518,168 @@ def test_unchanged_proton_pending_trips_breaker(tmp_path: Path) -> None:
     assert second.sent == 0
     assert second.circuit_open is True
     assert second.exit_code() == 1
+
+
+def test_midrun_echo_copy_does_not_trip_breaker(tmp_path: Path) -> None:
+    """Send succeeds and Bridge drops an echo into pending during the run.
+
+    The historical false trip was before=2 after=1 sent=2: both natives left,
+    one own-relay/Gmail copy arrived, and the raw count did not fall by sent.
+    """
+    cfg = _config(tmp_path, live=True)
+    native = "proton:<native@proton.me>"
+    other = "proton:<native-2@proton.me>"
+    echo = "proton:<echo@mail.gmail.com>"
+    proton = FakeProtonImap(
+        {
+            native: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}},
+            other: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}},
+        }
+    )
+    original_apply = proton.apply_sent
+
+    def apply_sent(gmail_msgid: str) -> None:
+        original_apply(gmail_msgid)
+        if echo not in proton.labels:
+            proton.messages[echo] = {"raw": _plain_raw(), "labels": {"Relay/pending"}}
+            proton.labels[echo] = {"Relay/pending"}
+            proton._arrived_copies.append(echo)
+
+    proton.apply_sent = apply_sent
+    result = process_messages(
+        cfg,
+        imap=FakeImap({}),
+        smtp=FakeSmtp(),
+        hmac_key=b"k",
+        dry_run=False,
+        extra_imaps=[proton],
+        sleeper=lambda _s: None,
+    )
+    assert result.sent == 2
+    assert result.circuit_tripped is False
+    assert result.exit_code() == 0
+    assert not Ledger(cfg.paths.ledger).circuit_is_open()
+    assert "Relay/pending" not in proton.labels[native]
+    assert "Relay/pending" not in proton.labels[other]
+    assert "Relay/pending" not in proton.labels[echo]
+    assert echo in proton.dismissed
+
+
+def test_midrun_native_arrival_does_not_trip_breaker(tmp_path: Path) -> None:
+    """A new native that arrives after classify is not a stuck send."""
+    cfg = _config(tmp_path, live=True)
+    native = "proton:<native@proton.me>"
+    arrived = "proton:<later@proton.me>"
+    proton = FakeProtonImap({native: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}})
+    original_apply = proton.apply_sent
+
+    def apply_sent(gmail_msgid: str) -> None:
+        original_apply(gmail_msgid)
+        proton.messages[arrived] = {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}
+        proton.labels[arrived] = {"Relay/pending"}
+
+    proton.apply_sent = apply_sent
+    result = process_messages(
+        cfg,
+        imap=FakeImap({}),
+        smtp=FakeSmtp(),
+        hmac_key=b"k",
+        dry_run=False,
+        extra_imaps=[proton],
+        sleeper=lambda _s: None,
+    )
+    assert result.sent == 1
+    assert result.circuit_tripped is False
+    assert not Ledger(cfg.paths.ledger).circuit_is_open()
+    assert "Relay/pending" not in proton.labels[native]
+    assert "Relay/pending" in proton.labels[arrived]
+    assert arrived not in proton.dismissed
+
+
+def test_stuck_native_trips_when_echo_also_arrives(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, live=True)
+    native = "proton:<native@proton.me>"
+    echo = "proton:<echo@relay.local>"
+    proton = FakeProtonImap({native: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}})
+
+    def apply_sent(gmail_msgid: str) -> None:
+        if echo not in proton.labels:
+            proton.messages[echo] = {"raw": _plain_raw(), "labels": {"Relay/pending"}}
+            proton.labels[echo] = {"Relay/pending"}
+            proton._arrived_copies.append(echo)
+        raise ConnectionError("pending label stayed")
+
+    proton.apply_sent = apply_sent
+    result = process_messages(
+        cfg,
+        imap=FakeImap({}),
+        smtp=FakeSmtp(),
+        hmac_key=b"k",
+        dry_run=False,
+        extra_imaps=[proton],
+        sleeper=lambda _s: None,
+    )
+    assert result.sent == 1
+    assert result.circuit_tripped is True
+    assert result.exit_code() == 1
+    assert Ledger(cfg.paths.ledger).circuit_is_open()
+    assert "Relay/pending" in proton.labels[native]
+    assert "Relay/pending" not in proton.labels[echo]
+    assert echo in proton.dismissed
+
+
+def test_arrived_dismiss_failure_does_not_hide_a_stuck_native(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, live=True)
+    native = "proton:<native@proton.me>"
+    proton = FakeProtonImap({native: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}})
+
+    def apply_sent(gmail_msgid: str) -> None:
+        raise ConnectionError("pending label stayed")
+
+    def dismiss_arrived_copies(*, dry_run: bool = False) -> int:
+        raise ConnectionError("imap")
+
+    proton.apply_sent = apply_sent
+    proton.dismiss_arrived_copies = dismiss_arrived_copies
+    result = process_messages(
+        cfg,
+        imap=FakeImap({}),
+        smtp=FakeSmtp(),
+        hmac_key=b"k",
+        dry_run=False,
+        extra_imaps=[proton],
+        sleeper=lambda _s: None,
+    )
+    assert result.sent == 1
+    assert result.operational_failures >= 1
+    assert result.circuit_tripped is True
+    assert "Relay/pending" in proton.labels[native]
+
+
+def test_arrived_dismiss_failure_does_not_trip_after_successful_send(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, live=True)
+    native = "proton:<native@proton.me>"
+    proton = FakeProtonImap({native: {"raw": _proton_native_raw(), "labels": {"Relay/pending"}}})
+
+    def dismiss_arrived_copies(*, dry_run: bool = False) -> int:
+        raise ConnectionError("imap")
+
+    proton.dismiss_arrived_copies = dismiss_arrived_copies
+    result = process_messages(
+        cfg,
+        imap=FakeImap({}),
+        smtp=FakeSmtp(),
+        hmac_key=b"k",
+        dry_run=False,
+        extra_imaps=[proton],
+        sleeper=lambda _s: None,
+    )
+    assert result.sent == 1
+    assert result.operational_failures == 1
+    assert result.circuit_tripped is False
+    assert not Ledger(cfg.paths.ledger).circuit_is_open()
+    assert "Relay/pending" not in proton.labels[native]
+    assert result.exit_code() == 1
 
 
 def test_dry_run_does_not_count_sends_or_trip_breaker(tmp_path: Path) -> None:
