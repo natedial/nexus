@@ -21,11 +21,15 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from research_analysis_layer.config import Settings
-from research_analysis_layer.evals.decision_artifacts import write_shadow_artifact
+from research_analysis_layer.evals.decision_artifacts import (
+    write_question_set_snapshot,
+    write_shadow_artifact,
+)
 from research_analysis_layer.evals.decision_classifier import (
     ShadowDecisionClassifier,
     assertion_unit_id,
 )
+from research_analysis_layer.evals.decision_question_set import snapshot_question_set
 from research_analysis_layer.evals.runner import load_golden_annotations
 from research_analysis_layer.models import AnalysisChunkDraft, EvidenceUnitDraft
 from research_analysis_layer.models.assertion_models import normalize_text
@@ -178,11 +182,15 @@ def main(argv: list[str] | None = None) -> int:
     doc_ids = [d.strip() for d in args.docs.split(",") if d.strip()]
     classifier = ShadowDecisionClassifier(model, batch_size=args.batch_size)
     args.output.mkdir(parents=True, exist_ok=True)
+    question_set = snapshot_question_set()
+    question_set_path = write_question_set_snapshot(question_set, args.output)
 
     index: dict = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "provider": args.provider,
-        "question_set_note": "decision-question-set from package constants",
+        "question_set_version": question_set.version,
+        "question_set_content_hash": question_set.content_hash,
+        "question_set_file": question_set_path.name,
         "documents": [],
         "total_units": 0,
     }
@@ -255,6 +263,9 @@ def main(argv: list[str] | None = None) -> int:
         "",
         f"Provider: `{args.provider}`  ",
         f"Created: {index['created_at']}  ",
+        f"Question set: `{index['question_set_version']}` "
+        f"(hash `{index['question_set_content_hash']}`)  ",
+        f"Questions file: `{index['question_set_file']}`  ",
         f"Total units: {index['total_units']}",
         "",
         "| doc | unit_id | statement_type (p) | top nouls | text |",

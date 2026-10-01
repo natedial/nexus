@@ -11,7 +11,7 @@ DecisionStatus = Literal["complete", "uncertain", "failed", "none"]
 BatchStatus = Literal["complete", "partial", "failed"]
 CoverageStatus = Literal["full", "partial", "missing", "failed"]
 
-ARTIFACT_SCHEMA_VERSION = "decision-shadow-artifact-v1"
+ARTIFACT_SCHEMA_VERSION = "decision-shadow-artifact-v2"
 QUESTION_SET_VERSION = "decision-question-set-v2"
 
 STATEMENT_TYPE_OPTIONS: tuple[str, ...] = (
@@ -48,6 +48,35 @@ class DecisionModelMetadata(BaseModel):
     model_version: str
     question_set_version: str
     adapter_version: str
+
+
+class FrozenQuestionSpec(BaseModel):
+    """Unit-independent question template frozen into shadow artifacts."""
+
+    question_id: str
+    question_kind: QuestionKind
+    wording: str
+    options: list[str] | None = None
+    noul_criteria: dict[str, str] | None = None
+
+    @model_validator(mode="after")
+    def _validate_choice_options(self) -> FrozenQuestionSpec:
+        if self.question_kind == "choice":
+            if not self.options:
+                raise ValueError("choice questions require options")
+            if self.noul_criteria:
+                raise ValueError("choice questions must not supply noul_criteria")
+        elif self.options:
+            raise ValueError("noul questions must not supply options")
+        return self
+
+
+class QuestionSetSnapshot(BaseModel):
+    """Exact questions asked for a run — enables A/B of wording/criteria over time."""
+
+    version: str
+    content_hash: str
+    questions: list[FrozenQuestionSpec]
 
 
 class DecisionQuestion(BaseModel):
@@ -188,6 +217,9 @@ class ShadowClassificationArtifact(BaseModel):
 
     schema_version: str = ARTIFACT_SCHEMA_VERSION
     question_set_version: str
+    # Frozen wording/options/criteria for this run. Optional only so older
+    # v1 sidecars still load; new writes always populate it.
+    question_set: QuestionSetSnapshot | None = None
     provider: str
     adapter_version: str
     model_version: str

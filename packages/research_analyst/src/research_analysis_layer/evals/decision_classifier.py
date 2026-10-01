@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 from research_analysis_layer.evals.decision_question_set import (
     build_questions_for_unit,
     expected_question_ids,
+    snapshot_question_set,
 )
 from research_analysis_layer.models.assertion_models import AssertionDraft
 from research_analysis_layer.models.decision_models import (
@@ -105,11 +106,15 @@ class ShadowDecisionClassifier:
         ]
         # Preserve source order explicitly even if later gather shuffles.
         unit_order = [unit.unit_id for unit in units]
+        question_set = snapshot_question_set(
+            question_set_version=self._question_set_version
+        )
 
         if not units:
             return ShadowClassificationArtifact(
                 schema_version=ARTIFACT_SCHEMA_VERSION,
                 question_set_version=self._question_set_version,
+                question_set=question_set,
                 provider=meta.provider_name,
                 adapter_version=meta.adapter_version,
                 model_version=meta.model_version,
@@ -260,6 +265,7 @@ class ShadowDecisionClassifier:
         return ShadowClassificationArtifact(
             schema_version=ARTIFACT_SCHEMA_VERSION,
             question_set_version=self._question_set_version,
+            question_set=question_set,
             provider=meta.provider_name,
             adapter_version=meta.adapter_version,
             model_version=meta.model_version,
