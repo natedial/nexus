@@ -8,6 +8,7 @@ from pathlib import Path
 
 from research_analysis_layer.evals.decision_artifacts import (
     load_shadow_artifact,
+    write_question_set_snapshot,
     write_shadow_artifact,
 )
 from research_analysis_layer.evals.decision_baseline import (
@@ -29,6 +30,7 @@ from research_analysis_layer.evals.decision_metrics import evaluate_shadow_artif
 from research_analysis_layer.evals.decision_question_set import (
     build_questions_for_unit,
     expected_question_ids,
+    snapshot_question_set,
 )
 from research_analysis_layer.models.assertion_models import AssertionDraft, normalize_text
 from research_analysis_layer.models.decision_models import (
@@ -212,6 +214,25 @@ class ShadowClassifierTest(unittest.TestCase):
         )
         self.assertEqual(artifact.schema_version, ARTIFACT_SCHEMA_VERSION)
         self.assertEqual(len(artifact.batch_results), 2)
+        self.assertIsNotNone(artifact.question_set)
+        assert artifact.question_set is not None
+        self.assertEqual(artifact.question_set.version, QUESTION_SET_VERSION)
+        self.assertEqual(
+            [q.question_id for q in artifact.question_set.questions],
+            list(expected_question_ids()),
+        )
+        choice = next(
+            q for q in artifact.question_set.questions if q.question_id == "statement_type"
+        )
+        self.assertEqual(choice.question_kind, "choice")
+        self.assertTrue(choice.wording)
+        self.assertEqual(choice.options, list(STATEMENT_TYPE_OPTIONS))
+        evidence = next(
+            q
+            for q in artifact.question_set.questions
+            if q.question_id == "contains_verifiable_evidence"
+        )
+        self.assertIsNotNone(evidence.noul_criteria)
         for unit in artifact.units:
             self.assertEqual(unit.coverage_status, "full")
             self.assertEqual(unit.provenance.get("assertion_key"), unit.unit_id)
@@ -223,6 +244,7 @@ class ShadowClassifierTest(unittest.TestCase):
         artifact = ShadowDecisionClassifier(FakeDecisionModel()).classify_assertions([])
         self.assertEqual(artifact.units, [])
         self.assertEqual(artifact.batch_results, [])
+        self.assertIsNotNone(artifact.question_set)
 
     def test_partial_coverage_recorded(self) -> None:
         model = FakeDecisionModel(drop_question_ids={"is_policy_claim"})
@@ -247,6 +269,46 @@ class ShadowClassifierTest(unittest.TestCase):
         self.assertIsNone(
             loaded.units[0].results[0].distribution.calibrated_probability  # type: ignore[union-attr]
         )
+        self.assertIsNotNone(loaded.question_set)
+        assert loaded.question_set is not None and artifact.question_set is not None
+        self.assertEqual(
+            loaded.question_set.content_hash, artifact.question_set.content_hash
+        )
+        self.assertEqual(
+            loaded.question_set.questions[0].wording,
+            artifact.question_set.questions[0].wording,
+        )
+
+    def test_question_set_snapshot_stable_and_standalone(self) -> None:
+        first = snapshot_question_set()
+        second = snapshot_question_set()
+        self.assertEqual(first.content_hash, second.content_hash)
+        self.assertEqual(len(first.questions), len(expected_question_ids()))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_question_set_snapshot(first, Path(tmp))
+            self.assertTrue(path.name.startswith("question_set_"))
+            payload = path.read_text(encoding="utf-8")
+        self.assertIn("contains_verifiable_evidence", payload)
+        self.assertIn(first.content_hash, path.name)
+
+    def test_legacy_artifact_without_question_set_loads(self) -> None:
+        classifier = ShadowDecisionClassifier(FakeDecisionModel())
+        artifact = classifier.classify_assertions(
+            [_draft(1, 1, "forecast", "Cuts later.")],
+            document_key="legacy",
+        )
+        payload = artifact.model_dump(mode="json")
+        payload.pop("question_set", None)
+        payload["schema_version"] = "decision-shadow-artifact-v1"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.json"
+            path.write_text(
+                __import__("json").dumps(payload),
+                encoding="utf-8",
+            )
+            loaded = load_shadow_artifact(path)
+        self.assertIsNone(loaded.question_set)
+        self.assertEqual(loaded.units[0].unit_id, "chunk-1:assertion-1")
 
 
 class FixtureEvalTest(unittest.TestCase):

@@ -1,6 +1,9 @@
-"""Versioned shadow-classification question set (v1)."""
+"""Versioned shadow-classification question set."""
 
 from __future__ import annotations
+
+import hashlib
+import json
 
 from research_analysis_layer.models.decision_models import (
     QUESTION_SET_VERSION,
@@ -9,6 +12,8 @@ from research_analysis_layer.models.decision_models import (
     SUPPORT_NOUL_IDS,
     DecisionQuestion,
     DecisionUnit,
+    FrozenQuestionSpec,
+    QuestionSetSnapshot,
 )
 
 STATEMENT_TYPE_QUESTION_ID = "statement_type"
@@ -79,46 +84,82 @@ SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
 }
 
 
-def build_questions_for_unit(
-    unit: DecisionUnit,
-    *,
-    question_set_version: str = QUESTION_SET_VERSION,
-) -> list[DecisionQuestion]:
-    """Build the independent v1 question set for one assertion unit."""
-    questions: list[DecisionQuestion] = [
-        DecisionQuestion(
+def question_templates() -> list[FrozenQuestionSpec]:
+    """Unit-independent question templates (wording/options/criteria)."""
+    questions: list[FrozenQuestionSpec] = [
+        FrozenQuestionSpec(
             question_id=STATEMENT_TYPE_QUESTION_ID,
-            target_unit_id=unit.unit_id,
             question_kind="choice",
             wording=STATEMENT_TYPE_WORDING,
-            question_set_version=question_set_version,
             options=list(STATEMENT_TYPE_OPTIONS),
         )
     ]
     for question_id in SUBTYPE_NOUL_IDS:
         questions.append(
-            DecisionQuestion(
+            FrozenQuestionSpec(
                 question_id=question_id,
-                target_unit_id=unit.unit_id,
                 question_kind="noul",
                 wording=SUBTYPE_WORDINGS[question_id],
-                question_set_version=question_set_version,
             )
         )
     for question_id in SUPPORT_NOUL_IDS:
         questions.append(
-            DecisionQuestion(
+            FrozenQuestionSpec(
                 question_id=question_id,
-                target_unit_id=unit.unit_id,
                 question_kind="noul",
                 wording=SUPPORT_WORDINGS[question_id],
-                question_set_version=question_set_version,
                 noul_criteria=SUPPORT_NOUL_CRITERIA.get(question_id),
             )
         )
     return questions
 
 
+def snapshot_question_set(
+    *,
+    question_set_version: str = QUESTION_SET_VERSION,
+) -> QuestionSetSnapshot:
+    """Freeze the exact questions asked for artifact / A/B provenance."""
+    questions = question_templates()
+    canonical = [
+        {
+            "question_id": q.question_id,
+            "question_kind": q.question_kind,
+            "wording": q.wording,
+            "options": q.options,
+            "noul_criteria": q.noul_criteria,
+        }
+        for q in questions
+    ]
+    digest = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    return QuestionSetSnapshot(
+        version=question_set_version,
+        content_hash=digest,
+        questions=questions,
+    )
+
+
+def build_questions_for_unit(
+    unit: DecisionUnit,
+    *,
+    question_set_version: str = QUESTION_SET_VERSION,
+) -> list[DecisionQuestion]:
+    """Build the independent question set for one assertion unit."""
+    return [
+        DecisionQuestion(
+            question_id=spec.question_id,
+            target_unit_id=unit.unit_id,
+            question_kind=spec.question_kind,
+            wording=spec.wording,
+            question_set_version=question_set_version,
+            options=list(spec.options) if spec.options is not None else None,
+            noul_criteria=dict(spec.noul_criteria) if spec.noul_criteria else None,
+        )
+        for spec in question_templates()
+    ]
+
+
 def expected_question_ids() -> tuple[str, ...]:
-    """Stable ordered list of question IDs in the v1 set."""
+    """Stable ordered list of question IDs in the active set."""
     return (STATEMENT_TYPE_QUESTION_ID, *SUBTYPE_NOUL_IDS, *SUPPORT_NOUL_IDS)

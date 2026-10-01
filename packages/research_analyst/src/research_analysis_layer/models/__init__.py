@@ -28,6 +28,8 @@ from .decision_models import (
     DecisionQuestion,
     DecisionResult,
     DecisionUnit,
+    FrozenQuestionSpec,
+    QuestionSetSnapshot,
     ShadowClassificationArtifact,
     UnitClassificationRecord,
 )
@@ -90,6 +92,8 @@ __all__ = [
     "DecisionQuestion",
     "DecisionResult",
     "DecisionUnit",
+    "FrozenQuestionSpec",
+    "QuestionSetSnapshot",
     "ShadowClassificationArtifact",
     "UnitClassificationRecord",
     "DeterministicAnalysisPayload",
