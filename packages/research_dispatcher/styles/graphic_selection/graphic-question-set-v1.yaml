@@ -1,0 +1,128 @@
+# graphic-question-set-v1
+# Shape → print-kit pattern only. Does NOT encode significance, speaker weight,
+# or whether a claim "deserves" a chart (those stay outside this chooser).
+#
+# Choice options are exactly the 13 kit pattern ids from
+# styles/snippets/print-infographic-pattern-manifest.json plus `prose`.
+
+version: graphic-question-set-v1
+kit_manifest: ../snippets/print-infographic-pattern-manifest.json
+scope: |
+  Select a graphical representation from information shape and available
+  validated fields. Never invent values. Prefer prose when required fields
+  for a kit pattern are missing.
+
+choice:
+  question_id: representation
+  wording: >
+    Given only the information shape and available validated fields of the
+    target concept block, which print-infographic kit pattern fits best?
+    Choose exactly one of the kit pattern ids, or prose if no kit pattern's
+    required fields can be satisfied. Do not judge importance, speaker
+    weight, or whether the claim deserves a chart.
+  options:
+    - metric_strip
+    - diverging_bars
+    - small_multiples
+    - composition_bars
+    - heatmap
+    - range_markers
+    - phase_cards
+    - ranked_rows
+    - context_table
+    - annotation
+    - threshold_tracker
+    - distribution
+    - event_timeline
+    - prose
+
+# Eligibility Nouls — pure shape / field presence (true/false criteria for Jev).
+nouls:
+  - question_id: has_scalar_levels
+    wording: >
+      Does the target unit provide three-to-six distinct scalar level measures
+      (label + value fields), without requiring a shared quantitative scale
+      across measures?
+  - question_id: has_signed_changes
+    wording: >
+      Does the target unit provide signed changes across categories on a
+      shared unit/domain (category + signed_change + common_domain)?
+  - question_id: has_share_composition
+    wording: >
+      Does the target unit provide category shares of a fixed whole
+      (component + share + denominator) that can sum to 100% per period?
+  - question_id: has_aligned_time_series
+    wording: >
+      Does the target unit provide two-to-four aligned time series
+      (series_label + date + value + shared window)?
+  - question_id: has_matrix_cells
+    wording: >
+      Does the target unit provide an ordered category-by-period matrix
+      (row + column + value + color_domain)?
+  - question_id: has_range_bounds
+    wording: >
+      Does the target unit provide current values with per-category low and
+      high bounds (current + low + high + lookback)?
+  - question_id: has_ranked_observations
+    wording: >
+      Does the target unit provide rankable observations with dates and
+      signed values (rank or sortable signed_value + category + date)?
+  - question_id: has_tabular_cells
+    wording: >
+      Does the target unit provide exact tabular cells
+      (row_label + column_labels + cell_values)?
+  - question_id: has_caveat_shape
+    wording: >
+      Does the target unit provide a short caveat/definition statement tied
+      to an evidence reference field (statement + evidence_reference)?
+  - question_id: has_target_levels
+    wording: >
+      Does the target unit provide current values and explicit targets on a
+      common domain (item + current + target + domain)?
+  - question_id: has_distribution_bins
+    wording: >
+      Does the target unit provide distribution bins
+      (bin_edges + bin_counts + sample_size)?
+  - question_id: has_dated_events
+    wording: >
+      Does the target unit provide a short list of dated events
+      (date + event_title)?
+  - question_id: has_named_phases
+    wording: >
+      Does the target unit provide a small set of named time phases
+      (phase_name + start + end + common_measure)?
+
+# data_shape tokens accepted on concept blocks (inputs only).
+data_shapes:
+  - scalars
+  - signed_changes
+  - shares
+  - time_series
+  - matrix
+  - range
+  - ranked_list
+  - table
+  - caveat
+  - targets
+  - distribution
+  - events
+  - phases
+  - none
+
+# Deterministic preference order when Fake provider maps shape → pattern.
+# (Jev Choice is free within options; post-gate still requires required_fields.)
+shape_preference:
+  scalars: metric_strip
+  signed_changes: diverging_bars
+  shares: composition_bars
+  time_series: small_multiples
+  matrix: heatmap
+  range: range_markers
+  ranked_list: ranked_rows
+  table: context_table
+  caveat: annotation
+  targets: threshold_tracker
+  distribution: distribution
+  events: event_timeline
+  phases: phase_cards
+  none: prose
