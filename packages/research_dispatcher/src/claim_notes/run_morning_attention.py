@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""CLI: run morning-attention ops (LIBRARY since-last-run → deliver).
+"""CLI: morning-attention → Proey connector handoff (markdown + Grok Bot line).
 
-Intended cadence: weekdays 06:25 America/New_York via schedule_morning_attention.sh.
-Does not modify 5:55 / 6:10 tablet pushes.
+Canonical ops path (Proey-owned, weekdays ~06:25 ET after 06:10):
+  this script writes handoff artifacts; Proey pushes reMarkable + Grok Bot ping
+  with the same connectors as the 5:55 / 6:10 briefs.
+
+Empty day = silent (no notebook, no ping). Does not modify 5:55 / 6:10 schedules.
 """
 
 from __future__ import annotations
@@ -12,19 +15,20 @@ import json
 import sys
 from pathlib import Path
 
-# Allow `python src/claim_notes/run_morning_attention.py` from package root.
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
 from config import Config  # noqa: E402
 from src.claim_notes.delivery import (  # noqa: E402
-    FakeChatPingSender,
+    FakeGrokBotChatPingSender,
     FakeRemarkableNotebookSender,
-    FileRemarkableNotebookSender,
+    HandoffGrokBotChatPingSender,
+    HandoffRemarkableNotebookSender,
+    HttpGrokBotChatPingSender,
     HttpRemarkableNotebookSender,
-    SmtpChatPingSender,
 )
+from src.claim_notes.library import FakeLibraryDigestReader, LibraryResearchNote  # noqa: E402
 from src.claim_notes.load import load_claim_notes  # noqa: E402
 from src.claim_notes.notion_library import NotionLibraryDigestReader  # noqa: E402
 from src.claim_notes.ops import MorningAttentionOps  # noqa: E402
@@ -34,65 +38,63 @@ from src.claim_notes.watermark import RunWatermarkStore  # noqa: E402
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--notes-jsonl", help="Claim-note JSONL")
+    parser.add_argument("--argument-map-json", help="argument_map documents JSON")
     parser.add_argument(
-        "--notes-jsonl",
-        help="Claim-note JSONL (optional if --argument-map-json is set)",
-    )
-    parser.add_argument(
-        "--argument-map-json",
-        help="Dispatch/analyst documents JSON with argument_map arrays",
+        "--library-json",
+        help="Optional pre-fetched LIBRARY Research Notes JSON (Proey inject)",
     )
     parser.add_argument(
         "--watermark",
         default=Config.MORNING_WATERMARK_PATH
         or str(PACKAGE_ROOT / "state" / "morning_attention_last_run.json"),
-        help="Path to since-last-run watermark file",
     )
     parser.add_argument(
-        "--remarkable-drop-dir",
+        "--handoff-dir",
         default="",
-        help="Write own-surface markdown notebook here (Remarkdown drop)",
+        help="Canonical output dir for Proey connectors (md + grok ping + handoff.json)",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Build surface only; skip delivery and watermark advance",
+        help="Build only; skip delivery writes and watermark advance",
     )
     parser.add_argument(
         "--fake-delivery",
         action="store_true",
-        help="Use in-memory delivery fakes (no SMTP / HTTP)",
+        help="In-memory fakes (tests / local dry)",
     )
     args = parser.parse_args(argv)
 
     notes = _load_notes(args.notes_jsonl, args.argument_map_json)
-    library_reader = NotionLibraryDigestReader(
-        token=Config.NOTION_TOKEN or None,
-        database_id=Config.NOTION_LIBRARY_DATABASE_ID,
-    )
-    remarkable = _build_remarkable(args)
-    chat = _build_chat(args)
+    library_reader = _build_library_reader(args)
+    handoff_dir = _handoff_dir(args)
+    remarkable, chat = _build_senders(args, handoff_dir)
+
     ops = MorningAttentionOps(
         library_reader=library_reader,
         watermark=RunWatermarkStore(args.watermark),
         remarkable_sender=remarkable,
         chat_ping_sender=chat,
+        handoff_dir=handoff_dir,
     )
-    calendar_events = _maybe_calendar()
     result = ops.run(
         notes=notes,
-        calendar_events=calendar_events,
+        calendar_events=_maybe_calendar(),
         deliver=not args.dry_run,
         advance_watermark=not args.dry_run,
         dry_run=args.dry_run,
     )
     payload = {
+        "silent": result.silent,
         "points": [p.model_dump() for p in result.surface.points],
         "delivery": result.surface.delivery.model_dump(),
         "since": result.since.isoformat() if result.since else None,
         "library_note_count": len(result.library_notes),
         "remarkable": result.remarkable,
         "chat_ping": result.chat_ping,
+        "handoff_manifest": result.handoff_manifest,
+        "handoff_dir": str(handoff_dir) if handoff_dir else None,
         "watermark_written": (
             result.watermark_written.isoformat() if result.watermark_written else None
         ),
@@ -107,48 +109,66 @@ def _load_notes(notes_jsonl: str | None, argument_map_json: str | None):
         return load_claim_notes(notes_jsonl)
     if argument_map_json:
         data = json.loads(Path(argument_map_json).read_text(encoding="utf-8"))
-        docs = data["documents"] if isinstance(data, dict) and "documents" in data else data
+        docs = (
+            data["documents"]
+            if isinstance(data, dict) and "documents" in data
+            else data
+        )
         return project_argument_map_batch(docs)
     raise SystemExit("Provide --notes-jsonl or --argument-map-json")
 
 
-def _build_remarkable(args):
+def _handoff_dir(args) -> Path | None:
+    raw = (args.handoff_dir or getattr(Config, "MORNING_HANDOFF_DIR", "") or "").strip()
+    return Path(raw) if raw else None
+
+
+def _build_library_reader(args):
+    if args.library_json:
+        rows = json.loads(Path(args.library_json).read_text(encoding="utf-8"))
+        notes = [LibraryResearchNote.model_validate(r) for r in rows]
+        return FakeLibraryDigestReader(notes)
+    token = (Config.NOTION_TOKEN or "").strip()
+    if token:
+        return NotionLibraryDigestReader(
+            token=token,
+            database_id=Config.NOTION_LIBRARY_DATABASE_ID,
+        )
+    return FakeLibraryDigestReader([])
+
+
+def _build_senders(args, handoff_dir: Path | None):
     if args.fake_delivery or args.dry_run:
-        return FakeRemarkableNotebookSender()
+        return FakeRemarkableNotebookSender(), FakeGrokBotChatPingSender()
+    if handoff_dir is not None:
+        return (
+            HandoffRemarkableNotebookSender(handoff_dir),
+            HandoffGrokBotChatPingSender(handoff_dir),
+        )
+    remarkable = FakeRemarkableNotebookSender()
     push_url = (Config.REMARKABLE_PUSH_URL or "").strip()
     if push_url:
-        return HttpRemarkableNotebookSender(
-            url=push_url,
-            token=Config.REMARKABLE_PUSH_TOKEN or None,
+        remarkable = HttpRemarkableNotebookSender(
+            url=push_url, token=Config.REMARKABLE_PUSH_TOKEN or None
         )
-    drop = (args.remarkable_drop_dir or Config.REMARKABLE_DROP_DIR or "").strip()
-    if drop:
-        return FileRemarkableNotebookSender(drop)
-    return FakeRemarkableNotebookSender()
+    elif (Config.REMARKABLE_DROP_DIR or "").strip():
+        remarkable = HandoffRemarkableNotebookSender(Config.REMARKABLE_DROP_DIR)
 
-
-def _build_chat(args):
-    if args.fake_delivery or args.dry_run:
-        return FakeChatPingSender()
-    to_email = (Config.CHAT_PING_TO or Config.EMAIL_TO or "").strip()
-    if not (Config.SMTP_USERNAME and Config.SMTP_PASSWORD and Config.EMAIL_FROM and to_email):
-        return FakeChatPingSender()
-    return SmtpChatPingSender(
-        smtp_server=Config.SMTP_SERVER,
-        smtp_port=Config.SMTP_PORT,
-        username=Config.SMTP_USERNAME,
-        password=Config.SMTP_PASSWORD,
-        from_email=Config.EMAIL_FROM,
-        to_email=to_email,
-    )
+    grok_url = (getattr(Config, "GROK_BOT_PING_URL", "") or "").strip()
+    if grok_url:
+        chat = HttpGrokBotChatPingSender(
+            url=grok_url, token=getattr(Config, "GROK_BOT_PING_TOKEN", None)
+        )
+    else:
+        chat = FakeGrokBotChatPingSender()
+    return remarkable, chat
 
 
 def _maybe_calendar():
     try:
         from src.database import DatabaseClient
 
-        db = DatabaseClient()
-        return db.query_economic_events() or []
+        return DatabaseClient().query_economic_events() or []
     except Exception:
         return []
 

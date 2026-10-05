@@ -1,8 +1,8 @@
 """Own reMarkable notebook delivery for morning attention.
 
-Writes Remarkdown-ready markdown to a drop path and optionally POSTs to a
-configured Remarkdown/HTTP endpoint. Never folds into G10 Calendar or
-Research From tablet pushes.
+Canonical path: write Remarkdown-ready markdown for Proey's reMarkable
+connector (same connector the 5:55 and 6:10 routines already use). Optional
+HTTP push is secondary. Never folds into G10 Calendar or Research From.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ class RemarkablePushResult:
     path: str | None = None
     http_status: int | None = None
     dry_run: bool = False
+    silent: bool = False
 
 
 class RemarkableNotebookSender(Protocol):
@@ -41,28 +42,28 @@ class FakeRemarkableNotebookSender:
         )
 
 
-class FileRemarkableNotebookSender:
-    """Write a markdown notebook into a configured drop directory."""
+class HandoffRemarkableNotebookSender:
+    """Write markdown for Proey's reMarkable connector (canonical handoff)."""
 
-    def __init__(self, drop_dir: str | Path) -> None:
-        self.drop_dir = Path(drop_dir)
+    def __init__(self, handoff_dir: str | Path) -> None:
+        self.handoff_dir = Path(handoff_dir)
 
     def push(self, *, title: str, markdown: str) -> RemarkablePushResult:
-        self.drop_dir.mkdir(parents=True, exist_ok=True)
-        safe = "".join(ch if ch.isalnum() or ch in "-_ " else "-" for ch in title).strip()
-        path = self.drop_dir / f"{safe or 'morning-attention'}.md"
+        self.handoff_dir.mkdir(parents=True, exist_ok=True)
+        path = self.handoff_dir / "morning-attention.md"
         path.write_text(markdown, encoding="utf-8")
+        meta = self.handoff_dir / "notebook-title.txt"
+        meta.write_text(title.strip() + "\n", encoding="utf-8")
         return RemarkablePushResult(
             title=title, markdown_chars=len(markdown), path=str(path)
         )
 
 
-class HttpRemarkableNotebookSender:
-    """Optional HTTP push (Remarkdown-compatible webhook).
+FileRemarkableNotebookSender = HandoffRemarkableNotebookSender
 
-    Env: RESEARCH_DISPATCHER_REMARKABLE_PUSH_URL + optional bearer token.
-    Does not alter 5:55 / 6:10 tablet jobs.
-    """
+
+class HttpRemarkableNotebookSender:
+    """Optional HTTP push — demoted vs Proey connector handoff."""
 
     def __init__(
         self,

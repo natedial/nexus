@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Morning attention — weekdays 06:25 America/New_York (after 06:10 digest).
-  Does not replace or alter 5:55 / 6:10 tablet LaunchAgents.
-  Edit WorkingDirectory / ProgramArguments paths for the host checkout.
+  FALLBACK ONLY. Prefer Proey's owned weekday ~06:25 ET routine that consumes
+  handoff artifacts and uses the same reMarkable + Grok Bot connectors as
+  5:55 / 6:10. Do not replace or alter those LaunchAgents.
 -->
 <plist version="1.0">
 <dict>

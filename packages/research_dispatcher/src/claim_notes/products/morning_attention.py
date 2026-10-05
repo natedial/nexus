@@ -1,7 +1,8 @@
 """Morning attention — own 3–5 point surface.
 
 Reads G10 calendar + LIBRARY (Notion Research Note filter) as inputs.
-Delivery: own reMarkable notebook + one-line chat ping.
+Delivery: own reMarkable notebook + one-line Grok Bot chat ping
+(Proey connectors, same as 5:55/6:10). Empty day = silent.
 Does NOT fold into G10 Calendar / Research From; does NOT change 5:55/6:10.
 """
 

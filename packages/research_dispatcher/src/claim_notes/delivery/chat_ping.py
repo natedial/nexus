@@ -1,67 +1,89 @@
-"""One-line chat ping for morning attention (SMTP, same pattern as other briefs)."""
+"""One-line Grok Bot chat ping for morning attention.
+
+NOT SMTP email. Nate's other morning pings (5:55 / 6:10) land in his Grok Bot
+chat. This module matches that pattern: emit a one-line ping for Proey's Grok
+Bot connector (handoff file and/or optional webhook). Never use EMAIL_TO.
+"""
 
 from __future__ import annotations
 
-import smtplib
 from dataclasses import dataclass, field
-from email.mime.text import MIMEText
+from pathlib import Path
 from typing import Protocol
+
+import httpx
 
 
 @dataclass
 class ChatPingResult:
-    subject: str
     body: str
-    recipients: list[str]
+    channel: str = "grok_bot"
+    path: str | None = None
+    http_status: int | None = None
     dry_run: bool = False
+    silent: bool = False
 
 
 class ChatPingSender(Protocol):
-    def send(self, *, subject: str, body: str) -> ChatPingResult:
+    def send(self, *, body: str) -> ChatPingResult:
         ...
 
 
 @dataclass
-class FakeChatPingSender:
+class FakeGrokBotChatPingSender:
+    """Records Grok Bot pings for unit tests — no network / inbox side effects."""
+
     messages: list[dict[str, str]] = field(default_factory=list)
 
-    def send(self, *, subject: str, body: str) -> ChatPingResult:
-        self.messages.append({"subject": subject, "body": body})
-        return ChatPingResult(
-            subject=subject, body=body, recipients=["fake@example.com"], dry_run=True
-        )
+    def send(self, *, body: str) -> ChatPingResult:
+        self.messages.append({"body": body, "channel": "grok_bot"})
+        return ChatPingResult(body=body, channel="grok_bot", dry_run=True)
 
 
-class SmtpChatPingSender:
-    """Send a one-line ping via the dispatcher SMTP settings."""
+class HandoffGrokBotChatPingSender:
+    """Write the one-line ping for Proey's Grok Bot connector (canonical)."""
+
+    def __init__(self, handoff_dir: str | Path) -> None:
+        self.handoff_dir = Path(handoff_dir)
+
+    def send(self, *, body: str) -> ChatPingResult:
+        self.handoff_dir.mkdir(parents=True, exist_ok=True)
+        path = self.handoff_dir / "chat-ping.txt"
+        path.write_text(body.rstrip() + "\n", encoding="utf-8")
+        return ChatPingResult(body=body, channel="grok_bot", path=str(path))
+
+
+class HttpGrokBotChatPingSender:
+    """Optional webhook if Proey exposes a Grok Bot ping URL (not SMTP)."""
 
     def __init__(
         self,
         *,
-        smtp_server: str,
-        smtp_port: int,
-        username: str,
-        password: str,
-        from_email: str,
-        to_email: str,
+        url: str,
+        token: str | None = None,
+        timeout_s: float = 30.0,
+        client: httpx.Client | None = None,
     ) -> None:
-        self.smtp_server = smtp_server
-        self.smtp_port = smtp_port
-        self.username = username
-        self.password = password
-        self.from_email = from_email
-        self.to_email = to_email
+        self.url = url
+        self.token = (token or "").strip() or None
+        self.timeout_s = timeout_s
+        self._client = client
 
-    def send(self, *, subject: str, body: str) -> ChatPingResult:
-        recipients = [r.strip() for r in self.to_email.split(",") if r.strip()]
-        if not recipients:
-            raise ValueError("chat ping recipients are empty")
-        msg = MIMEText(body, "plain")
-        msg["From"] = self.from_email
-        msg["To"] = ", ".join(recipients)
-        msg["Subject"] = subject
-        with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-            server.starttls()
-            server.login(self.username, self.password)
-            server.send_message(msg)
-        return ChatPingResult(subject=subject, body=body, recipients=recipients)
+    def send(self, *, body: str) -> ChatPingResult:
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        payload = {"channel": "grok_bot", "text": body, "body": body}
+        if self._client is not None:
+            response = self._client.post(self.url, headers=headers, json=payload)
+        else:
+            with httpx.Client(timeout=self.timeout_s) as client:
+                response = client.post(self.url, headers=headers, json=payload)
+        response.raise_for_status()
+        return ChatPingResult(
+            body=body, channel="grok_bot", http_status=response.status_code
+        )
+
+
+# Back-compat alias — always Grok Bot, never SMTP.
+FakeChatPingSender = FakeGrokBotChatPingSender

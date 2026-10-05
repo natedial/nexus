@@ -1,19 +1,25 @@
-"""Orchestrate morning-attention ops: LIBRARY since-last-run → build → deliver.
+"""Orchestrate morning-attention ops for Proey's 6:25 ET routine.
 
-Cadence (Proey): weekdays ~06:25 America/New_York, after the 06:10 digest.
-Does not change 5:55 / 6:10 tablet pushes. Does not fold into G10 Calendar or
-Research From.
+Canonical path (Proey-owned weekday ~06:25 America/New_York, after 06:10):
+  1) Run morning attention → markdown + one-line Grok Bot ping (local handoff)
+  2) Proey pushes the notebook via the same reMarkable connector as 5:55/6:10
+  3) Proey sends the one-line Grok Bot chat ping
+
+Empty day = silent: no notebook, no chat ping (same as the 6:40 handwritten pass).
+Does not change 5:55 / 6:10 tablet pushes. Does not fold into G10 / Research From.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from src.claim_notes.delivery import (
-    FakeChatPingSender,
+    FakeGrokBotChatPingSender,
     FakeRemarkableNotebookSender,
     morning_attention_chat_line,
     morning_attention_markdown,
@@ -40,21 +46,24 @@ class MorningAttentionRunResult:
     surface: MorningAttentionSurface
     since: datetime | None
     library_notes: list[LibraryResearchNote]
+    silent: bool = False
     remarkable: dict[str, Any] | None = None
     chat_ping: dict[str, Any] | None = None
+    handoff_manifest: dict[str, Any] | None = None
     watermark_written: datetime | None = None
     dry_run: bool = False
 
 
 @dataclass
 class MorningAttentionOps:
-    """Injectable ops runner for tests and the weekday 6:25 ET schedule hook."""
+    """Injectable ops runner — Proey routine consumes handoff artifacts."""
 
     library_reader: LibraryDigestReader
     watermark: RunWatermarkStore
     remarkable_sender: Any = field(default_factory=FakeRemarkableNotebookSender)
-    chat_ping_sender: Any = field(default_factory=FakeChatPingSender)
+    chat_ping_sender: Any = field(default_factory=FakeGrokBotChatPingSender)
     notebook_title: str = "Morning attention"
+    handoff_dir: Path | None = None
 
     def run(
         self,
@@ -79,46 +88,116 @@ class MorningAttentionOps:
             library=library,
             max_points=5,
         )
+
+        # Empty day = silent (same as 6:40 handwritten pass).
+        if not surface.points:
+            written = None
+            if advance_watermark and not dry_run:
+                written = self.watermark.write(now or datetime.now(timezone.utc))
+            manifest = {
+                "silent": True,
+                "reason": "empty_day",
+                "point_count": 0,
+                "deliver_remarkable": False,
+                "deliver_grok_bot_ping": False,
+                "channel_chat": "grok_bot",
+                "fold_into_g10_calendar": False,
+                "fold_into_research_from": False,
+            }
+            # Drop stale notebook / ping so Proey connectors do not re-push.
+            self._clear_delivery_artifacts()
+            self._write_manifest(manifest)
+            return MorningAttentionRunResult(
+                surface=surface,
+                since=since,
+                library_notes=library_notes,
+                silent=True,
+                handoff_manifest=manifest,
+                watermark_written=written,
+                dry_run=dry_run,
+            )
+
         remarkable_payload = None
         chat_payload = None
+        as_of = (now or datetime.now(timezone.utc)).astimezone(ET).strftime("%Y-%m-%d")
+        title = f"{self.notebook_title} {as_of}"
+        md = morning_attention_markdown(surface, title=self.notebook_title)
+        line = morning_attention_chat_line(surface, as_of=as_of)
+
         if deliver and not dry_run:
-            as_of = (now or datetime.now(timezone.utc)).astimezone(ET).strftime("%Y-%m-%d")
-            md = morning_attention_markdown(surface, title=self.notebook_title)
-            remarkable = self.remarkable_sender.push(
-                title=f"{self.notebook_title} {as_of}", markdown=md
-            )
+            remarkable = self.remarkable_sender.push(title=title, markdown=md)
             remarkable_payload = {
                 "title": remarkable.title,
                 "path": getattr(remarkable, "path", None),
                 "http_status": getattr(remarkable, "http_status", None),
                 "dry_run": getattr(remarkable, "dry_run", False),
             }
-            line = morning_attention_chat_line(surface, as_of=as_of)
-            chat = self.chat_ping_sender.send(
-                subject=f"Morning attention {as_of}", body=line
-            )
+            chat = self.chat_ping_sender.send(body=line)
             chat_payload = {
-                "subject": chat.subject,
+                "channel": getattr(chat, "channel", "grok_bot"),
                 "body": chat.body,
-                "recipients": list(chat.recipients),
-                "dry_run": chat.dry_run,
+                "path": getattr(chat, "path", None),
+                "http_status": getattr(chat, "http_status", None),
+                "dry_run": getattr(chat, "dry_run", False),
             }
+
+        manifest = {
+            "silent": False,
+            "point_count": len(surface.points),
+            "notebook_title": title,
+            "markdown_chars": len(md),
+            "chat_ping_line": line,
+            "channel_chat": "grok_bot",
+            "deliver_remarkable": True,
+            "deliver_grok_bot_ping": True,
+            "fold_into_g10_calendar": False,
+            "fold_into_research_from": False,
+            "alter_tablet_555": False,
+            "alter_tablet_610": False,
+            "remarkable": remarkable_payload,
+            "chat_ping": chat_payload,
+        }
+        self._write_manifest(manifest)
+
         written = None
         if advance_watermark and not dry_run:
             written = self.watermark.write(now or datetime.now(timezone.utc))
+
         return MorningAttentionRunResult(
             surface=surface,
             since=since,
             library_notes=library_notes,
+            silent=False,
             remarkable=remarkable_payload,
             chat_ping=chat_payload,
+            handoff_manifest=manifest,
             watermark_written=written,
             dry_run=dry_run,
         )
 
+    def _write_manifest(self, manifest: dict[str, Any]) -> None:
+        if self.handoff_dir is None:
+            return
+        self.handoff_dir.mkdir(parents=True, exist_ok=True)
+        path = self.handoff_dir / "handoff.json"
+        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    def _clear_delivery_artifacts(self) -> None:
+        """Remove notebook / Grok ping files; leave only silent handoff.json."""
+        if self.handoff_dir is None:
+            return
+        for name in (
+            "morning-attention.md",
+            "notebook-title.txt",
+            "chat-ping.txt",
+        ):
+            path = self.handoff_dir / name
+            if path.is_file():
+                path.unlink()
+
 
 def intended_cron_expression() -> str:
-    """Weekday 06:25 America/New_York — after 06:10 digest; does not touch 5:55/6:10."""
+    """Proey weekday 06:25 ET slot — documented for the Proey routine."""
     return f"{MORNING_ATTENTION_MINUTE_ET} {MORNING_ATTENTION_HOUR_ET} * * 1-5"
 
 

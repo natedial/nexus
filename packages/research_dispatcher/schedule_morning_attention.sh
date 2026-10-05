@@ -1,11 +1,9 @@
 #!/bin/bash
-# Morning attention — weekdays ~06:25 America/New_York (after 06:10 digest).
-# Does NOT change 5:55 / 6:10 tablet pushes. Own surface only.
+# FALLBACK ONLY — prefer Proey's owned weekday ~06:25 ET routine.
+# Canonical: run_morning_attention.py --handoff-dir … then Proey connectors
+# (reMarkable + Grok Bot), same as 5:55/6:10. Do NOT change those schedules.
 #
-# Cron (with CRON_TZ=America/New_York):
-#   25 6 * * 1-5 /path/to/packages/research_dispatcher/schedule_morning_attention.sh
-#
-# launchd: see launchd/com.researchdispatcher.morning-attention.plist
+# Empty day is silent (script still exits 0; handoff.json says silent=true).
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -23,8 +21,13 @@ export TZ="${TZ:-America/New_York}"
 NOTES_JSONL="${RESEARCH_DISPATCHER_MORNING_NOTES_JSONL:-fixtures/claim_notes/claim_notes.jsonl}"
 ARG_MAP="${RESEARCH_DISPATCHER_MORNING_ARGUMENT_MAP_JSON:-}"
 WATERMARK="${RESEARCH_DISPATCHER_MORNING_WATERMARK:-state/morning_attention_last_run.json}"
+HANDOFF="${RESEARCH_DISPATCHER_MORNING_HANDOFF_DIR:-state/morning_attention_handoff}"
+LIBRARY_JSON="${RESEARCH_DISPATCHER_MORNING_LIBRARY_JSON:-}"
 
-ARGS=(--watermark "$WATERMARK")
+ARGS=(--watermark "$WATERMARK" --handoff-dir "$HANDOFF")
+if [ -n "$LIBRARY_JSON" ]; then
+  ARGS+=(--library-json "$LIBRARY_JSON")
+fi
 if [ -n "$ARG_MAP" ]; then
   ARGS+=(--argument-map-json "$ARG_MAP")
 else

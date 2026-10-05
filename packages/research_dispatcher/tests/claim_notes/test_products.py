@@ -88,6 +88,11 @@ class ProductTests(unittest.TestCase):
         self.assertLessEqual(len(surface.points), 5)
         self.assertTrue(surface.delivery.remarkable_notebook)
         self.assertTrue(surface.delivery.chat_ping)
+        self.assertTrue(surface.delivery.grok_bot_chat_ping)
+        self.assertTrue(surface.delivery.empty_day_silent)
+        self.assertEqual(
+            surface.delivery.pattern, "own_remarkable_notebook_plus_grok_bot_ping"
+        )
         self.assertFalse(surface.delivery.fold_into_g10_calendar)
         self.assertFalse(surface.delivery.fold_into_research_from)
         self.assertFalse(surface.delivery.alter_tablet_555)

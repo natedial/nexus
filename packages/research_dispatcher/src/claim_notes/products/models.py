@@ -44,15 +44,21 @@ class MorningAttentionPoint(BaseModel):
 
 
 class MorningAttentionDelivery(BaseModel):
-    """Own surface delivery — never folded into G10 Calendar / Research From."""
+    """Own surface delivery — never folded into G10 Calendar / Research From.
+
+    Chat ping is Grok Bot (same as 5:55/6:10), never SMTP email.
+    Empty day = silent (no notebook, no ping).
+    """
 
     remarkable_notebook: bool = True
-    chat_ping: bool = True
+    grok_bot_chat_ping: bool = True
+    chat_ping: bool = True  # alias — always Grok Bot, never SMTP
     fold_into_g10_calendar: bool = False
     fold_into_research_from: bool = False
     alter_tablet_555: bool = False
     alter_tablet_610: bool = False
-    pattern: str = "own_remarkable_notebook_plus_chat_ping"
+    pattern: str = "own_remarkable_notebook_plus_grok_bot_ping"
+    empty_day_silent: bool = True
 
 
 class MorningAttentionSurface(BaseModel):
