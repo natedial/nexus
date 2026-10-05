@@ -1,0 +1,128 @@
+{
+  "documents": [
+    {
+      "document_key": "gs-2026-09-12-rates",
+      "research_id": 101,
+      "speaker": "Jan Hatzius",
+      "publisher": "Goldman Sachs",
+      "source_date": "2026-09-12",
+      "speaker_weight": "research_author",
+      "argument_map": [
+        {
+          "claim": "the Fed is done hiking",
+          "claim_type": "forecast",
+          "stance": "done_hiking",
+          "horizon": "2026 H1",
+          "rationale": "December dots removed the final projected hike",
+          "conditions": ["holds unless core services re-accelerate"],
+          "support_strength": "evidenced",
+          "claim_key": "claim:fed:hiking_done",
+          "cause_edges": [
+            {
+              "cause": "services disinflation",
+              "effect": "no further hikes",
+              "polarity": "supports",
+              "as_stated": "with services disinflation underway, further tightening would over-restrict"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "document_key": "ms-2026-09-13-fed",
+      "research_id": 102,
+      "speaker": "Ellen Zentner",
+      "publisher": "Morgan Stanley",
+      "source_date": "2026-09-13",
+      "speaker_weight": "research_author",
+      "argument_map": [
+        {
+          "claim": "first cut comes in Q2",
+          "claim_type": "forecast",
+          "stance": "earlier_cut",
+          "horizon": "Q2 2026",
+          "rationale": "dot median implies an earlier move than the market prices",
+          "support_strength": "reasoned",
+          "claim_key": "claim:fed:first_cut_timing",
+          "thread_role": "extend",
+          "thread_target_note_id": "cn-prior-fed-done"
+        }
+      ]
+    },
+    {
+      "document_key": "citi-2026-09-14-inflation",
+      "research_id": 103,
+      "speaker": "Andrew Hollenhorst",
+      "publisher": "Citigroup",
+      "source_date": "2026-09-14",
+      "speaker_weight": "research_author",
+      "argument_map": [
+        {
+          "claim": "one more hike remains possible",
+          "claim_type": "forecast",
+          "stance": "more_hikes_possible",
+          "horizon": "through mid-2026",
+          "rationale": "shelter lag keeps core sticky",
+          "support_strength": "reasoned",
+          "claim_key": "claim:fed:hiking_done",
+          "thread_role": "break",
+          "thread_target_note_id": "cn-prior-fed-done",
+          "cause_edges": [
+            {
+              "cause": "sticky shelter inflation",
+              "effect": "policy stays restrictive longer",
+              "polarity": "supports"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "document_key": "powell-2026-09-17-outlook",
+      "research_id": 104,
+      "speaker": "Jerome Powell",
+      "publisher": "Federal Reserve Board",
+      "source_date": "2026-09-17",
+      "speaker_weight": "chair",
+      "argument_map": [
+        {
+          "claim": "a rate cut now would be premature",
+          "claim_type": "policy",
+          "stance": "hold",
+          "horizon": "near term",
+          "rationale": "policy is not yet at a point where easing is warranted",
+          "support_strength": "reasoned",
+          "claim_key": "claim:fed:cut_timing",
+          "cause_edges": [
+            {
+              "cause": "inflation still above target",
+              "effect": "premature to cut",
+              "polarity": "supports"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "document_key": "powell-2026-10-01-update",
+      "research_id": 105,
+      "speaker": "Jerome Powell",
+      "publisher": "Federal Reserve Board",
+      "source_date": "2026-10-01",
+      "speaker_weight": "chair",
+      "argument_map": [
+        {
+          "claim": "risks are becoming two-sided",
+          "claim_type": "policy",
+          "stance": "two_sided",
+          "horizon": "near term",
+          "rationale": "labor softening balances remaining inflation risk",
+          "support_strength": "reasoned",
+          "claim_key": "claim:fed:cut_timing",
+          "thread_role": "extend",
+          "thread_target_note_id": "cn-prior-powell-hold"
+        }
+      ]
+    }
+  ]
+}

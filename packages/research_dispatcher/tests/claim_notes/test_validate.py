@@ -23,7 +23,7 @@ from src.claim_notes.validate import (
 def _completed_pass() -> DexterResearchPass:
     return DexterResearchPass(
         pass_id="d1",
-        commissioned_at=datetime(2026, 10, 4, tzinfo=timezone.utc),
+        requested_at=datetime(2026, 10, 4, tzinfo=timezone.utc),
         completed_at=datetime(2026, 10, 4, 1, tzinfo=timezone.utc),
         query="payrolls",
         status="completed",
@@ -47,17 +47,19 @@ class ValidateTests(unittest.TestCase):
             {
                 "note_id": "n1",
                 "claim": "c",
-                "speaker": "GS",
+                "speaker": "GS strategist",
+                "publisher": "Goldman Sachs",
                 "thread_role": "assert",
                 "time_window": {"label": "H1"},
                 "support_kind": "ingested_document_text",
-                "speaker_weight": 0.2,
+                "speaker_weight": "research_author",
                 "cause_edges": [{"cause": "x", "effect": "y"}],
             }
         )
         self.assertEqual(len(note.cause_edges), 1)
+        self.assertEqual(note.speaker_weight, "research_author")
 
-    def test_commissioned_live_note_valid_but_findings_blocked(self):
+    def test_awaiting_pointer_valid_but_findings_blocked(self):
         note = ClaimNote(
             note_id="n2",
             claim="ISM below 50",
@@ -65,20 +67,21 @@ class ValidateTests(unittest.TestCase):
             thread_role="assert",
             time_window=TimeWindow(label="latest"),
             support_kind="live_data",
-            speaker_weight=0.3,
+            speaker_weight="research_author",
             dexter_pass=DexterResearchPass(
                 pass_id="d2",
-                commissioned_at=datetime(2026, 10, 4, tzinfo=timezone.utc),
+                requested_at=datetime(2026, 10, 4, tzinfo=timezone.utc),
                 query="ISM",
-                status="commissioned",
+                status="awaiting",
             ),
         )
         validate_claim_note(note)
         self.assertFalse(live_findings_allowed(note))
-        with self.assertRaises(ClaimNoteValidationError):
+        with self.assertRaises(ClaimNoteValidationError) as ctx:
             require_live_findings(note)
+        self.assertIn("awaiting", str(ctx.exception))
 
-    def test_completed_pass_allows_findings(self):
+    def test_completed_attachment_allows_findings(self):
         note = ClaimNote(
             note_id="n3",
             claim="payrolls miss",
@@ -86,7 +89,7 @@ class ValidateTests(unittest.TestCase):
             thread_role="assert",
             time_window=TimeWindow(label="Sep"),
             support_kind="live_data",
-            speaker_weight=0.9,
+            speaker_weight="research_author",
             dexter_pass=_completed_pass(),
         )
         self.assertTrue(live_findings_allowed(note))

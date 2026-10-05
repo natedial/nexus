@@ -2,19 +2,30 @@
 
 Deterministic product contract for one argument per record. Shared by five products (see Agent Store `docs/claim-note-products-plan.md`).
 
-## Rules
+## Locked rules
 
 - **Cause edge** (`cause_edges[]`): speaker says X causes Y — own edge, separate from `thread_role`. Stored as said; not fact-checked; no causal world model.
-- **Live numbers**: only from a completed `DexterResearchPass`. Do not invent or fill numbers.
-- **Speaker weight**: on the note only — never passed to graphic selection (#45 shape→pattern).
-- **Morning attention** (later PR): own 3–5 point surface; *reads* G10 calendar + LIBRARY digest as inputs; does not change 5:55/6:10 tablet pushes.
+- **`speaker_weight`**: role enum only — `chair` | `voter` | `non-voter` | `interview` | `research_author`. Not a 0–1 score.
+- **Speaker vs publisher**: who said it vs which document/house it came from — keep both fields distinct.
+- **Dexter**: pointer, not an in-Nexus call. Product marks `dexter_pass.status=awaiting` and stops; Dexter attaches `completed` findings + sources externally. Products never fill numbers.
+- **Thematic side**: stance on *that thread*, not a global hawk/dove label.
+- **Morning attention**: own 3–5 point surface → reMarkable notebook + one-line chat ping; *reads* G10 calendar + Notion LIBRARY (Resource Type = Research Note only; same filter as 6:10). Does not fold into G10 Calendar / “Research From”; does not change 5:55/6:10 schedules. Canonical LIBRARY link: https://app.notion.com/p/2839852eebb4806c9127c229dcc2ddb9
+
+## Modules
+
+| Path | Role |
+| --- | --- |
+| `models.py` | `ClaimNote` / Dexter / cause-edge contract |
+| `project.py` | analyst `argument_map` document → `ClaimNote` list |
+| `library.py` | LIBRARY Notion Research Note read-path protocol |
+| `products/` | recent ingest, thematic digest, morning attention, author evolution, impromptu study |
 
 ## Commands
 
 From `packages/research_dispatcher`:
 
 ```bash
-python -m unittest discover -s tests/claim_notes -v
+PYTHONPATH=. python -m unittest discover -s tests/claim_notes -v
 ```
 
-Fixtures: `fixtures/claim_notes/claim_notes.jsonl`
+Fixtures: `fixtures/claim_notes/`

@@ -1,7 +1,8 @@
 """Deterministic claim-note helpers beyond pydantic construction.
 
 Cause edges are stored as said — no world-model checks here.
-Live numbers may only be surfaced from a completed Dexter pass.
+Live numbers may only be surfaced after Dexter externally attaches a
+completed pass. Nexus never calls Dexter and never invents numbers.
 """
 
 from __future__ import annotations
@@ -18,9 +19,9 @@ class ClaimNoteValidationError(ValueError):
 def validate_claim_note(note: ClaimNote | dict[str, Any]) -> ClaimNote:
     """Parse (if needed) and return a structurally valid ClaimNote.
 
-    Accepts live_data notes whose Dexter pass is still commissioned or failed.
-    Use ``live_findings_allowed`` / ``require_live_findings`` before surfacing
-    numbers so products never invent or fill figures.
+    Accepts live_data notes whose Dexter pointer is still ``awaiting`` or
+    ``failed``. Use ``live_findings_allowed`` / ``require_live_findings``
+    before surfacing numbers so products never invent or fill figures.
     """
     if isinstance(note, ClaimNote):
         # Re-validate to catch mutated instances.
@@ -29,7 +30,7 @@ def validate_claim_note(note: ClaimNote | dict[str, Any]) -> ClaimNote:
 
 
 def live_findings_allowed(note: ClaimNote) -> bool:
-    """True only when products may surface Dexter findings as live numbers."""
+    """True only when Dexter has attached completed findings."""
     if note.support_kind != "live_data" or note.dexter_pass is None:
         return False
     pass_ = note.dexter_pass
@@ -41,16 +42,17 @@ def live_findings_allowed(note: ClaimNote) -> bool:
 
 
 def require_live_findings(note: ClaimNote) -> None:
-    """Fail closed if a product tries to use live numbers without Dexter."""
+    """Fail closed if a product tries to use live numbers without an attach."""
     if note.support_kind != "live_data":
         raise ClaimNoteValidationError(
             "require_live_findings only applies to live_data notes"
         )
     if note.dexter_pass is None:
-        raise ClaimNoteValidationError("live_data requires dexter_pass")
-    if note.dexter_pass.status == "commissioned":
+        raise ClaimNoteValidationError("live_data requires dexter_pass pointer")
+    if note.dexter_pass.status == "awaiting":
         raise ClaimNoteValidationError(
-            "Dexter pass still commissioned; products must not invent numbers"
+            "Dexter pass still awaiting external attach; "
+            "products must not invent numbers"
         )
     if note.dexter_pass.status == "failed":
         raise ClaimNoteValidationError(
