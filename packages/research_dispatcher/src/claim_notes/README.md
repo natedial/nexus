@@ -9,14 +9,23 @@ Deterministic product contract for one argument per record. Shared by five produ
 - **Speaker vs publisher**: who said it vs which document/house it came from — keep both fields distinct.
 - **Dexter**: pointer, not an in-Nexus call. Product marks `dexter_pass.status=awaiting` and stops; Dexter attaches `completed` findings + sources externally. Products never fill numbers.
 - **Thematic side**: stance on *that thread*, not a global hawk/dove label.
-- **Morning attention** (later PR): own 3–5 point surface → reMarkable notebook + one-line chat ping; *reads* G10 calendar + Notion LIBRARY (Resource Type = Research Note only; same filter as 6:10). Does not fold into G10 Calendar / “Research From”; does not change 5:55/6:10 schedules. Canonical LIBRARY link: https://app.notion.com/p/2839852eebb4806c9127c229dcc2ddb9
+- **Morning attention**: own 3–5 point surface → reMarkable notebook + one-line chat ping; *reads* G10 calendar + Notion LIBRARY (Resource Type = Research Note only; same filter as 6:10). Does not fold into G10 Calendar / “Research From”; does not change 5:55/6:10 schedules. Canonical LIBRARY link: https://app.notion.com/p/2839852eebb4806c9127c229dcc2ddb9
+
+## Modules
+
+| Path | Role |
+| --- | --- |
+| `models.py` | `ClaimNote` / Dexter / cause-edge contract |
+| `project.py` | analyst `argument_map` document → `ClaimNote` list |
+| `library.py` | LIBRARY Notion Research Note read-path protocol |
+| `products/` | recent ingest, thematic digest, morning attention, author evolution, impromptu study |
 
 ## Commands
 
 From `packages/research_dispatcher`:
 
 ```bash
-python -m unittest discover -s tests/claim_notes -v
+PYTHONPATH=. python -m unittest discover -s tests/claim_notes -v
 ```
 
-Fixtures: `fixtures/claim_notes/claim_notes.jsonl`
+Fixtures: `fixtures/claim_notes/`

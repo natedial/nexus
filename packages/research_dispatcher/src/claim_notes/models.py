@@ -173,6 +173,8 @@ class ClaimNote(BaseModel):
     source_date: date | None = None
     rationale: str = ""
     conditions: list[str] = Field(default_factory=list)
+    # Thread-local stance for thematic side grouping — not a global hawk/dove label.
+    stance: str | None = None
     dexter_pass: DexterResearchPass | None = None
 
     @field_validator("note_id", "claim", "speaker")
