@@ -9,7 +9,7 @@ Deterministic product contract for one argument per record. Shared by five produ
 - **Speaker vs publisher**: who said it vs which document/house it came from — keep both fields distinct.
 - **Dexter**: pointer, not an in-Nexus call. Product marks `dexter_pass.status=awaiting` and stops; Dexter attaches `completed` findings + sources externally. Products never fill numbers.
 - **Thematic side**: stance on *that thread*, not a global hawk/dove label.
-- **Morning attention**: own 3–5 point surface → reMarkable notebook + one-line **Grok Bot** chat ping (not SMTP); *reads* G10 calendar + Notion LIBRARY (Resource Type = Research Note only; **since last run**, not last-night-only). **Proey-owned** weekdays **~06:25 ET** after 06:10. Empty day = silent (no notebook, no ping). Does not fold into G10 Calendar / “Research From”; does not change 5:55/6:10 schedules. Canonical LIBRARY link: https://app.notion.com/p/2839852eebb4806c9127c229dcc2ddb9
+- **Morning attention**: own 3–5 point surface → reMarkable notebook (`Morning Attention YYYY-MM-DD`, next to G10 / Research From) + one-line **Grok Bot** ping to Nate’s 1:1 with Proey (not SMTP); *reads* G10 calendar + Notion LIBRARY (Resource Type = Research Note only; **since last run**). **Proey-owned** weekdays **~06:25 ET** after 06:10. Empty day = silent. Does not fold into G10 / Research From; does not change 5:55/6:10. Canonical LIBRARY link: https://app.notion.com/p/2839852eebb4806c9127c229dcc2ddb9
 
 ## Modules
 

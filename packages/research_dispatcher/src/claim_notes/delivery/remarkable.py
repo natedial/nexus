@@ -1,8 +1,10 @@
 """Own reMarkable notebook delivery for morning attention.
 
 Canonical path: write Remarkdown-ready markdown for Proey's reMarkable
-connector (same connector the 5:55 and 6:10 routines already use). Optional
-HTTP push is secondary. Never folds into G10 Calendar or Research From.
+connector (same connector the 5:55 and 6:10 routines already use). Default
+title: "Morning Attention YYYY-MM-DD". Place the notebook next to the G10
+Calendar and Research From notebooks — own notebook, never folded into those
+pushes. Optional HTTP push is secondary.
 """
 
 from __future__ import annotations

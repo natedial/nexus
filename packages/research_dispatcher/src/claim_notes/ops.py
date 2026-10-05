@@ -2,8 +2,10 @@
 
 Canonical path (Proey-owned weekday ~06:25 America/New_York, after 06:10):
   1) Run morning attention → markdown + one-line Grok Bot ping (local handoff)
-  2) Proey pushes the notebook via the same reMarkable connector as 5:55/6:10
-  3) Proey sends the one-line Grok Bot chat ping
+  2) Proey pushes notebook titled "Morning Attention YYYY-MM-DD" via the same
+     reMarkable connector as 5:55/6:10, placed next to G10 Calendar / Research From
+  3) Proey sends the one-line Grok Bot ping to Nate's 1:1 chat with Proey
+     (same destination as 5:55/6:10)
 
 Empty day = silent: no notebook, no chat ping (same as the 6:40 handwritten pass).
 Does not change 5:55 / 6:10 tablet pushes. Does not fold into G10 / Research From.
@@ -62,7 +64,7 @@ class MorningAttentionOps:
     watermark: RunWatermarkStore
     remarkable_sender: Any = field(default_factory=FakeRemarkableNotebookSender)
     chat_ping_sender: Any = field(default_factory=FakeGrokBotChatPingSender)
-    notebook_title: str = "Morning attention"
+    notebook_title: str = "Morning Attention"
     handoff_dir: Path | None = None
 
     def run(
@@ -120,8 +122,9 @@ class MorningAttentionOps:
         remarkable_payload = None
         chat_payload = None
         as_of = (now or datetime.now(timezone.utc)).astimezone(ET).strftime("%Y-%m-%d")
+        # Default notebook title: "Morning Attention YYYY-MM-DD" (Nate may override).
         title = f"{self.notebook_title} {as_of}"
-        md = morning_attention_markdown(surface, title=self.notebook_title)
+        md = morning_attention_markdown(surface, title=title)
         line = morning_attention_chat_line(surface, as_of=as_of)
 
         if deliver and not dry_run:

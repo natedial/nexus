@@ -1,7 +1,8 @@
 """Morning-attention delivery senders (own surface only).
 
 Canonical: Proey connector handoff (reMarkable markdown + Grok Bot one-liner).
-Chat ping is Grok Bot — never SMTP email / EMAIL_TO.
+Chat ping → Nate's 1:1 with Proey (same as 5:55/6:10) — never SMTP / EMAIL_TO.
+Notebook default title: "Morning Attention YYYY-MM-DD", next to G10 / Research From.
 """
 
 from src.claim_notes.delivery.chat_ping import (

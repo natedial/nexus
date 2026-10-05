@@ -1,8 +1,8 @@
 """One-line Grok Bot chat ping for morning attention.
 
-NOT SMTP email. Nate's other morning pings (5:55 / 6:10) land in his Grok Bot
-chat. This module matches that pattern: emit a one-line ping for Proey's Grok
-Bot connector (handoff file and/or optional webhook). Never use EMAIL_TO.
+NOT SMTP email. Destination: Nate's 1:1 chat with Proey — the same place as
+the 5:55 / 6:10 pings. Emit a one-line ping for Proey's Grok Bot connector
+(handoff file and/or optional webhook). Never use EMAIL_TO.
 """
 
 from __future__ import annotations

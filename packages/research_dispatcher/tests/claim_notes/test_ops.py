@@ -142,6 +142,14 @@ class WatermarkAndOpsTests(unittest.TestCase):
             self.assertEqual(
                 delivery.pattern, "own_remarkable_notebook_plus_grok_bot_ping"
             )
+            self.assertEqual(delivery.grok_bot_destination, "nate_proey_1to1")
+            self.assertEqual(
+                delivery.notebook_title_pattern, "Morning Attention YYYY-MM-DD"
+            )
+            self.assertEqual(
+                delivery.notebook_placement,
+                "next_to_g10_calendar_and_research_from",
+            )
             self.assertFalse(delivery.fold_into_g10_calendar)
             self.assertFalse(delivery.fold_into_research_from)
             self.assertFalse(delivery.alter_tablet_555)
@@ -171,7 +179,10 @@ class WatermarkAndOpsTests(unittest.TestCase):
             )
             self.assertFalse(result.silent)
             self.assertTrue((handoff / "morning-attention.md").is_file())
-            self.assertTrue((handoff / "notebook-title.txt").is_file())
+            title = (handoff / "notebook-title.txt").read_text(encoding="utf-8").strip()
+            self.assertEqual(title, "Morning Attention 2026-10-05")
+            md_head = (handoff / "morning-attention.md").read_text(encoding="utf-8").splitlines()[0]
+            self.assertEqual(md_head, "# Morning Attention 2026-10-05")
             ping = (handoff / "chat-ping.txt").read_text(encoding="utf-8").strip()
             self.assertEqual(ping.count("\n"), 0)
             self.assertIn("Morning attention ready", ping)
@@ -229,10 +240,10 @@ class WatermarkAndOpsTests(unittest.TestCase):
 
             surface_md = morning_attention_markdown(
                 MorningAttentionSurface(points=[]),
-                title="Morning attention",
+                title="Morning Attention",
             )
             result = sender.push(
-                title="Morning attention 2026-10-05", markdown=surface_md
+                title="Morning Attention 2026-10-05", markdown=surface_md
             )
             self.assertTrue(Path(result.path).is_file())
 
