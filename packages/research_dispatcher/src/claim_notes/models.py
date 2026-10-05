@@ -7,6 +7,9 @@ shared input for the five claim-note products.
 Cause edges are speaker-asserted only — stored as said, not fact-checked, and
 not enforced against any causal world model. Dexter fact-check of an edge is a
 later pass.
+
+Dexter live support is a pointer, not an in-Nexus call: the product marks a
+pass as awaiting and stops; Dexter runs externally and attaches findings.
 """
 
 from __future__ import annotations
@@ -21,7 +24,16 @@ CLAIM_NOTE_SCHEMA_VERSION = "claim-note-v1"
 ThreadRole = Literal["assert", "extend", "break"]
 SupportKind = Literal["ingested_document_text", "live_data"]
 CausePolarity = Literal["supports", "undermines", "unspecified"]
-DexterPassStatus = Literal["commissioned", "completed", "failed"]
+# Role on the claim note — not a 0–1 significance score.
+SpeakerWeight = Literal[
+    "chair",
+    "voter",
+    "non-voter",
+    "interview",
+    "research_author",
+]
+# Pointer lifecycle: product marks awaiting and stops; completed = external attach.
+DexterPassStatus = Literal["awaiting", "completed", "failed"]
 
 
 class TimeWindow(BaseModel):
@@ -62,7 +74,7 @@ class CauseEdge(BaseModel):
 
 
 class DexterSource(BaseModel):
-    """Sourced + dated reference from a commissioned Dexter pass."""
+    """Sourced + dated reference attached by external Dexter."""
 
     name: str
     url: str | None = None
@@ -79,7 +91,7 @@ class DexterSource(BaseModel):
 
 
 class DexterFinding(BaseModel):
-    """One live figure from a Dexter pass. Products must not invent these."""
+    """One live figure attached by external Dexter. Products never invent these."""
 
     label: str
     value: str
@@ -89,16 +101,17 @@ class DexterFinding(BaseModel):
 
 
 class DexterResearchPass(BaseModel):
-    """Commissioned Dexter research pass for live_data support.
+    """Pointer to an external Dexter research pass for live_data support.
 
-    Live numbers on claim notes may only come from a completed pass with
-    sourced, dated findings. Products must not invent or fill numbers.
+    Nexus does not call Dexter. The product creates an ``awaiting`` pointer and
+    stops. Dexter runs externally and attaches ``completed`` findings with
+    as-of times and sources. Products must not invent or fill numbers.
     """
 
     pass_id: str
-    commissioned_at: datetime
+    requested_at: datetime
     query: str
-    status: DexterPassStatus = "commissioned"
+    status: DexterPassStatus = "awaiting"
     completed_at: datetime | None = None
     sources: list[DexterSource] = Field(default_factory=list)
     findings: list[DexterFinding] = Field(default_factory=list)
@@ -119,6 +132,17 @@ class DexterResearchPass(BaseModel):
                     f"finding source_index {finding.source_index} out of range "
                     f"for {len(self.sources)} sources"
                 )
+        if self.status in ("awaiting", "failed"):
+            if self.findings:
+                raise ValueError(
+                    f"dexter_pass status={self.status!r} must not carry findings; "
+                    "products never fill numbers — Dexter attaches them externally"
+                )
+            if self.sources:
+                raise ValueError(
+                    f"dexter_pass status={self.status!r} must not carry sources "
+                    "until Dexter attaches a completed result"
+                )
         if self.status == "completed":
             if not self.sources:
                 raise ValueError("completed Dexter pass requires sources")
@@ -135,13 +159,13 @@ class ClaimNote(BaseModel):
     schema_version: str = CLAIM_NOTE_SCHEMA_VERSION
     note_id: str
     claim: str
-    speaker: str
+    speaker: str  # who said it
     thread_role: ThreadRole
     time_window: TimeWindow
     support_kind: SupportKind
-    speaker_weight: float = Field(..., ge=0.0, le=1.0)
+    speaker_weight: SpeakerWeight
     cause_edges: list[CauseEdge] = Field(default_factory=list)
-    publisher: str | None = None
+    publisher: str | None = None  # which document/house it came from — distinct from speaker
     thread_target_note_id: str | None = None
     claim_key: str | None = None
     research_id: int | None = None
