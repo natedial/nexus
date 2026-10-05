@@ -11,6 +11,7 @@ from src.claim_notes.models import (
     DexterFinding,
     DexterResearchPass,
     DexterSource,
+    SpeakerWeight,
     TimeWindow,
 )
 from src.claim_notes.validate import (
@@ -28,6 +29,7 @@ __all__ = [
     "DexterFinding",
     "DexterResearchPass",
     "DexterSource",
+    "SpeakerWeight",
     "TimeWindow",
     "live_findings_allowed",
     "load_claim_notes",

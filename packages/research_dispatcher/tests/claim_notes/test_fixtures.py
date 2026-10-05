@@ -15,18 +15,20 @@ FIXTURES = (
     / "claim_notes.jsonl"
 )
 
+ROLES = {"chair", "voter", "non-voter", "interview", "research_author"}
+
 
 class FixtureTests(unittest.TestCase):
     def test_fixtures_load_and_validate(self):
         notes = load_claim_notes(FIXTURES)
-        self.assertGreaterEqual(len(notes), 5)
+        self.assertGreaterEqual(len(notes), 6)
         for note in notes:
             self.assertEqual(note.schema_version, CLAIM_NOTE_SCHEMA_VERSION)
             self.assertIn(note.thread_role, ("assert", "extend", "break"))
             self.assertIn(
                 note.support_kind, ("ingested_document_text", "live_data")
             )
-            # Cause edges are a first-class list (may be empty).
+            self.assertIn(note.speaker_weight, ROLES)
             self.assertIsInstance(note.cause_edges, list)
 
     def test_fixtures_cover_thread_roles_and_cause_edges(self):
@@ -36,13 +38,22 @@ class FixtureTests(unittest.TestCase):
         with_edges = [n for n in notes if n.cause_edges]
         self.assertGreaterEqual(len(with_edges), 3)
 
-    def test_fixtures_cover_live_and_awaiting_dexter(self):
+    def test_fixtures_cover_awaiting_vs_completed_dexter(self):
         notes = {n.note_id: n for n in load_claim_notes(FIXTURES)}
         live = notes["cn-live-payrolls"]
         awaiting = notes["cn-live-awaiting-dexter"]
         self.assertTrue(live_findings_allowed(live))
+        self.assertEqual(live.dexter_pass.status, "completed")
         self.assertFalse(live_findings_allowed(awaiting))
-        self.assertEqual(awaiting.dexter_pass.status, "commissioned")
+        self.assertEqual(awaiting.dexter_pass.status, "awaiting")
+        self.assertEqual(awaiting.dexter_pass.findings, [])
+
+    def test_speaker_publisher_distinct_on_powell(self):
+        notes = {n.note_id: n for n in load_claim_notes(FIXTURES)}
+        powell = notes["cn-powell-speech"]
+        self.assertEqual(powell.speaker, "Jerome Powell")
+        self.assertEqual(powell.publisher, "Federal Reserve Board")
+        self.assertEqual(powell.speaker_weight, "chair")
 
     def test_extend_and_break_target_assert(self):
         notes = {n.note_id: n for n in load_claim_notes(FIXTURES)}
