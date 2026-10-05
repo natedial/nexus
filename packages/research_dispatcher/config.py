@@ -148,6 +148,20 @@ class Config:
         "CALENDAR_COUNTRY", "US"
     )  # Country for calendar events
 
+    # Morning attention ops (optional — not required for PDF dispatch validate())
+    NOTION_TOKEN = _from_env("NOTION_TOKEN", "")
+    NOTION_LIBRARY_DATABASE_ID = _from_env(
+        "NOTION_LIBRARY_DATABASE_ID", "2839852e-ebb4-806c-9127-c229dcc2ddb9"
+    )
+    REMARKABLE_DROP_DIR = _from_env("REMARKABLE_DROP_DIR", "")
+    REMARKABLE_PUSH_URL = _from_env("REMARKABLE_PUSH_URL", "")
+    REMARKABLE_PUSH_TOKEN = _from_env("REMARKABLE_PUSH_TOKEN", "")
+    CHAT_PING_TO = _from_env("CHAT_PING_TO", "")
+    MORNING_WATERMARK_PATH = _from_env(
+        "MORNING_WATERMARK",
+        os.path.join("state", "morning_attention_last_run.json"),
+    )
+
     @classmethod
     def validate(cls):
         """Validate that all required configuration is present."""
