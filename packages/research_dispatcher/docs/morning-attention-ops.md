@@ -13,6 +13,28 @@ Gerhard validators on projection (under-extract OK): one idea per claim; speaker
 
 Coverage gap (acknowledged): only docs that already ran parser→analyst appear. LIBRARY-only digests enter the analyst pipe later — not a parallel extract.
 
+**Do not invent live ClaimNodes.** If overnight parser→analyst did not write `document_analysis` rows with `argument_map` for the since-watermark window, export is empty and MA is **silent**. That is correct behavior — not a bug to patch with fixtures or LIBRARY extract.
+
+## Minimum env for live MA feed (Proey)
+
+Export reads the **analysis store** only. It does **not** need `research_pipeline_ops` / PipelineOpsClient.
+
+| Variable | Role |
+| --- | --- |
+| `RESEARCH_ANALYST_ANALYSIS_DB_URL` | Analysis DB with `argmap-v1` `document_analysis` rows that already contain `argument_map`. Falls back to `NEXUS_DATABASE_URL` / root `DATABASE_URL` when set and the default sqlite URL would otherwise apply. |
+| `NEXUS_DATABASE_URL` | Acceptable substitute when it is the same Postgres that holds analyst `document_analysis`. |
+| `RESEARCH_ANALYST_BATCH_OUT_DIR` | Directory for `dispatch-batch-*.json` and `latest.json` symlink (default `/var/research/analyst`). |
+
+Unrelated / not this path:
+
+| Item | Note |
+| --- | --- |
+| Empty Proton `research_claims` | **Unrelated** to the MA argument_map feed. Do not treat an empty claims table as an export blocker. |
+| `research_pipeline_ops` | **Not required** for `export-dispatch-batch`. Required only for cron-style `run` / backfill / reprocess. |
+| Fixtures / invented ClaimNodes | **Forbidden** for live dry-run sign-off. Use analysis-DB-backed export only. |
+
+Hold merge of the argument_map MA PR until Gerhard signs a **live or analysis-DB-backed** dry-run (fixture-only dry-run is insufficient for 6:25 resume).
+
 ## Canonical live path (Proey routine)
 
 ### 1) Export overnight analyst batch (since watermark)
@@ -21,22 +43,25 @@ Watermark file holds the last successful MA run UTC timestamp. Use its **date** 
 
 ```bash
 cd packages/research_analyst
+# Minimum env: ANALYSIS_DB_URL (or NEXUS_DATABASE_URL) + BATCH_OUT_DIR
 # Example: since last watermark date 2026-10-05
 PYTHONPATH=src python -m research_analysis_layer.main export-dispatch-batch \
   --batch-key morning-2026-10-06 \
   --date-from 2026-10-05 \
-  --out /var/research/analyst/batches/dispatch-batch-morning-2026-10-06.json
-# Also updates ANALYST_BATCH_OUT_DIR/latest.json → that file
+  --out "${RESEARCH_ANALYST_BATCH_OUT_DIR:-/var/research/analyst}/dispatch-batch-morning-2026-10-06.json"
+# Also updates BATCH_OUT_DIR/latest.json → that file
 ```
 
 Shape: `{ "batch_key", "documents": [ { document_key, source, publisher, source_date, argument_map: [...] }, ... ] }`.
+
+If `documents` is `[]` for the window → overnight pipe produced no argmap rows → MA will be silent. Fix the parser→analyst drain; do not fabricate claims.
 
 ### 2) Morning Attention → handoff
 
 ```bash
 cd packages/research_dispatcher
 PYTHONPATH=. python src/claim_notes/run_morning_attention.py \
-  --argument-map-json /var/research/analyst/batches/dispatch-batch-morning-2026-10-06.json \
+  --argument-map-json /var/research/analyst/dispatch-batch-morning-2026-10-06.json \
   --since-watermark \
   --handoff-dir /path/to/morning-attention-handoff \
   --watermark state/morning_attention_last_run.json
@@ -46,7 +71,7 @@ Thin flag (reads `latest.json` from the analyst batch out dir):
 
 ```bash
 PYTHONPATH=. python src/claim_notes/run_morning_attention.py \
-  --analyst-batch-dir /var/research/analyst/batches \
+  --analyst-batch-dir "${RESEARCH_ANALYST_BATCH_OUT_DIR:-/var/research/analyst}" \
   --since-watermark \
   --handoff-dir /path/to/morning-attention-handoff \
   --watermark state/morning_attention_last_run.json
@@ -88,7 +113,7 @@ Handoff dir contents (non-silent day):
 | `chat-ping.txt` | One-line Grok Bot ping → Nate↔Proey 1:1 |
 | `handoff.json` | Manifest (`silent`, point_count, channel_chat=`grok_bot`, fold-in flags false) |
 
-## Env
+## Env (dispatcher handoff)
 
 | Variable | Role |
 | --- | --- |
@@ -111,11 +136,11 @@ Handoff dir contents (non-silent day):
 
 | Who | What |
 | --- | --- |
-| **Proey** | Own ~6:25 ET routine; run export-dispatch-batch since watermark; run MA with `--argument-map-json` / `--analyst-batch-dir`; wire handoff → reMarkable + Grok Bot 1:1 |
+| **Proey** | Own ~6:25 ET routine; set analyst ANALYSIS_DB_URL + BATCH_OUT_DIR; run export-dispatch-batch since watermark; run MA with `--argument-map-json` / `--analyst-batch-dir`; wire handoff → reMarkable + Grok Bot 1:1 |
 | **Nate** | Optional notebook title override; chat destination and placement locked above |
-| **Gerhard** | Sign-off on projection validators before 6:25 resume (field rules above) |
+| **Gerhard** | Sign-off on projection validators **and** an analysis-DB-backed dry-run before 6:25 resume |
 
-## Dry run (no secrets)
+## Fixture dry run (local only — not merge gate)
 
 ```bash
 PYTHONPATH=. python src/claim_notes/run_morning_attention.py \
@@ -123,3 +148,5 @@ PYTHONPATH=. python src/claim_notes/run_morning_attention.py \
   --handoff-dir /tmp/ma-handoff \
   --dry-run --fake-delivery
 ```
+
+Fixture path proves CLI/projection wiring. **Merge / 6:25 resume** needs Gerhard sign-off on a live or analysis-DB-backed export → MA dry-run.
