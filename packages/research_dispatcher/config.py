@@ -149,12 +149,14 @@ class Config:
     )  # Country for calendar events
 
     # Morning attention ops (optional — not required for PDF dispatch validate())
-    # Canonical: Proey 6:25 routine consumes --handoff-dir (reMarkable + Grok Bot).
-    NOTION_TOKEN = _from_env("NOTION_TOKEN", "")  # demoted; prefer --library-json
+    # Canonical: analyst argument_map batch → --argument-map-json → handoff.
+    NOTION_TOKEN = _from_env("NOTION_TOKEN", "")  # demoted; not MA claim source
     NOTION_LIBRARY_DATABASE_ID = _from_env(
         "NOTION_LIBRARY_DATABASE_ID", "2839852e-ebb4-806c-9127-c229dcc2ddb9"
     )
     MORNING_HANDOFF_DIR = _from_env("MORNING_HANDOFF_DIR", "")
+    MORNING_ARGUMENT_MAP_JSON = _from_env("MORNING_ARGUMENT_MAP_JSON", "")
+    MORNING_ANALYST_BATCH_DIR = _from_env("MORNING_ANALYST_BATCH_DIR", "")
     REMARKABLE_DROP_DIR = _from_env("REMARKABLE_DROP_DIR", "")  # demoted alias
     REMARKABLE_PUSH_URL = _from_env("REMARKABLE_PUSH_URL", "")  # demoted
     REMARKABLE_PUSH_TOKEN = _from_env("REMARKABLE_PUSH_TOKEN", "")

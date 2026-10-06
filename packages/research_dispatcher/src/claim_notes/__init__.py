@@ -41,8 +41,11 @@ from src.claim_notes.products import (
     thematic_digest,
 )
 from src.claim_notes.project import (
+    filter_argument_map_documents,
+    load_argument_map_documents,
     project_argument_map_batch,
     project_argument_map_document,
+    resolve_analyst_batch_path,
 )
 from src.claim_notes.project_library import (
     project_library_research_note,
@@ -84,10 +87,13 @@ __all__ = [
     "is_intended_weekday_slot",
     "live_findings_allowed",
     "load_claim_notes",
+    "filter_argument_map_documents",
+    "load_argument_map_documents",
     "project_argument_map_batch",
     "project_argument_map_document",
     "project_library_research_note",
     "project_library_research_notes",
+    "resolve_analyst_batch_path",
     "recent_ingest",
     "require_live_findings",
     "thematic_digest",
