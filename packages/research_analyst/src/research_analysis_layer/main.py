@@ -14,7 +14,6 @@ _WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 if str(_WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(_WORKSPACE_ROOT))
 
-from research_pipeline_ops import PipelineOpsClient
 from research_analysis_layer.config import Settings, resolve_codex_bin
 from research_analysis_layer.db import AnalysisStore, StateDbReader
 from research_analysis_layer.db.client_factory import (
@@ -178,10 +177,6 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         claim_resolver=ClaimKeyResolver(),
     )
 
-    ops = PipelineOpsClient.from_env(
-        default_spool_db_path=str(settings.pipeline_ops_spool_path()),
-        emitted_by="research_analyst",
-    )
     pipeline = RunBatchPipeline(
         settings=settings,
         state_reader=state_reader,
@@ -192,7 +187,6 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         hydrator=hydrator,
         analyze_document=analyze_document,
         quality_reviewer=QualityReviewer(settings),
-        ops=ops,
     )
     pipeline.eval_trigger = eval_trigger
     return pipeline
@@ -1137,7 +1131,11 @@ def command_export_dispatch_batch(
     out: str | None,
     include_orphans: bool,
 ) -> int:
-    """Export a dispatch batch to JSON file."""
+    """Export a dispatch batch to JSON file.
+
+    Needs analysis store settings only (``RESEARCH_ANALYST_ANALYSIS_DB_URL`` or
+    ``NEXUS_DATABASE_URL``, plus ``RESEARCH_ANALYST_BATCH_OUT_DIR``).
+    """
     import os
     from datetime import datetime
     from pathlib import Path

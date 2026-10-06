@@ -15,8 +15,7 @@ ordering manifest.
 | 5 | `packages/research_parser/migrations/004_research_memory_substrate.sql` | **Partial** — spans, chunks, artifacts only; **drop** unused `research_claims` / entities / relations tables (parser 004 claims layer is retired; analyst `argument_map` is canonical) |
 | 6 | `packages/research_analyst/migrations/001_agent_tables.sql` | Agent run tables → PostgreSQL in Phase 3 |
 | 6b | `migrations/002_analyst_schema.sql` | **Applied in Phase 3** — analyst semantic layer + Slice 2 consensus tables |
-| 7 | `migrations/003_pipeline_ops_schema.sql` | **Applied in Phase 4** — `pipeline_ops` schema |
-| 8 | `migrations/004_supply_events.sql` | **Applied in Phase 4** — supply calendar table for dispatcher |
+| 7 | `migrations/004_supply_events.sql` | **Applied in Phase 4** — supply calendar table for dispatcher |
 
 ## Drop (do not port)
 
@@ -42,5 +41,4 @@ Uses `RESEARCH_PARSER_DATABASE_URL` or `NEXUS_DATABASE_URL` (default
 | --- | --- |
 | `001_parser_schema.sql` | **Applied in Phase 2** — parser tables without 004 claims/entities/relations |
 | `002_analyst_schema.sql` | **Applied in Phase 3** — analyst tables, consensus/shadow tables, agent tables |
-| `003_pipeline_ops_schema.sql` | **Applied in Phase 4** — pipeline_ops schema |
 | `004_supply_events.sql` | **Applied in Phase 4** — supply calendar events |

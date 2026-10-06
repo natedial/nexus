@@ -18,7 +18,6 @@ services:
       - RESEARCH_PARSER_STATE_DB_PATH=/app/data/state.db
       - RESEARCH_PARSER_ARTIFACT_BASE_DIR=/app/data/artifacts
       - GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
-      - RESEARCH_PROCESSING_ROOT=/app
 
     volumes:
       # Persist SQLite state database
@@ -30,9 +29,6 @@ services:
 
       # Mount config (boilerplate rules)
       - ./config:/app/config:ro
-
-      # Mount shared pipeline ops package (read-only)
-      - ../research_pipeline_ops:/app/research_pipeline_ops:ro
 
     # Logging configuration
     logging:
@@ -67,11 +63,9 @@ services:
       - RESEARCH_PARSER_STATE_DB_PATH=/app/data/state.db
       - RESEARCH_PARSER_ARTIFACT_BASE_DIR=/app/data/artifacts
       - GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
-      - RESEARCH_PROCESSING_ROOT=/app
     volumes:
       - ./data:/app/data
       - ${GOOGLE_CREDENTIALS_HOST_DIR:-../../credentials}:/app/credentials:ro
       - ./config:/app/config:ro
-      - ../research_pipeline_ops:/app/research_pipeline_ops:ro
       - ./src:/app/src:ro  # Mount source for changes
     command: ["python", "-m", "src.main"]
