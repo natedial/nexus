@@ -1,4 +1,4 @@
-"""LIBRARY Research Note → claim-note projection (live weekday path)."""
+"""LIBRARY Research Note projection — demoted; not the live 6:25 claim feed."""
 
 from __future__ import annotations
 
@@ -56,12 +56,12 @@ class ProjectLibraryTests(unittest.TestCase):
         self.assertEqual(notes, [])
 
 
-class LibraryOnlyOpsTests(unittest.TestCase):
-    def test_library_json_projects_into_morning_attention_without_fixtures(self):
+class LibraryDemotedOpsTests(unittest.TestCase):
+    def test_library_alone_does_not_project_claims_silent(self):
+        """Live ops must not use project_library when claim notes are empty."""
         with TemporaryDirectory() as tmp:
             handoff = Path(tmp) / "handoff"
             watermark = RunWatermarkStore(Path(tmp) / "wm.json")
-            # Watermark in the past — Prefiltered reader ignores it anyway.
             watermark.write(datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc))
             reader = PrefilteredLibraryDigestReader(
                 [
@@ -92,27 +92,15 @@ class LibraryOnlyOpsTests(unittest.TestCase):
                 chat_ping_sender=HandoffGrokBotChatPingSender(handoff),
                 handoff_dir=handoff,
             )
-            # Empty claim-note list — live LIBRARY path only.
             result = ops.run(
                 notes=[],
                 calendar_events=[],
                 now=datetime(2026, 10, 6, 10, 25, tzinfo=timezone.utc),
             )
-            self.assertFalse(result.silent)
+            self.assertTrue(result.silent)
             self.assertEqual(len(result.library_notes), 3)
-            self.assertGreaterEqual(len(result.surface.points), 3)
-            self.assertLessEqual(len(result.surface.points), 5)
-            # Projected claim notes (not raw library duplicates).
-            self.assertTrue(
-                all(p.source == "claim_note" for p in result.surface.points)
-            )
-            self.assertTrue((handoff / "morning-attention.md").is_file())
-            title = (handoff / "notebook-title.txt").read_text(encoding="utf-8").strip()
-            self.assertEqual(title, "Morning Attention 2026-10-06")
-            self.assertTrue((handoff / "chat-ping.txt").is_file())
-            manifest = json.loads((handoff / "handoff.json").read_text(encoding="utf-8"))
-            self.assertFalse(manifest["silent"])
-            self.assertEqual(manifest["channel_chat"], "grok_bot")
+            self.assertEqual(result.surface.points, [])
+            self.assertFalse((handoff / "morning-attention.md").exists())
 
     def test_empty_library_is_silent_no_fixture_needed(self):
         with TemporaryDirectory() as tmp:
@@ -140,7 +128,7 @@ class LibraryOnlyOpsTests(unittest.TestCase):
             self.assertTrue(manifest["silent"])
             self.assertEqual(manifest["reason"], "empty_day")
 
-    def test_cli_library_json_alone_no_fixture(self):
+    def test_cli_library_json_alone_silent_no_claim_projection(self):
         with TemporaryDirectory() as tmp:
             lib_path = Path(tmp) / "library.json"
             handoff = Path(tmp) / "handoff"
@@ -153,18 +141,6 @@ class LibraryOnlyOpsTests(unittest.TestCase):
                             "note_id": "p1",
                             "summary": "payrolls undershot as stated in library",
                             "saved_at": "2026-10-05T12:00:00+00:00",
-                        },
-                        {
-                            "title": "ISM note",
-                            "note_id": "p2",
-                            "summary": "ISM manufacturing below 50 as stated",
-                            "saved_at": "2026-10-05T13:00:00+00:00",
-                        },
-                        {
-                            "title": "CPI note",
-                            "note_id": "p3",
-                            "summary": "core CPI cooled as stated",
-                            "saved_at": "2026-10-05T14:00:00+00:00",
                         },
                     ]
                 ),
@@ -186,38 +162,9 @@ class LibraryOnlyOpsTests(unittest.TestCase):
                     ]
                 )
             self.assertEqual(code, 0)
-            self.assertTrue((handoff / "morning-attention.md").is_file())
-            self.assertTrue((handoff / "chat-ping.txt").is_file())
-            manifest = json.loads((handoff / "handoff.json").read_text(encoding="utf-8"))
-            self.assertFalse(manifest["silent"])
-            self.assertGreaterEqual(manifest["point_count"], 3)
-
-    def test_cli_empty_library_json_silent(self):
-        with TemporaryDirectory() as tmp:
-            lib_path = Path(tmp) / "library.json"
-            handoff = Path(tmp) / "handoff"
-            watermark = Path(tmp) / "wm.json"
-            lib_path.write_text("[]\n", encoding="utf-8")
-            from io import StringIO
-            from contextlib import redirect_stdout
-
-            buf = StringIO()
-            with redirect_stdout(buf):
-                code = run_main(
-                    [
-                        "--library-json",
-                        str(lib_path),
-                        "--handoff-dir",
-                        str(handoff),
-                        "--watermark",
-                        str(watermark),
-                    ]
-                )
-            self.assertEqual(code, 0)
             manifest = json.loads((handoff / "handoff.json").read_text(encoding="utf-8"))
             self.assertTrue(manifest["silent"])
             self.assertFalse((handoff / "morning-attention.md").exists())
-            self.assertFalse((handoff / "chat-ping.txt").exists())
 
 
 if __name__ == "__main__":

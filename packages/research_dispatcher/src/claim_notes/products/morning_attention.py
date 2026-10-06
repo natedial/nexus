@@ -1,6 +1,9 @@
 """Morning attention — own 3–5 point surface.
 
-Reads G10 calendar + LIBRARY (Notion Research Note filter) as inputs.
+Claim source (locked 2026-10-06): claim notes projected from analyst
+``argument_map`` / ClaimNodes. Optional G10 calendar fill. LIBRARY titles are
+**not** a second claims extractor — they do not pad the surface.
+
 Delivery: own reMarkable notebook (`Morning Attention YYYY-MM-DD`, next to
 G10 / Research From) + one-line Grok Bot ping to Nate's 1:1 with Proey
 (Proey connectors, same as 5:55/6:10). Empty day = silent.
@@ -41,14 +44,12 @@ def build_morning_attention(
     events = list(calendar_events or [])
     points: list[MorningAttentionPoint] = []
 
-    # Prefer high-weight claim notes, then calendar, then LIBRARY titles.
+    # Prefer high-weight claim notes (argument_map projection), then calendar.
     ranked_notes = sorted(
         list(notes),
         key=lambda n: (_weight_rank(n.speaker_weight), n.source_date or "", n.note_id),
         reverse=True,
     )
-    used_note_ids: set[str] = set()
-    used_claim_text: set[str] = set()
     for note in ranked_notes:
         if len(points) >= max_points:
             break
@@ -60,8 +61,6 @@ def build_morning_attention(
                 source="claim_note",
             )
         )
-        used_note_ids.add(note.note_id)
-        used_claim_text.add(note.claim)
 
     for event in events:
         if len(points) >= max_points:
@@ -77,26 +76,9 @@ def build_morning_attention(
             )
         )
 
-    for lib_note in library_input.notes:
-        if len(points) >= max_points:
-            break
-        # Skip rows already projected into claim notes (live LIBRARY path).
-        if lib_note.note_id and lib_note.note_id in used_note_ids:
-            continue
-        text = (lib_note.summary or lib_note.title or "").strip()
-        if not text or text in used_claim_text:
-            continue
-        points.append(
-            MorningAttentionPoint(
-                rank=len(points) + 1,
-                text=text,
-                note_id=lib_note.note_id,
-                source="library",
-            )
-        )
-
-    # Never invent content to pad to 3. Delivery flags stay hard-locked off for
-    # tablet fold-ins and 5:55 / 6:10 schedule changes.
+    # Never invent content to pad to 3. Never pad from LIBRARY body/title
+    # (demoted — argument_map is the only claim source). Delivery flags stay
+    # hard-locked off for tablet fold-ins and 5:55 / 6:10 schedule changes.
     return MorningAttentionSurface(
         points=points[:max_points],
         delivery=MorningAttentionDelivery(),
