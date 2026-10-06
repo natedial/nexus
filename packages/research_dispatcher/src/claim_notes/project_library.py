@@ -1,10 +1,10 @@
-"""Deterministic projection: LIBRARY Research Note → ClaimNote.
+"""Demoted: LIBRARY Research Note → ClaimNote (not the live 6:25 feed).
 
-Proey's live weekday path supplies Research Notes (since last run) via
-``--library-json``. This module turns those rows into claim-note-v1 records
-so morning attention can run without fixtures or a separate ingest CLI.
+Locked 2026-10-06: Morning Attention claims come from analyst ``argument_map``
+ClaimNodes via ``project.py``. Do **not** wire this module into the live Proey
+path. Kept for offline/legacy tests only — supersedes draft PR #51 body extract.
 
-Rules (locked):
+Rules (when used offline):
 - Copy title/summary **as stated** — never invent numbers or Dexter findings.
 - ``support_kind=ingested_document_text`` (LIBRARY text, not live_data).
 - ``speaker`` vs ``publisher`` stay distinct (desk vs Notion LIBRARY house).

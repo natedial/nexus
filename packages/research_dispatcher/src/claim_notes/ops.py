@@ -1,11 +1,15 @@
 """Orchestrate morning-attention ops for Proey's 6:25 ET routine.
 
 Canonical path (Proey-owned weekday ~06:25 America/New_York, after 06:10):
-  1) Run morning attention → markdown + one-line Grok Bot ping (local handoff)
-  2) Proey pushes notebook titled "Morning Attention YYYY-MM-DD" via the same
+  1) Export overnight analyst batch (argument_map ClaimNodes) → project to claim notes
+  2) Run morning attention → markdown + one-line Grok Bot ping (local handoff)
+  3) Proey pushes notebook titled "Morning Attention YYYY-MM-DD" via the same
      reMarkable connector as 5:55/6:10, placed next to G10 Calendar / Research From
-  3) Proey sends the one-line Grok Bot ping to Nate's 1:1 chat with Proey
+  4) Proey sends the one-line Grok Bot ping to Nate's 1:1 chat with Proey
      (same destination as 5:55/6:10)
+
+Claim source (locked 2026-10-06): research_analyst argument_map / ClaimNodes only.
+LIBRARY body extraction / project_library is demoted — not the live 6:25 feed.
 
 Empty day = silent: no notebook, no chat ping (same as the 6:40 handwritten pass).
 Does not change 5:55 / 6:10 tablet pushes. Does not fold into G10 / Research From.
@@ -35,8 +39,8 @@ from src.claim_notes.library import (
 from src.claim_notes.models import ClaimNote
 from src.claim_notes.products.morning_attention import build_morning_attention
 from src.claim_notes.products.models import MorningAttentionSurface
-from src.claim_notes.project_library import project_library_research_notes
 from src.claim_notes.watermark import RunWatermarkStore
+
 ET = ZoneInfo("America/New_York")
 MORNING_ATTENTION_HOUR_ET = 6
 MORNING_ATTENTION_MINUTE_ET = 25
@@ -78,17 +82,14 @@ class MorningAttentionOps:
         dry_run: bool = False,
     ) -> MorningAttentionRunResult:
         since = self.watermark.read()
+        # LIBRARY reader is demoted diagnostics only — never projects to claims.
         library_notes = self.library_reader.list_research_notes(since=since)
         library = LibraryDigestInput(
             resource_type_filter=LIBRARY_RESOURCE_TYPE_FILTER,
             since=since,
             notes=library_notes,
         )
-        # Live LIBRARY path: when no claim-note file was supplied, project
-        # Research Notes into claim-note-v1 so morning attention can run.
         claim_notes = list(notes)
-        if not claim_notes and library_notes:
-            claim_notes = project_library_research_notes(library_notes)
         surface = build_morning_attention(
             claim_notes,
             calendar_events=calendar_events,

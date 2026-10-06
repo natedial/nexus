@@ -4,44 +4,97 @@ Cadence: **weekdays ~06:25 America/New_York**, after the 06:10 digest.
 Does **not** change 5:55 / 6:10 tablet pushes.  
 Empty day = **silent** (no reMarkable notebook, no Grok Bot ping) — same as the 6:40 handwritten pass.
 
-## Canonical live path (no fixtures)
+## Claim source lock (2026-10-06)
 
-Proey supplies LIBRARY Research Notes **since last run** (Resource Type = Research Note only).  
-`--library-json` **projects into claim notes on its own** — no `--notes-jsonl`, no `--argument-map-json`, no fixture files.
+**One claim source:** research_analyst `argument_map` / ClaimNodes → `project.py` → claim-note-v1.  
+**Not** LIBRARY body extraction (`project_library`, draft PR #51 — closed/superseded).  
+
+Gerhard validators on projection (under-extract OK): one idea per claim; speaker never `LIBRARY desk`; no desk merges; `cause_edges` only when stated; no invented numbers.
+
+Coverage gap (acknowledged): only docs that already ran parser→analyst appear. LIBRARY-only digests enter the analyst pipe later — not a parallel extract.
+
+**Do not invent live ClaimNodes.** If overnight parser→analyst did not write `document_analysis` rows with `argument_map` for the since-watermark window, export is empty and MA is **silent**. That is correct behavior — not a bug to patch with fixtures or LIBRARY extract.
+
+## Minimum env for live MA feed (Proey)
+
+Export reads the **analysis store** only. It does **not** need `research_pipeline_ops` / PipelineOpsClient.
+
+| Variable | Role |
+| --- | --- |
+| `RESEARCH_ANALYST_ANALYSIS_DB_URL` | Analysis DB with `argmap-v1` `document_analysis` rows that already contain `argument_map`. Falls back to `NEXUS_DATABASE_URL` / root `DATABASE_URL` when set and the default sqlite URL would otherwise apply. |
+| `NEXUS_DATABASE_URL` | Acceptable substitute when it is the same Postgres that holds analyst `document_analysis`. |
+| `RESEARCH_ANALYST_BATCH_OUT_DIR` | Directory for `dispatch-batch-*.json` and `latest.json` symlink (default `/var/research/analyst`). |
+
+Unrelated / not this path:
+
+| Item | Note |
+| --- | --- |
+| Empty Proton `research_claims` | **Unrelated** to the MA argument_map feed. Do not treat an empty claims table as an export blocker. |
+| `research_pipeline_ops` | **Not required** for `export-dispatch-batch`. Required only for cron-style `run` / backfill / reprocess. |
+| Fixtures / invented ClaimNodes | **Forbidden** for live dry-run sign-off. Use analysis-DB-backed export only. |
+
+Hold merge of the argument_map MA PR until Gerhard signs a **live or analysis-DB-backed** dry-run (fixture-only dry-run is insufficient for 6:25 resume).
+
+## Canonical live path (Proey routine)
+
+### 1) Export overnight analyst batch (since watermark)
+
+Watermark file holds the last successful MA run UTC timestamp. Use its **date** (or yesterday) as `--date-from`:
+
+```bash
+cd packages/research_analyst
+# Minimum env: ANALYSIS_DB_URL (or NEXUS_DATABASE_URL) + BATCH_OUT_DIR
+# Example: since last watermark date 2026-10-05
+PYTHONPATH=src python -m research_analysis_layer.main export-dispatch-batch \
+  --batch-key morning-2026-10-06 \
+  --date-from 2026-10-05 \
+  --out "${RESEARCH_ANALYST_BATCH_OUT_DIR:-/var/research/analyst}/dispatch-batch-morning-2026-10-06.json"
+# Also updates BATCH_OUT_DIR/latest.json → that file
+```
+
+Shape: `{ "batch_key", "documents": [ { document_key, source, publisher, source_date, argument_map: [...] }, ... ] }`.
+
+If `documents` is `[]` for the window → overnight pipe produced no argmap rows → MA will be silent. Fix the parser→analyst drain; do not fabricate claims.
+
+### 2) Morning Attention → handoff
 
 ```bash
 cd packages/research_dispatcher
 PYTHONPATH=. python src/claim_notes/run_morning_attention.py \
-  --library-json /path/to/library_research_notes.json \
+  --argument-map-json /var/research/analyst/dispatch-batch-morning-2026-10-06.json \
+  --since-watermark \
   --handoff-dir /path/to/morning-attention-handoff \
   --watermark state/morning_attention_last_run.json
 ```
+
+Thin flag (reads `latest.json` from the analyst batch out dir):
+
+```bash
+PYTHONPATH=. python src/claim_notes/run_morning_attention.py \
+  --analyst-batch-dir "${RESEARCH_ANALYST_BATCH_OUT_DIR:-/var/research/analyst}" \
+  --since-watermark \
+  --handoff-dir /path/to/morning-attention-handoff \
+  --watermark state/morning_attention_last_run.json
+```
+
+Optional date bounds on top of the export window:
+
+| Flag | Role |
+| --- | --- |
+| `--since YYYY-MM-DD` | Keep docs with `source_date >= since` |
+| `--until YYYY-MM-DD` | Keep docs with `source_date <= until` |
+| `--since-watermark` | Use watermark date as `--since` when `--since` omitted |
 
 Then Proey’s connectors (same as 5:55 / 6:10):
 
 1. Push `morning-attention.md` as notebook **`Morning Attention YYYY-MM-DD`**, placed **next to** G10 Calendar / Research From (own notebook, not folded in)  
 2. Send `chat-ping.txt` one-liner to **Nate’s 1:1 chat with Proey**
 
-Zero Research Notes in the JSON → **silent** (`handoff.json` `"silent": true`; no markdown, no ping).
+Zero projected claims → **silent** (`handoff.json` `"silent": true`; no markdown, no ping).
 
-### `--library-json` shape
+### Demoted: `--library-json`
 
-JSON array (or `{"notes":[...]}`) of Research Note rows Proey already filtered:
-
-```json
-[
-  {
-    "title": "Services cool",
-    "note_id": "optional-stable-id",
-    "summary": "as stated in the Research Note — never invent numbers",
-    "saved_at": "2026-10-05T12:00:00+00:00",
-    "source_date": "2026-10-05",
-    "url": "https://notion.so/..."
-  }
-]
-```
-
-Projection rules: copy title/summary as stated → claim-note-v1 (`support_kind=ingested_document_text`, no Dexter, empty `cause_edges`). Speaker=`LIBRARY desk`, publisher=`Notion LIBRARY` (distinct).
+Accepted for diagnostics / counts only. **Does not** project Research Notes into claim notes. Do not use for the live 6:25 claim feed.
 
 ## Locked delivery destinations (Proey)
 
@@ -60,24 +113,16 @@ Handoff dir contents (non-silent day):
 | `chat-ping.txt` | One-line Grok Bot ping → Nate↔Proey 1:1 |
 | `handoff.json` | Manifest (`silent`, point_count, channel_chat=`grok_bot`, fold-in flags false) |
 
-## LIBRARY inputs
-
-| Item | Rule |
-| --- | --- |
-| Filter | Resource Type = Research Note only |
-| Window | Saved **since last run** (Proey filters before inject; watermark advances after run) |
-| Link | https://app.notion.com/p/2839852eebb4806c9127c229dcc2ddb9 |
-
-Offline fixtures (`--notes-jsonl` / `--argument-map-json`) are **optional** for local tests only — not the weekday live path.
-
-## Env (optional / demoted)
+## Env (dispatcher handoff)
 
 | Variable | Role |
 | --- | --- |
-| `RESEARCH_DISPATCHER_MORNING_LIBRARY_JSON` | Path to Proey Research Notes JSON (live) |
+| `RESEARCH_DISPATCHER_MORNING_ARGUMENT_MAP_JSON` | Path to export-dispatch-batch JSON (live) |
+| `RESEARCH_DISPATCHER_MORNING_ANALYST_BATCH_DIR` | Dir with `latest.json` (alt to explicit JSON path) |
 | `RESEARCH_DISPATCHER_MORNING_HANDOFF_DIR` | Default `--handoff-dir` |
 | `RESEARCH_DISPATCHER_MORNING_WATERMARK` | Watermark path (advanced after each run) |
-| `RESEARCH_DISPATCHER_NOTION_TOKEN` | **Demoted** — only if Proey wants in-process Notion fetch |
+| `RESEARCH_DISPATCHER_MORNING_LIBRARY_JSON` | **Demoted** — diagnostics only |
+| `RESEARCH_DISPATCHER_NOTION_TOKEN` | **Demoted** — not MA claim source |
 | `RESEARCH_DISPATCHER_GROK_BOT_PING_URL` | **Optional** webhook; default is handoff file |
 | `RESEARCH_DISPATCHER_REMARKABLE_PUSH_URL` | **Demoted** — Proey connector is canonical |
 
@@ -85,21 +130,23 @@ Offline fixtures (`--notes-jsonl` / `--argument-map-json`) are **optional** for 
 
 ## Host cron / launchd
 
-**Demoted.** Prefer Proey’s owned 6:25 routine. `schedule_morning_attention.sh` requires `RESEARCH_DISPATCHER_MORNING_LIBRARY_JSON` (no fixture default).
+**Demoted.** Prefer Proey’s owned 6:25 routine. `schedule_morning_attention.sh` requires `MORNING_ARGUMENT_MAP_JSON` or `MORNING_ANALYST_BATCH_DIR`.
 
 ## What Nate vs Proey configure
 
 | Who | What |
 | --- | --- |
-| **Proey** | Own ~6:25 ET routine; write `--library-json` (Research Notes since last run); run the command above; wire handoff → reMarkable (next to G10 / Research From) + Grok Bot 1:1 ping |
+| **Proey** | Own ~6:25 ET routine; set analyst ANALYSIS_DB_URL + BATCH_OUT_DIR; run export-dispatch-batch since watermark; run MA with `--argument-map-json` / `--analyst-batch-dir`; wire handoff → reMarkable + Grok Bot 1:1 |
 | **Nate** | Optional notebook title override; chat destination and placement locked above |
+| **Gerhard** | Sign-off on projection validators **and** an analysis-DB-backed dry-run before 6:25 resume |
 
-## Dry run (no secrets)
+## Fixture dry run (local only — not merge gate)
 
 ```bash
-# Empty library → silent
 PYTHONPATH=. python src/claim_notes/run_morning_attention.py \
-  --library-json /path/to/empty.json \
+  --argument-map-json fixtures/claim_notes/argument_map_documents.json \
   --handoff-dir /tmp/ma-handoff \
   --dry-run --fake-delivery
 ```
+
+Fixture path proves CLI/projection wiring. **Merge / 6:25 resume** needs Gerhard sign-off on a live or analysis-DB-backed export → MA dry-run.

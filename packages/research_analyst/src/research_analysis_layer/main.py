@@ -14,7 +14,9 @@ _WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 if str(_WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(_WORKSPACE_ROOT))
 
-from research_pipeline_ops import PipelineOpsClient
+# research_pipeline_ops is optional at import time. Only build_app / cron-style
+# run commands need PipelineOpsClient. export-dispatch-batch and other store
+# readers must start without that package installed (Proey MA feed).
 from research_analysis_layer.config import Settings, resolve_codex_bin
 from research_analysis_layer.db import AnalysisStore, StateDbReader
 from research_analysis_layer.db.client_factory import (
@@ -177,6 +179,16 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         ),
         claim_resolver=ClaimKeyResolver(),
     )
+
+    try:
+        from research_pipeline_ops import PipelineOpsClient
+    except ImportError as exc:  # pragma: no cover - host without shared ops pkg
+        raise ImportError(
+            "research_pipeline_ops is required for run/backfill/reprocess "
+            "(PipelineOpsClient), but not for export-dispatch-batch. "
+            "Install or mount the shared ops package, or use export-dispatch-batch "
+            "with RESEARCH_ANALYST_ANALYSIS_DB_URL / NEXUS_DATABASE_URL only."
+        ) from exc
 
     ops = PipelineOpsClient.from_env(
         default_spool_db_path=str(settings.pipeline_ops_spool_path()),
@@ -1137,7 +1149,12 @@ def command_export_dispatch_batch(
     out: str | None,
     include_orphans: bool,
 ) -> int:
-    """Export a dispatch batch to JSON file."""
+    """Export a dispatch batch to JSON file.
+
+    Needs analysis store settings only (``RESEARCH_ANALYST_ANALYSIS_DB_URL`` or
+    ``NEXUS_DATABASE_URL``, plus ``RESEARCH_ANALYST_BATCH_OUT_DIR``). Does **not**
+    require ``research_pipeline_ops`` / PipelineOpsClient.
+    """
     import os
     from datetime import datetime
     from pathlib import Path
