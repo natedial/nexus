@@ -55,7 +55,15 @@ Proey **must** supply the full page `body` (title/Description alone are scaffold
 | Claim text | One idea **as stated** — never invent numbers |
 | `support_kind` | `ingested_document_text`; `dexter_pass` null unless the note marks a live-number need |
 | `cause_edges` | Only when the note **explicitly** asserts A causes B (`Cause:`); otherwise empty |
+| Citation skip | `**Title:**` / `**Authors:**` / Sources rows are never speakers or claims |
+| No note-level blanket | Do **not** assign one speaker to every line of a prose digest |
 | Morning attention filter | “Claims that change risk into today’s prints” stays the **product surface**, not the extractor |
+
+Prose digests (no `Claim:` markers) extract via numbered takeaways, inline `Desk: …` lines, and paper-finding bullets (`**Authors:**` → speaker; Key findings / Pass-through only).
+
+### Local-only golden check (not in git)
+
+Real LIBRARY digests + Proey ~11-claim diagnostic live **outside the repo** in the Project Agent Store (`internal/ma-sample51-local-only/`). Use them only to reproduce empty extraction and check speaker/idea-count shape. **Never commit or copy those bodies into `tests/` or `fixtures/`** — committed coverage uses synthetic invented desks/numbers under `fixtures/claim_notes/library_bodies/`.
 
 ## Locked delivery destinations (Proey)
 

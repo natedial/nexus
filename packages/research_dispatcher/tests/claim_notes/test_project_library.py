@@ -206,7 +206,7 @@ class GerhardBodyExtractionTests(unittest.TestCase):
         note = LibraryResearchNote(
             title="Prints",
             note_id="n1",
-            speaker="BLS desk",
+            speaker="JPM",
             body="Claim: payrolls undershot consensus last print\nThread: assert\n",
         )
         claims = project_library_research_note(note)
@@ -219,6 +219,64 @@ class GerhardBodyExtractionTests(unittest.TestCase):
             [LibraryResearchNote(title="", summary="", body="")]
         )
         self.assertEqual(notes, [])
+
+
+_SYNTHETIC_BODIES = (
+    Path(__file__).resolve().parents[2] / "fixtures" / "claim_notes" / "library_bodies"
+)
+
+
+class ProseDigestExtractionTests(unittest.TestCase):
+    """Synthetic Notion-like digests only — never real Proey LIBRARY bodies."""
+
+    def _note(self, name: str, note_id: str) -> LibraryResearchNote:
+        body = (_SYNTHETIC_BODIES / name).read_text(encoding="utf-8")
+        return LibraryResearchNote(
+            title=f"synthetic-{note_id}",
+            note_id=note_id,
+            body=body,
+            source_date=date(2099, 1, 15),
+        )
+
+    def test_numbered_takeaways_attribute_known_desks(self):
+        claims = project_library_research_note(self._note("numbered_desk_digest.md", "num-1"))
+        speakers = [c.speaker for c in claims]
+        self.assertIn("JPM", speakers)
+        self.assertIn("Barclays", speakers)
+        self.assertTrue(all(s != "LIBRARY desk" for s in speakers))
+        self.assertTrue(all(c.support_kind == "ingested_document_text" for c in claims))
+        self.assertTrue(all(c.stance is None for c in claims))
+
+    def test_inline_desks_skip_citation_metadata(self):
+        claims = project_library_research_note(self._note("inline_desk_digest.md", "inline-1"))
+        speakers = {c.speaker for c in claims}
+        self.assertTrue({"JPM", "Citi", "Barclays"} <= speakers)
+        for claim in claims:
+            lowered = claim.claim.lower()
+            self.assertFalse(lowered.startswith(("title", "authors", "series", "page", "pdf")))
+            self.assertNotEqual(claim.speaker.lower(), "library desk")
+            self.assertNotIn("federal reserve", (claim.speaker or "").lower())
+
+    def test_paper_digest_uses_authors_not_sources_rows(self):
+        claims = project_library_research_note(self._note("paper_digest.md", "paper-1"))
+        self.assertEqual(len(claims), 2)
+        self.assertTrue(all(c.speaker == "Meridian et al. (Atlanta Fed)" for c in claims))
+        joined = " ".join(c.claim.lower() for c in claims)
+        self.assertIn("normal times", joined)
+        self.assertIn("pass-through", joined)
+        # Sources / Title chrome must not become speakers or claims.
+        self.assertTrue(all("federal reserve" not in (c.speaker or "").lower() for c in claims))
+        self.assertTrue(
+            all(not c.claim.lower().startswith(("title", "authors", "series")) for c in claims)
+        )
+
+    def test_empty_body_still_yields_nothing(self):
+        self.assertEqual(
+            project_library_research_note(
+                LibraryResearchNote(title="empty", note_id="e", body="")
+            ),
+            [],
+        )
 
 
 class LibraryOnlyOpsTests(unittest.TestCase):
