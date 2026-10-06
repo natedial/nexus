@@ -35,8 +35,8 @@ from src.claim_notes.library import (
 from src.claim_notes.models import ClaimNote
 from src.claim_notes.products.morning_attention import build_morning_attention
 from src.claim_notes.products.models import MorningAttentionSurface
+from src.claim_notes.project_library import project_library_research_notes
 from src.claim_notes.watermark import RunWatermarkStore
-
 ET = ZoneInfo("America/New_York")
 MORNING_ATTENTION_HOUR_ET = 6
 MORNING_ATTENTION_MINUTE_ET = 25
@@ -84,8 +84,13 @@ class MorningAttentionOps:
             since=since,
             notes=library_notes,
         )
+        # Live LIBRARY path: when no claim-note file was supplied, project
+        # Research Notes into claim-note-v1 so morning attention can run.
+        claim_notes = list(notes)
+        if not claim_notes and library_notes:
+            claim_notes = project_library_research_notes(library_notes)
         surface = build_morning_attention(
-            notes,
+            claim_notes,
             calendar_events=calendar_events,
             library=library,
             max_points=5,

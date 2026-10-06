@@ -2,10 +2,12 @@
 """CLI: morning-attention → Proey connector handoff (markdown + Grok Bot line).
 
 Canonical ops path (Proey-owned, weekdays ~06:25 ET after 06:10):
-  this script writes handoff artifacts; Proey pushes reMarkable + Grok Bot ping
-  with the same connectors as the 5:55 / 6:10 briefs.
+  --library-json (Research Notes since last run) projects into claim notes,
+  then this script writes handoff artifacts; Proey pushes reMarkable + Grok Bot
+  ping with the same connectors as the 5:55 / 6:10 briefs.
 
-Empty day = silent (no notebook, no ping). Does not modify 5:55 / 6:10 schedules.
+Live path needs **no fixtures**. Empty library → silent (no notebook, no ping).
+Does not modify 5:55 / 6:10 schedules.
 """
 
 from __future__ import annotations
@@ -28,7 +30,11 @@ from src.claim_notes.delivery import (  # noqa: E402
     HttpGrokBotChatPingSender,
     HttpRemarkableNotebookSender,
 )
-from src.claim_notes.library import FakeLibraryDigestReader, LibraryResearchNote  # noqa: E402
+from src.claim_notes.library import (  # noqa: E402
+    FakeLibraryDigestReader,
+    LibraryResearchNote,
+    PrefilteredLibraryDigestReader,
+)
 from src.claim_notes.load import load_claim_notes  # noqa: E402
 from src.claim_notes.notion_library import NotionLibraryDigestReader  # noqa: E402
 from src.claim_notes.ops import MorningAttentionOps  # noqa: E402
@@ -38,11 +44,21 @@ from src.claim_notes.watermark import RunWatermarkStore  # noqa: E402
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--notes-jsonl", help="Claim-note JSONL")
-    parser.add_argument("--argument-map-json", help="argument_map documents JSON")
     parser.add_argument(
         "--library-json",
-        help="Optional pre-fetched LIBRARY Research Notes JSON (Proey inject)",
+        help=(
+            "Canonical live input: LIBRARY Research Notes JSON already filtered "
+            "to Resource Type=Research Note and since last run (Proey inject). "
+            "Projects into claim notes — no fixture required."
+        ),
+    )
+    parser.add_argument(
+        "--notes-jsonl",
+        help="Optional claim-note JSONL (dev / offline; not required for live path)",
+    )
+    parser.add_argument(
+        "--argument-map-json",
+        help="Optional argument_map documents JSON (dev / offline)",
     )
     parser.add_argument(
         "--watermark",
@@ -66,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    notes = _load_notes(args.notes_jsonl, args.argument_map_json)
+    notes = _load_notes(args)
     library_reader = _build_library_reader(args)
     handoff_dir = _handoff_dir(args)
     remarkable, chat = _build_senders(args, handoff_dir)
@@ -104,18 +120,29 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _load_notes(notes_jsonl: str | None, argument_map_json: str | None):
-    if notes_jsonl:
-        return load_claim_notes(notes_jsonl)
-    if argument_map_json:
-        data = json.loads(Path(argument_map_json).read_text(encoding="utf-8"))
+def _load_notes(args) -> list:
+    """Optional claim-note files. Live path may omit these (LIBRARY projects)."""
+    if args.notes_jsonl:
+        return list(load_claim_notes(args.notes_jsonl))
+    if args.argument_map_json:
+        data = json.loads(Path(args.argument_map_json).read_text(encoding="utf-8"))
         docs = (
             data["documents"]
             if isinstance(data, dict) and "documents" in data
             else data
         )
         return project_argument_map_batch(docs)
-    raise SystemExit("Provide --notes-jsonl or --argument-map-json")
+    if args.library_json:
+        # Ops projects LIBRARY → claim notes when notes is empty.
+        return []
+    token = (Config.NOTION_TOKEN or "").strip()
+    if token:
+        # Live Notion reader supplies LIBRARY; ops projects when notes empty.
+        return []
+    raise SystemExit(
+        "Provide --library-json (canonical live path), or --notes-jsonl / "
+        "--argument-map-json for offline fixtures"
+    )
 
 
 def _handoff_dir(args) -> Path | None:
@@ -126,8 +153,11 @@ def _handoff_dir(args) -> Path | None:
 def _build_library_reader(args):
     if args.library_json:
         rows = json.loads(Path(args.library_json).read_text(encoding="utf-8"))
+        if isinstance(rows, dict):
+            rows = rows.get("notes") or rows.get("research_notes") or []
         notes = [LibraryResearchNote.model_validate(r) for r in rows]
-        return FakeLibraryDigestReader(notes)
+        # Already filtered by Proey — do not re-apply watermark since-bound.
+        return PrefilteredLibraryDigestReader(notes)
     token = (Config.NOTION_TOKEN or "").strip()
     if token:
         return NotionLibraryDigestReader(
