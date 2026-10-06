@@ -78,6 +78,21 @@ class FakeLibraryDigestReader:
         return out
 
 
+class PrefilteredLibraryDigestReader:
+    """Proey ``--library-json`` inject — already Research Note + since-last-run.
+
+    Ignores the watermark ``since`` bound so Proey's pre-filtered payload is
+    not emptied by a second filter (rows may omit ``saved_at``).
+    """
+
+    def __init__(self, notes: list[LibraryResearchNote] | None = None) -> None:
+        self._notes = list(notes or [])
+
+    def list_research_notes(
+        self, *, since: datetime | None = None
+    ) -> list[LibraryResearchNote]:
+        return list(self._notes)
+
 class LibraryDigestInput(BaseModel):
     """Bundled LIBRARY input for products (post Research Note filter)."""
 

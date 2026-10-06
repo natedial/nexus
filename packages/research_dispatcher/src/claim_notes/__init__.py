@@ -11,6 +11,7 @@ from src.claim_notes.library import (
     FakeLibraryDigestReader,
     LibraryDigestInput,
     LibraryResearchNote,
+    PrefilteredLibraryDigestReader,
 )
 from src.claim_notes.load import load_claim_notes
 from src.claim_notes.models import (
@@ -43,6 +44,10 @@ from src.claim_notes.project import (
     project_argument_map_batch,
     project_argument_map_document,
 )
+from src.claim_notes.project_library import (
+    project_library_research_note,
+    project_library_research_notes,
+)
 from src.claim_notes.validate import (
     ClaimNoteValidationError,
     live_findings_allowed,
@@ -66,6 +71,7 @@ __all__ = [
     "FakeNotionTransport",
     "LibraryDigestInput",
     "LibraryResearchNote",
+    "PrefilteredLibraryDigestReader",
     "MorningAttentionOps",
     "NotionLibraryDigestReader",
     "RunWatermarkStore",
@@ -80,6 +86,8 @@ __all__ = [
     "load_claim_notes",
     "project_argument_map_batch",
     "project_argument_map_document",
+    "project_library_research_note",
+    "project_library_research_notes",
     "recent_ingest",
     "require_live_findings",
     "thematic_digest",

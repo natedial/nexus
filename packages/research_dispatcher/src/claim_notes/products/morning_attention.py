@@ -47,6 +47,8 @@ def build_morning_attention(
         key=lambda n: (_weight_rank(n.speaker_weight), n.source_date or "", n.note_id),
         reverse=True,
     )
+    used_note_ids: set[str] = set()
+    used_claim_text: set[str] = set()
     for note in ranked_notes:
         if len(points) >= max_points:
             break
@@ -58,6 +60,8 @@ def build_morning_attention(
                 source="claim_note",
             )
         )
+        used_note_ids.add(note.note_id)
+        used_claim_text.add(note.claim)
 
     for event in events:
         if len(points) >= max_points:
@@ -76,8 +80,11 @@ def build_morning_attention(
     for lib_note in library_input.notes:
         if len(points) >= max_points:
             break
-        text = lib_note.summary or lib_note.title
-        if not text:
+        # Skip rows already projected into claim notes (live LIBRARY path).
+        if lib_note.note_id and lib_note.note_id in used_note_ids:
+            continue
+        text = (lib_note.summary or lib_note.title or "").strip()
+        if not text or text in used_claim_text:
             continue
         points.append(
             MorningAttentionPoint(
