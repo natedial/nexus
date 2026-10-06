@@ -1,6 +1,6 @@
 # Consolidated schema migrations (Phase 2)
 
-Nine SQL files currently live across four packages under three naming
+Eight SQL files currently live across four packages under three naming
 conventions. Phase 2 will consolidate them into this directory with a single
 ordering manifest.
 
