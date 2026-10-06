@@ -148,6 +148,23 @@ class Config:
         "CALENDAR_COUNTRY", "US"
     )  # Country for calendar events
 
+    # Morning attention ops (optional — not required for PDF dispatch validate())
+    # Canonical: Proey 6:25 routine consumes --handoff-dir (reMarkable + Grok Bot).
+    NOTION_TOKEN = _from_env("NOTION_TOKEN", "")  # demoted; prefer --library-json
+    NOTION_LIBRARY_DATABASE_ID = _from_env(
+        "NOTION_LIBRARY_DATABASE_ID", "2839852e-ebb4-806c-9127-c229dcc2ddb9"
+    )
+    MORNING_HANDOFF_DIR = _from_env("MORNING_HANDOFF_DIR", "")
+    REMARKABLE_DROP_DIR = _from_env("REMARKABLE_DROP_DIR", "")  # demoted alias
+    REMARKABLE_PUSH_URL = _from_env("REMARKABLE_PUSH_URL", "")  # demoted
+    REMARKABLE_PUSH_TOKEN = _from_env("REMARKABLE_PUSH_TOKEN", "")
+    GROK_BOT_PING_URL = _from_env("GROK_BOT_PING_URL", "")  # optional; not SMTP
+    GROK_BOT_PING_TOKEN = _from_env("GROK_BOT_PING_TOKEN", "")
+    MORNING_WATERMARK_PATH = _from_env(
+        "MORNING_WATERMARK",
+        os.path.join("state", "morning_attention_last_run.json"),
+    )
+
     @classmethod
     def validate(cls):
         """Validate that all required configuration is present."""

@@ -1,9 +1,11 @@
 """Claim-note contract for the five product surfaces.
 
 See Agent Store docs/claim-note-howto.md and docs/claim-note-products-plan.md.
+Ops host steps: docs/morning-attention-ops.md
 """
 
 from src.claim_notes.library import (
+    LIBRARY_NOTION_DATABASE_ID,
     LIBRARY_NOTION_URL,
     LIBRARY_RESOURCE_TYPE_FILTER,
     FakeLibraryDigestReader,
@@ -20,6 +22,15 @@ from src.claim_notes.models import (
     DexterSource,
     SpeakerWeight,
     TimeWindow,
+)
+from src.claim_notes.notion_library import (
+    FakeNotionTransport,
+    NotionLibraryDigestReader,
+)
+from src.claim_notes.ops import (
+    MorningAttentionOps,
+    intended_cron_expression,
+    is_intended_weekday_slot,
 )
 from src.claim_notes.products import (
     author_evolution,
@@ -38,9 +49,11 @@ from src.claim_notes.validate import (
     require_live_findings,
     validate_claim_note,
 )
+from src.claim_notes.watermark import RunWatermarkStore
 
 __all__ = [
     "CLAIM_NOTE_SCHEMA_VERSION",
+    "LIBRARY_NOTION_DATABASE_ID",
     "LIBRARY_NOTION_URL",
     "LIBRARY_RESOURCE_TYPE_FILTER",
     "CauseEdge",
@@ -50,13 +63,19 @@ __all__ = [
     "DexterResearchPass",
     "DexterSource",
     "FakeLibraryDigestReader",
+    "FakeNotionTransport",
     "LibraryDigestInput",
     "LibraryResearchNote",
+    "MorningAttentionOps",
+    "NotionLibraryDigestReader",
+    "RunWatermarkStore",
     "SpeakerWeight",
     "TimeWindow",
     "author_evolution",
     "build_morning_attention",
     "impromptu_study",
+    "intended_cron_expression",
+    "is_intended_weekday_slot",
     "live_findings_allowed",
     "load_claim_notes",
     "project_argument_map_batch",

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  FALLBACK ONLY. Prefer Proey's owned weekday ~06:25 ET routine that consumes
+  handoff artifacts and uses the same reMarkable + Grok Bot connectors as
+  5:55 / 6:10. Do not replace or alter those LaunchAgents.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.researchdispatcher.morning-attention</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/ncdial/devwork/nexus/packages/research_dispatcher/schedule_morning_attention.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/ncdial/devwork/nexus/packages/research_dispatcher</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>25</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>25</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>25</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>25</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>25</integer></dict>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TZ</key>
+    <string>America/New_York</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/ncdial/devwork/nexus/packages/research_dispatcher/logs/morning_attention.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ncdial/devwork/nexus/packages/research_dispatcher/logs/morning_attention.stderr.log</string>
+</dict>
+</plist>
