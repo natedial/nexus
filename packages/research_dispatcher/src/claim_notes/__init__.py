@@ -45,6 +45,8 @@ from src.claim_notes.project import (
     project_argument_map_document,
 )
 from src.claim_notes.project_library import (
+    LIBRARY_PUBLISHER,
+    extract_claims_from_library_note,
     project_library_research_note,
     project_library_research_notes,
 )
@@ -86,6 +88,8 @@ __all__ = [
     "load_claim_notes",
     "project_argument_map_batch",
     "project_argument_map_document",
+    "LIBRARY_PUBLISHER",
+    "extract_claims_from_library_note",
     "project_library_research_note",
     "project_library_research_notes",
     "recent_ingest",

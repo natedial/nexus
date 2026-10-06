@@ -23,14 +23,24 @@ LIBRARY_RESOURCE_TYPE_PROPERTY = "Resource Type"
 
 
 class LibraryResearchNote(BaseModel):
-    """One LIBRARY row after the Research Note filter."""
+    """One LIBRARY row after the Research Note filter.
 
-    title: str
+    Proey's live ``--library-json`` must include the full page ``body`` for
+    Gerhard claim extraction (title/summary alone are not enough).
+    """
+
+    title: str = ""
     note_id: str | None = None
     source_date: date | None = None
     saved_at: datetime | None = None  # Notion last_edited / created — since-last-run window
     summary: str = ""
+    body: str = ""  # full page body — required for multi-claim extraction
     url: str | None = None
+    # Attributed desk/author on the Research Note (JPM, Barclays, …) — never LIBRARY desk.
+    speaker: str | None = None
+    author: str | None = None  # alias for speaker
+    # Source house when the note has one; otherwise extractor defaults to Notion LIBRARY.
+    publisher: str | None = None
 
 
 class LibraryDigestReader(Protocol):

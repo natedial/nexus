@@ -84,16 +84,19 @@ class MorningAttentionOps:
             since=since,
             notes=library_notes,
         )
-        # Live LIBRARY path: when no claim-note file was supplied, project
-        # Research Notes into claim-note-v1 so morning attention can run.
+        # Live LIBRARY path: when no claim-note file was supplied, run Gerhard
+        # body extraction (full page body → N claim notes).
         claim_notes = list(notes)
+        projected_from_library = False
         if not claim_notes and library_notes:
             claim_notes = project_library_research_notes(library_notes)
+            projected_from_library = True
         surface = build_morning_attention(
             claim_notes,
             calendar_events=calendar_events,
             library=library,
             max_points=5,
+            include_library_points=not projected_from_library,
         )
 
         # Empty day = silent (same as 6:40 handwritten pass).

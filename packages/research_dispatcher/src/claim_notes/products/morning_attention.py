@@ -32,8 +32,14 @@ def build_morning_attention(
     calendar_events: Sequence[Mapping[str, Any]] | None = None,
     library: LibraryDigestInput | LibraryDigestReader | Sequence[LibraryResearchNote] | None = None,
     max_points: int = 5,
+    include_library_points: bool = True,
 ) -> MorningAttentionSurface:
-    """Build the morning-attention own surface (3–5 points)."""
+    """Build the morning-attention own surface (3–5 points).
+
+    When LIBRARY rows were already projected into claim notes (Gerhard body
+    extraction), set ``include_library_points=False`` so titles are not
+    double-counted as library-source points.
+    """
     if max_points < 3 or max_points > 5:
         raise ValueError("morning attention must target 3–5 points")
 
@@ -77,23 +83,23 @@ def build_morning_attention(
             )
         )
 
-    for lib_note in library_input.notes:
-        if len(points) >= max_points:
-            break
-        # Skip rows already projected into claim notes (live LIBRARY path).
-        if lib_note.note_id and lib_note.note_id in used_note_ids:
-            continue
-        text = (lib_note.summary or lib_note.title or "").strip()
-        if not text or text in used_claim_text:
-            continue
-        points.append(
-            MorningAttentionPoint(
-                rank=len(points) + 1,
-                text=text,
-                note_id=lib_note.note_id,
-                source="library",
+    if include_library_points:
+        for lib_note in library_input.notes:
+            if len(points) >= max_points:
+                break
+            if lib_note.note_id and lib_note.note_id in used_note_ids:
+                continue
+            text = (lib_note.summary or lib_note.title or "").strip()
+            if not text or text in used_claim_text:
+                continue
+            points.append(
+                MorningAttentionPoint(
+                    rank=len(points) + 1,
+                    text=text,
+                    note_id=lib_note.note_id,
+                    source="library",
+                )
             )
-        )
 
     # Never invent content to pad to 3. Delivery flags stay hard-locked off for
     # tablet fold-ins and 5:55 / 6:10 schedule changes.

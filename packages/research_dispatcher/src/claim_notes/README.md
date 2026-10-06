@@ -9,7 +9,7 @@ Deterministic product contract for one argument per record. Shared by five produ
 - **Speaker vs publisher**: who said it vs which document/house it came from — keep both fields distinct.
 - **Dexter**: pointer, not an in-Nexus call. Product marks `dexter_pass.status=awaiting` and stops; Dexter attaches `completed` findings + sources externally. Products never fill numbers.
 - **Thematic side**: stance on *that thread*, not a global hawk/dove label.
-- **Morning attention**: own 3–5 point surface → reMarkable notebook (`Morning Attention YYYY-MM-DD`, next to G10 / Research From) + one-line **Grok Bot** ping to Nate’s 1:1 with Proey (not SMTP). **Live path:** `--library-json` (Research Notes since last run) projects into claim notes — **no fixtures**. Empty library = silent. *Also reads* G10 calendar when available. **Proey-owned** weekdays **~06:25 ET** after 06:10. Does not fold into G10 / Research From; does not change 5:55/6:10. Canonical LIBRARY link: https://app.notion.com/p/2839852eebb4806c9127c229dcc2ddb9
+- **Morning attention**: own 3–5 point surface → reMarkable (`Morning Attention YYYY-MM-DD`) + Grok Bot 1:1 ping. **Live path:** `--library-json` with **full page `body`** → Gerhard multi-claim extraction (speaker = attributed desk, never `LIBRARY desk`) → handoff. Empty library = silent. Does not fold into G10 / Research From; no 5:55/6:10 changes.
 
 ## Modules
 
@@ -17,7 +17,7 @@ Deterministic product contract for one argument per record. Shared by five produ
 | --- | --- |
 | `models.py` | `ClaimNote` / Dexter / cause-edge contract |
 | `project.py` | analyst `argument_map` document → `ClaimNote` list |
-| `project_library.py` | LIBRARY Research Note → `ClaimNote` (live `--library-json` path) |
+| `project_library.py` | Gerhard: LIBRARY Research Note **body** → N claim notes (never `LIBRARY desk`) |
 | `library.py` | LIBRARY Notion Research Note read-path protocol |
 | `notion_library.py` | Live Notion query (Research Note + since-last-run) |
 | `ops.py` / `run_morning_attention.py` | Ops runner + CLI (handoff for Proey) |
