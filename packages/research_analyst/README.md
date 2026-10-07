@@ -83,7 +83,6 @@ cp .env.example .env
 Shared, unprefixed, set at the repo root:
 
 - `NEXUS_DATABASE_URL` — shared PostgreSQL database for parsed research and calendar reads
-- `RESEARCH_PROCESSING_ROOT` — checkout root used to locate `research_pipeline_ops`
 
 Analyst-owned, prefixed `RESEARCH_ANALYST_`, set in this package's `.env`. The
 unprefixed forms (`PARSED_DB_URL`, `ANALYST_DEBATE_MODE`, ...) remain a
@@ -110,7 +109,6 @@ The default container mounts `./data` to `/data` and uses:
 
 - host parser state DB: `../research_parser/data/state.db`
 - host analysis directory: `./data`
-- host shared ops package: `../research_pipeline_ops`
 - `RESEARCH_ANALYST_STATE_DB_PATH=/parser-data/state.db`
 - `RESEARCH_ANALYST_ANALYSIS_DB_URL=sqlite:////data/analysis.db`
 

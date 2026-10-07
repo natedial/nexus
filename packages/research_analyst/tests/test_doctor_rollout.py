@@ -1,11 +1,4 @@
 from unittest.mock import MagicMock
-import sys
-import types
-
-if "research_pipeline_ops" not in sys.modules:
-    stub = types.ModuleType("research_pipeline_ops")
-    stub.PipelineOpsClient = MagicMock
-    sys.modules["research_pipeline_ops"] = stub
 
 
 def test_print_rollout_stats_omitted_when_off(capsys):

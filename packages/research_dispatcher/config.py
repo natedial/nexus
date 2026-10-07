@@ -84,7 +84,7 @@ class Config:
     fallback.
     """
 
-    # Local PostgreSQL (calendar reads; pipeline_ops lives in same instance)
+    # Local PostgreSQL calendar reads
     DATABASE_URL = _from_env("DATABASE_URL") or os.getenv("NEXUS_DATABASE_URL")
 
     # LLM API keys (shared, account-scoped credentials)

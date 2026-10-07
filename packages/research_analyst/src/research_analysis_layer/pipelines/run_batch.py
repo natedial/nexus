@@ -5,11 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import logging
-from typing import Any
 
 from research_analysis_layer.config import Settings
 from research_analysis_layer.db import AnalysisStore, CalendarDbClient, ParsedDbClient, StateDbReader
-from research_analysis_layer.db.parsed_db_client import coerce_optional_date
 from research_analysis_layer.models import ParserStateRecord
 from research_analysis_layer.pipelines.analyze_document import AnalyzeDocumentPipeline
 from research_analysis_layer.services import Hydrator, QualityReviewer, Selector
@@ -57,7 +55,6 @@ class RunBatchPipeline:
         hydrator: Hydrator,
         analyze_document: AnalyzeDocumentPipeline,
         quality_reviewer: QualityReviewer,
-        ops,
     ):
         self.settings = settings
         self.state_reader = state_reader
@@ -68,7 +65,6 @@ class RunBatchPipeline:
         self.hydrator = hydrator
         self.analyze_document = analyze_document
         self.quality_reviewer = quality_reviewer
-        self.ops = ops
 
     def run(
         self,
@@ -232,26 +228,10 @@ class RunBatchPipeline:
         agents: list[str] | None = None,
         agent_only: bool = False,
     ) -> BatchRunResult:
-        self.ops.flush()
-        ops_run_key = self.ops.start_run(
-            repo_name="research_analyst",
-            stage_family="analyst",
-            run_type=run_type,
-            trigger_source=trigger_source,
-            analysis_version=self.settings.analysis_version,
-            stats={"candidate_count": len(state_rows)},
-        )
         run = self.store.create_run(
             run_type=run_type,
             trigger_source=trigger_source,
             settings=self.settings,
-        )
-        self.ops.emit_stage_event(
-            repo_name="research_analyst",
-            stage_name="analyst.select_candidates",
-            status="succeeded",
-            run_key=ops_run_key,
-            payload={"candidate_count": len(state_rows)},
         )
         max_watermark: datetime | None = None
         try:
@@ -261,21 +241,7 @@ class RunBatchPipeline:
                     if max_watermark is None or state_row.updated_at > max_watermark
                     else max_watermark
                 )
-                document_key = self._document_key(file_id=state_row.file_id)
-                base_document_fields = {
-                    "document_name": state_row.file_name,
-                    "parser_updated_at": state_row.updated_at.isoformat(),
-                }
-                with self.ops.track_stage(
-                    repo_name="research_analyst",
-                    stage_name="analyst.hydrate_document",
-                    run_key=ops_run_key,
-                    document_key=document_key,
-                    file_id=state_row.file_id,
-                    payload={"file_name": state_row.file_name},
-                    document_fields=base_document_fields,
-                ):
-                    hydrated = self.hydrator.hydrate_from_state(state_row)
+                hydrated = self.hydrator.hydrate_from_state(state_row)
                 decision = self.selector.decide(
                     state_record=state_row,
                     document=hydrated,
@@ -304,16 +270,6 @@ class RunBatchPipeline:
                     document_hash=decision.document_hash,
                     status=decision.status,
                 )
-                if hydrated is not None:
-                    document_key = self._document_key(
-                        file_id=state_row.file_id,
-                        research_id=hydrated.research_id,
-                        document_hash=hydrated.document_hash,
-                    )
-                    base_document_fields = self._document_fields(
-                        hydrated=hydrated,
-                        parser_updated_at=state_row.updated_at,
-                    )
                 if not decision.selected:
                     self.store.finalize_run_item(
                         run_id=run.id,
@@ -321,21 +277,6 @@ class RunBatchPipeline:
                         status=decision.status,
                         research_id=decision.research_id,
                         document_hash=decision.document_hash,
-                    )
-                    self.ops.emit_stage_event(
-                        repo_name="research_analyst",
-                        stage_name="analyst.complete",
-                        status="skipped",
-                        run_key=ops_run_key,
-                        document_key=document_key,
-                        file_id=state_row.file_id,
-                        research_id=decision.research_id,
-                        document_hash=decision.document_hash,
-                        payload={
-                            "selection_reason": decision.reason,
-                            "selection_status": decision.status,
-                        },
-                        document_fields=base_document_fields,
                     )
                     continue
                 assert hydrated is not None
@@ -354,20 +295,6 @@ class RunBatchPipeline:
                             error_type="quality_gate_failed",
                             error_text=";".join(quality_report.blocking_issues),
                         )
-                        self.ops.emit_stage_event(
-                            repo_name="research_analyst",
-                            stage_name="analyst.complete",
-                            status="skipped",
-                            run_key=ops_run_key,
-                            document_key=document_key,
-                            file_id=state_row.file_id,
-                            research_id=hydrated.research_id,
-                            document_hash=hydrated.document_hash,
-                            error_type="quality_gate_failed",
-                            error_text=";".join(quality_report.blocking_issues),
-                            payload={"quality_score": quality_report.score},
-                            document_fields=base_document_fields,
-                        )
                         continue
                     if quality_report.warnings and not allow_backfill_warnings:
                         self.store.finalize_run_item(
@@ -381,38 +308,12 @@ class RunBatchPipeline:
                             error_type="quality_review_required",
                             error_text=";".join(quality_report.warnings),
                         )
-                        self.ops.emit_stage_event(
-                            repo_name="research_analyst",
-                            stage_name="analyst.complete",
-                            status="skipped",
-                            run_key=ops_run_key,
-                            document_key=document_key,
-                            file_id=state_row.file_id,
-                            research_id=hydrated.research_id,
-                            document_hash=hydrated.document_hash,
-                            error_type="quality_review_required",
-                            error_text=";".join(quality_report.warnings),
-                            payload={"quality_score": quality_report.score},
-                            document_fields=base_document_fields,
-                        )
                         continue
                 self.store.mark_run_item_processing(
                     run_id=run.id,
                     file_id=state_row.file_id,
                     research_id=hydrated.research_id,
                     document_hash=hydrated.document_hash,
-                )
-                self.ops.emit_stage_event(
-                    repo_name="research_analyst",
-                    stage_name="analyst.complete",
-                    status="started",
-                    run_key=ops_run_key,
-                    document_key=document_key,
-                    file_id=state_row.file_id,
-                    research_id=hydrated.research_id,
-                    document_hash=hydrated.document_hash,
-                    payload={"selection_reason": decision.reason},
-                    document_fields=base_document_fields,
                 )
                 try:
                     result = self.analyze_document.run(
@@ -442,32 +343,6 @@ class RunBatchPipeline:
                         error_type=result.error_type,
                         error_text=result.error_text,
                     )
-                    self.ops.emit_stage_event(
-                        repo_name="research_analyst",
-                        stage_name="analyst.complete",
-                        status=self._map_result_status(result.status),
-                        run_key=ops_run_key,
-                        document_key=document_key,
-                        file_id=state_row.file_id,
-                        research_id=hydrated.research_id,
-                        document_hash=hydrated.document_hash,
-                        error_type=result.error_type,
-                        error_text=result.error_text,
-                        payload={
-                            "selection_reason": decision.reason,
-                            "result_status": result.status,
-                            "chunk_count": result.chunk_count,
-                            "assertion_count": result.assertion_count,
-                            "node_upsert_count": result.node_upsert_count,
-                            "edge_upsert_count": result.edge_upsert_count,
-                            "open_question_count": result.open_question_count,
-                            "quality_score": result.quality_score,
-                            "agent_success_count": result.agent_success_count,
-                            "agent_no_output_count": result.agent_no_output_count,
-                            "agent_error_count": result.agent_error_count,
-                        },
-                        document_fields=base_document_fields,
-                    )
                 except Exception as exc:  # pragma: no cover - exercised by CLI
                     logger.exception("Document analysis failed", extra={"file_id": state_row.file_id})
                     self.store.finalize_run_item(
@@ -479,34 +354,7 @@ class RunBatchPipeline:
                         error_type="analysis_error",
                         error_text=str(exc),
                     )
-                    self.ops.emit_stage_event(
-                        repo_name="research_analyst",
-                        stage_name="analyst.complete",
-                        status="failed",
-                        run_key=ops_run_key,
-                        document_key=document_key,
-                        file_id=state_row.file_id,
-                        research_id=hydrated.research_id,
-                        document_hash=hydrated.document_hash,
-                        error_type="analysis_error",
-                        error_text=str(exc),
-                        payload={"selection_reason": decision.reason},
-                        document_fields=base_document_fields,
-                    )
             summary = self.store.finalize_run(run.id, selected_watermark=max_watermark)
-            self.ops.update_run(
-                ops_run_key,
-                status="completed",
-                stats={
-                    "document_count": int(summary["document_count"]),
-                    "success_count": int(summary["success_count"]),
-                    "skipped_count": int(summary["skipped_count"]),
-                    "error_count": int(summary["error_count"]),
-                    "analysis_run_id": run.id,
-                },
-                completed=True,
-            )
-            self.ops.flush()
             return BatchRunResult(
                 run_id=run.id,
                 status=str(summary["status"]),
@@ -515,15 +363,7 @@ class RunBatchPipeline:
                 skipped_count=int(summary["skipped_count"]),
                 error_count=int(summary["error_count"]),
             )
-        except Exception as exc:
-            self.ops.update_run(
-                ops_run_key,
-                status="failed",
-                error_text=str(exc),
-                stats={"analysis_run_id": run.id},
-                completed=True,
-            )
-            self.ops.flush()
+        except Exception:
             raise
 
     @staticmethod
@@ -542,42 +382,3 @@ class RunBatchPipeline:
         if quality_report.warnings and not allow_warnings:
             return "review_required"
         return "ready_to_apply"
-
-    @staticmethod
-    def _map_result_status(status: str) -> str:
-        if status == "success":
-            return "succeeded"
-        if status.startswith("skipped"):
-            return "skipped"
-        if status == "error":
-            return "failed"
-        return "succeeded"
-
-    @staticmethod
-    def _document_key(
-        *,
-        file_id: str | None,
-        research_id: int | None = None,
-        document_hash: str | None = None,
-    ) -> str | None:
-        if file_id:
-            return f"file:{file_id}"
-        if research_id is not None and document_hash:
-            return f"doc:{research_id}:{document_hash}"
-        return None
-
-    @staticmethod
-    def _document_fields(
-        *,
-        hydrated,
-        parser_updated_at: datetime,
-    ) -> dict[str, Any]:
-        return {
-            "document_name": hydrated.document.document_name,
-            "source": hydrated.document.source,
-            "source_date": coerce_optional_date(hydrated.document.source_date),
-            "publisher": hydrated.document.publisher,
-            "region": hydrated.document.region,
-            "asset_focus": hydrated.document.asset_focus,
-            "parser_updated_at": parser_updated_at.isoformat(),
-        }

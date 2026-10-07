@@ -23,8 +23,10 @@ def make_settings(db_path: Path) -> Settings:
         analysis_db_url=f"sqlite:///{db_path}",
         parsed_db_url="https://example.supabase.co",
         parsed_db_key="secret",
+        parsed_database_url="postgresql://example/parsed",
         calendar_db_url="https://calendar.example.supabase.co",
         calendar_db_key="calendar-secret",
+        calendar_database_url="postgresql://example/calendar",
         calendar_match_source="economic_events",
         calendar_source_name="economic_events",
         state_db_path=Path("data/state.db"),
@@ -151,36 +153,6 @@ class FakeAnalyzeDocument:
         )
 
 
-class _NoOpContext:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        del exc_type, exc, tb
-        return False
-
-
-class FakeOps:
-    def flush(self) -> None:
-        return None
-
-    def start_run(self, **kwargs) -> str:
-        del kwargs
-        return "ops-run"
-
-    def emit_stage_event(self, **kwargs) -> None:
-        del kwargs
-        return None
-
-    def track_stage(self, **kwargs):
-        del kwargs
-        return _NoOpContext()
-
-    def update_run(self, *args, **kwargs) -> None:
-        del args, kwargs
-        return None
-
-
 class BackfillPolicyTest(unittest.TestCase):
     def test_preview_marks_warning_docs_as_review_required_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -196,7 +168,6 @@ class BackfillPolicyTest(unittest.TestCase):
                 hydrator=FakeHydrator([document]),
                 analyze_document=FakeAnalyzeDocument(),
                 quality_reviewer=QualityReviewer(settings),
-                ops=FakeOps(),
             )
 
             result = pipeline.preview_backfill(limit=10)
@@ -221,7 +192,6 @@ class BackfillPolicyTest(unittest.TestCase):
                 hydrator=FakeHydrator([document]),
                 analyze_document=analyze_document,
                 quality_reviewer=QualityReviewer(settings),
-                ops=FakeOps(),
             )
 
             result = pipeline.backfill(limit=10)
@@ -258,7 +228,6 @@ class BackfillPolicyTest(unittest.TestCase):
                 hydrator=FakeHydrator([document]),
                 analyze_document=FakeAnalyzeDocument(),
                 quality_reviewer=QualityReviewer(settings),
-                ops=FakeOps(),
             )
 
             result = pipeline.preview_backfill(limit=10, allow_warnings=True)
