@@ -55,6 +55,23 @@ The command writes:
 Omitting `--artifact-root` is useful for schema-only checks, but produces a
 `proposed_unverified` manifest with no eligible records.
 
+## Standardized evaluation run
+
+Gold, silver, and consistency evidence stay in separate files. One command
+writes the immutable run directory:
+
+```bash
+uv run python -m research_analysis_layer.evals decision-eval \
+  --provider fake \
+  --output evals/results/decision-eval-local \
+  --live-artifact-root /path/to/immutable-five-doc-run
+```
+
+`--live-artifact-root` is optional. When supplied, existing shadow artifacts are
+hashed and copied into the run directory; they are not reclassified and do not
+become gold. The command cannot promote a candidate label or change production
+routing.
+
 ## Updating a judgment
 
 Do not overwrite the old event. Keep it with `status=superseded`, add a new

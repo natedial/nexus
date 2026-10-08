@@ -183,10 +183,9 @@ def evaluate_shadow_artifact(
         provenance_coverage_rate=(provenance_hits / len(records)) if records else 0.0,
         latency_p50_ms=_percentile(latencies, 50),
         latency_p95_ms=_percentile(latencies, 95),
-        provider_cost={
-            "usage": dict(artifact.usage),
-            "note": "dollar cost deferred until provider pricing is wired in PR2",
-        },
+        provider_cost=estimate_usage_cost(
+            artifact.usage, provider=artifact.provider
+        ),
         baseline_choice_agreement=baseline_choice_agree,
         baseline_choice_compared=baseline_choice_n,
         baseline_subtype_agreement=baseline_subtype_agree,
@@ -194,6 +193,122 @@ def evaluate_shadow_artifact(
         baseline_limitations=baseline_limitations(),
         notes=notes,
     )
+
+
+def choice_prediction(
+    record: UnitClassificationRecord, *, noul_threshold: float = 0.5
+) -> tuple[str | None, float | None]:
+    """Return (selected statement type, raw probability) for a unit."""
+    result = next(
+        (item for item in record.results if item.question_id == STATEMENT_TYPE_QUESTION_ID),
+        None,
+    )
+    if result is None:
+        return None, None
+    return _selected_label(result, noul_threshold=noul_threshold), _raw_probability(result)
+
+
+def noul_prediction(
+    record: UnitClassificationRecord,
+    question_id: str,
+    *,
+    threshold: float = 0.5,
+) -> tuple[bool | None, float | None]:
+    """Return (yes/no/None, raw probability) for one binary question."""
+    result = next(
+        (item for item in record.results if item.question_id == question_id),
+        None,
+    )
+    if result is None:
+        return None, None
+    return _noul_positive(result, threshold=threshold), _raw_probability(result)
+
+
+def _raw_probability(result: Any) -> float | None:
+    if result.distribution is None:
+        return None
+    if result.distribution.raw_probability is not None:
+        return float(result.distribution.raw_probability)
+    if result.distribution.selected and result.distribution.probabilities:
+        selected = result.distribution.probabilities.get(result.distribution.selected)
+        if selected is not None:
+            return float(selected)
+    if result.distribution.probabilities:
+        return float(max(result.distribution.probabilities.values()))
+    return None
+
+
+# Provisional Jev rates inferred from the 2026-10-02 18-unit live eval note
+# (~28.7k input tokens ≈ $0.0012). Override per run; this is not an invoice.
+PROVISIONAL_JEV_INPUT_USD_PER_MILLION = 41.81
+PROVISIONAL_JEV_OUTPUT_USD_PER_MILLION = 41.81
+
+
+def estimate_usage_cost(
+    usage: Mapping[str, Any] | None,
+    *,
+    provider: str,
+    input_usd_per_million: float | None = None,
+    output_usd_per_million: float | None = None,
+) -> dict[str, Any]:
+    """Estimate dollar cost from token usage. Missing tokens stay null."""
+    payload = dict(usage or {})
+    if provider == "fake":
+        return {
+            "usage": payload,
+            "provider": provider,
+            "input_usd_per_million": 0.0,
+            "output_usd_per_million": 0.0,
+            "estimated_usd": 0.0,
+            "pricing_source": "fake_provider_zero",
+            "note": "fake provider has no billed usage",
+        }
+
+    input_rate = (
+        PROVISIONAL_JEV_INPUT_USD_PER_MILLION
+        if input_usd_per_million is None and provider == "jev"
+        else input_usd_per_million
+    )
+    output_rate = (
+        PROVISIONAL_JEV_OUTPUT_USD_PER_MILLION
+        if output_usd_per_million is None and provider == "jev"
+        else output_usd_per_million
+    )
+    input_tokens = _numeric_usage(payload, "input_tokens")
+    output_tokens = _numeric_usage(payload, "output_tokens")
+    estimated = None
+    if input_rate is not None or output_rate is not None:
+        estimated = 0.0
+        if input_tokens is not None and input_rate is not None:
+            estimated += input_tokens * input_rate / 1_000_000.0
+        if output_tokens is not None and output_rate is not None:
+            estimated += output_tokens * output_rate / 1_000_000.0
+        if input_tokens is None and output_tokens is None:
+            estimated = None
+    return {
+        "usage": payload,
+        "provider": provider,
+        "input_usd_per_million": input_rate,
+        "output_usd_per_million": output_rate,
+        "estimated_usd": estimated,
+        "pricing_source": (
+            "provisional_jev_2026-10-02_live_eval"
+            if provider == "jev" and input_usd_per_million is None
+            else "explicit_override"
+        ),
+        "note": (
+            "estimate only; not an invoice. Pass --input-usd-per-million to override."
+            if estimated is not None
+            else "dollar estimate unavailable because token usage was not recorded"
+        ),
+    }
+
+
+def _numeric_usage(usage: Mapping[str, Any], key: str) -> float | None:
+    value = usage.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
 
 
 def _selected_label(result: Any, *, noul_threshold: float) -> str | None:

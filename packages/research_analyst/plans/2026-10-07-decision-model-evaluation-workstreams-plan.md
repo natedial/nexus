@@ -5,15 +5,19 @@ Captured: 2026-10-07 America/New_York
 
 ## Implementation progress
 
-- Phase 0 foundation started on 2026-10-07 in
+- Phase 0 foundation is in
   `research_analysis_layer.evals.decision_reviews`.
 - Structured review records, lifecycle validation, immutable artifact and
   approval-trace checks, separate candidate/gold coverage, readable change
   reports, and proposed release manifests are implemented with tests.
-- Import of the three agreed decisions is pending restoration of the original
-  five-document run directory. Its `REVIEW_NOTES.md` and shadow artifacts are
-  not present in this checkout, so their text, IDs, and approval hashes cannot
-  be transcribed safely yet.
+- Phase 1 agent lane is in `decision_silver`, `decision_consistency`,
+  `decision_review_queue`, and `decision_eval_run`. One `decision-eval`
+  command writes gold, silver, and consistency into separate files in an
+  immutable run directory. Silver never merges into gold. Live artifacts are
+  optional and are copied, not reclassified.
+- Import of agreed review notes remains pending: the record schema requires
+  a full Noul vector, while the two stored `agreed by Nate` notes specify
+  only a subset. The mixed forecast/action case is not in `REVIEW_NOTES.md`.
 
 ## Objective
 
