@@ -69,6 +69,7 @@ def build_review_queue(
     records: Sequence[UnitClassificationRecord],
     *,
     gold_labels: Sequence[GoldUnitLabel] = (),
+    gold_document_id: str | None = None,
     silver: SilverAgreementReport | None = None,
     consistency_cases: Sequence[ConsistencyCaseResult] = (),
     packet_size: int = 20,
@@ -105,6 +106,8 @@ def build_review_queue(
     for record in records:
         choice, choice_p = choice_prediction(record)
         gold_row = gold.get(record.unit_id)
+        if gold_document_id is not None and record.document_key != gold_document_id:
+            gold_row = None
         reasons: list[str] = []
         questions: list[str] = []
         priority = 99

@@ -69,6 +69,25 @@ class DecisionEvalRunTest(unittest.TestCase):
             self.assertIn("compound_decomposition", consistency["families"])
             self.assertTrue(manifest["safety"]["gold_silver_consistency_separated"])
             self.assertFalse(manifest["safety"]["production_routing_changed"])
+            cost = json.loads((output / "cost_and_latency.json").read_text(encoding="utf-8"))
+            self.assertIn("fixture", cost)
+            self.assertIn("live", cost)
+            self.assertEqual(
+                gold["live"]["unit_count"],
+                1,
+            )
+            queue_rows = [
+                json.loads(line)
+                for line in (output / "review_queue.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertFalse(
+                any(
+                    row.get("document_id") == "doc_live"
+                    and "high_confidence_gold_disagreement" in row.get("reasons", [])
+                    for row in queue_rows
+                )
+            )
             self.assertIn("ineligible", summary.lower())
             self.assertIn("gold_metrics.json", summary)
             self.assertLessEqual(packet.count("\n## "), 20)
@@ -89,7 +108,7 @@ class DecisionEvalRunTest(unittest.TestCase):
             provider="jev",
         )
         self.assertIsNotNone(cost["estimated_usd"])
-        self.assertGreater(cost["estimated_usd"], 0.0)
+        self.assertAlmostEqual(cost["estimated_usd"], 0.0012, places=4)
         self.assertIn("provisional", cost["pricing_source"])
 
     def test_packet_size_cap(self) -> None:

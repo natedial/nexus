@@ -239,9 +239,10 @@ def _raw_probability(result: Any) -> float | None:
 
 
 # Provisional Jev rates inferred from the 2026-10-02 18-unit live eval note
-# (~28.7k input tokens ≈ $0.0012). Override per run; this is not an invoice.
-PROVISIONAL_JEV_INPUT_USD_PER_MILLION = 41.81
-PROVISIONAL_JEV_OUTPUT_USD_PER_MILLION = 41.81
+# (~28.7k input tokens ≈ $0.0012 => ~$0.0418 / million tokens).
+# Override per run; this is not an invoice.
+PROVISIONAL_JEV_INPUT_USD_PER_MILLION = 0.04181
+PROVISIONAL_JEV_OUTPUT_USD_PER_MILLION = 0.04181
 
 
 def estimate_usage_cost(

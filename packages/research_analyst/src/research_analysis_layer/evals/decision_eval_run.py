@@ -149,7 +149,7 @@ def build_summary(
         f"- Gold fixture units scored: {fixture_gold.get('unit_count', 0)} "
         f"(choice support {gold_support or 0})",
         f"- Silver agreement: {silver.agreements}/{silver.compared} included labels "
-        f"(rate {silver.agreement_rate})",
+        f"(rate {None if silver.agreement_rate is None else round(silver.agreement_rate, 3)})",
         f"- Consistency invariance failures: {consistency.invariance_failures}/"
         f"{consistency.case_count}",
         "",
@@ -278,32 +278,61 @@ def run_decision_eval(
     queue = build_review_queue(
         all_units,
         gold_labels=gold_labels,
+        gold_document_id=fixture_artifact.document_key,
         silver=silver,
         consistency_cases=consistency.cases,
         packet_size=packet_size,
     )
     packet = review_packet_markdown(queue)
 
-    usage: dict[str, float] = {}
-    for artifact in [fixture_artifact, *live_artifacts]:
+    def _usage_of(artifact: ShadowClassificationArtifact) -> dict[str, float]:
+        merged: dict[str, float] = {}
         for key, value in (artifact.usage or {}).items():
             if isinstance(value, (int, float)) and not isinstance(value, bool):
-                usage[key] = usage.get(key, 0.0) + float(value)
+                merged[key] = merged.get(key, 0.0) + float(value)
+        return merged
+
+    live_usage: dict[str, float] = {}
+    for artifact in live_artifacts:
+        for key, value in _usage_of(artifact).items():
+            live_usage[key] = live_usage.get(key, 0.0) + value
+    live_provider = live_artifacts[0].provider if live_artifacts else fixture_artifact.provider
+    fixture_cost = estimate_usage_cost(
+        _usage_of(fixture_artifact),
+        provider=fixture_artifact.provider,
+        input_usd_per_million=input_usd_per_million,
+        output_usd_per_million=output_usd_per_million,
+    )
+    live_cost = estimate_usage_cost(
+        live_usage,
+        provider=live_provider,
+        input_usd_per_million=input_usd_per_million,
+        output_usd_per_million=output_usd_per_million,
+    )
+    estimated_parts = [
+        part["estimated_usd"]
+        for part in (fixture_cost, live_cost)
+        if part.get("estimated_usd") is not None
+    ]
     latencies = [
         float(unit.latency_ms)
         for unit in all_units
         if unit.latency_ms is not None
     ]
-    cost = estimate_usage_cost(
-        usage,
-        provider=fixture_artifact.provider,
-        input_usd_per_million=input_usd_per_million,
-        output_usd_per_million=output_usd_per_million,
-    )
-    cost["latency_ms_count"] = len(latencies)
-    cost["latency_p50_ms"] = gold_report.latency_p50_ms
-    cost["latency_p95_ms"] = gold_report.latency_p95_ms
-    cost["schema_version"] = "decision-cost-and-latency-v1"
+    cost = {
+        "schema_version": "decision-cost-and-latency-v1",
+        "fixture": fixture_cost,
+        "live": live_cost,
+        "estimated_usd": sum(estimated_parts) if estimated_parts else None,
+        "latency_ms_count": len(latencies),
+        "latency_p50_ms": gold_report.latency_p50_ms,
+        "latency_p95_ms": gold_report.latency_p95_ms,
+        "pricing_source": "per_corpus",
+        "usage": {
+            "fixture": _usage_of(fixture_artifact),
+            "live": live_usage,
+        },
+    }
 
     question_set = snapshot_question_set()
     previous_payload = None

@@ -84,6 +84,28 @@ class ReviewQueueTest(unittest.TestCase):
         queue = build_review_queue(artifact.units, gold_labels=gold, packet_size=20)
         self.assertEqual(len(queue), 1)
 
+    def test_fixture_gold_does_not_attach_to_other_documents(self) -> None:
+        artifact = ShadowDecisionClassifier(FakeDecisionModel()).classify_assertions(
+            [_draft(1, "forecast", "We expect two cuts later this year.")],
+            document_key="doc_004",
+        )
+        gold = [
+            GoldUnitLabel(
+                unit_id="chunk-1:assertion-1",
+                statement_type="recommendation",
+                noul_labels=_noul(is_trade=True),
+            )
+        ]
+        queue = build_review_queue(
+            artifact.units,
+            gold_labels=gold,
+            gold_document_id="decision-shadow-fixture-v2",
+            packet_size=5,
+        )
+        self.assertFalse(
+            any("high_confidence_gold_disagreement" in item.reasons for item in queue)
+        )
+
     def test_packet_markdown_marks_suggestions_as_proposals(self) -> None:
         artifact = ShadowDecisionClassifier(FakeDecisionModel()).classify_assertions(
             [_draft(1, "forecast", "We expect two cuts later this year.")]
