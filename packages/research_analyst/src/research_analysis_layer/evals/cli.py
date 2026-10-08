@@ -165,6 +165,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max assertion units per decision batch",
     )
 
+    decision_eval_parser = subparsers.add_parser(
+        "decision-eval",
+        help="Write a versioned gold/silver/consistency decision-eval run directory",
+    )
+    decision_eval_parser.add_argument("--output", type=Path, required=True)
+    decision_eval_parser.add_argument(
+        "--provider",
+        choices=["fake", "jev"],
+        default="fake",
+    )
+    decision_eval_parser.add_argument("--fixture", type=Path, default=None)
+    decision_eval_parser.add_argument("--live-artifact-root", type=Path, default=None)
+    decision_eval_parser.add_argument("--previous", type=Path, default=None)
+    decision_eval_parser.add_argument("--batch-size", type=int, default=4)
+    decision_eval_parser.add_argument("--packet-size", type=int, default=20)
+    decision_eval_parser.add_argument("--repeatability-runs", type=int, default=3)
+    decision_eval_parser.add_argument("--input-usd-per-million", type=float, default=None)
+    decision_eval_parser.add_argument("--output-usd-per-million", type=float, default=None)
+
     return parser
 
 
@@ -434,6 +453,37 @@ def cmd_shadow_classify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_decision_eval(args: argparse.Namespace) -> int:
+    from research_analysis_layer.evals.decision_eval_run import run_decision_eval
+    from research_analysis_layer.services.decision_model_factory import (
+        DecisionModelConfigError,
+    )
+
+    if args.packet_size > 20:
+        print("Error: --packet-size must be <= 20", file=sys.stderr)
+        return 2
+    try:
+        output = run_decision_eval(
+            output_dir=args.output,
+            provider=args.provider,
+            fixture_path=args.fixture,
+            live_artifact_root=args.live_artifact_root,
+            previous_dir=args.previous,
+            batch_size=args.batch_size,
+            packet_size=args.packet_size,
+            repeatability_runs=args.repeatability_runs,
+            input_usd_per_million=args.input_usd_per_million,
+            output_usd_per_million=args.output_usd_per_million,
+            command_arguments=vars(args),
+        )
+    except (DecisionModelConfigError, OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Wrote decision eval run: {output}")
+    print(f"Summary: {output / 'SUMMARY.md'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -446,6 +496,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_rubric_report(args)
     if args.command == "shadow-classify":
         return cmd_shadow_classify(args)
+    if args.command == "decision-eval":
+        return cmd_decision_eval(args)
 
     settings = Settings()
 
