@@ -79,7 +79,12 @@ def build_review_queue(
     if packet_size < 1:
         raise ValueError("packet_size must be >= 1")
     rng = rng or random.Random(0)
-    gold = _gold_by_id(gold_labels)
+    gold = _gold_by_id([label for label in gold_labels if label.document_id is None])
+    gold_by_document = {
+        (label.document_id, label.unit_id): label
+        for label in gold_labels
+        if label.document_id
+    }
     silver_by_unit = {
         record.unit_id: record
         for record in (silver.records if silver is not None else [])
@@ -103,11 +108,20 @@ def build_review_queue(
     } if type_counts else set()
 
     candidates: list[ReviewCandidate] = []
+    already_reviewed: set[tuple[str | None, str]] = set()
     for record in records:
         choice, choice_p = choice_prediction(record)
-        gold_row = gold.get(record.unit_id)
-        if gold_document_id is not None and record.document_key != gold_document_id:
-            gold_row = None
+        gold_row = None
+        if record.document_key:
+            gold_row = gold_by_document.get((record.document_key, record.unit_id))
+        if gold_row is None and (
+            gold_document_id is None or record.document_key == gold_document_id
+        ):
+            gold_row = gold.get(record.unit_id)
+        if gold_row is not None and gold_row.document_id:
+            # Already-agreed review (possibly partial). Do not present again.
+            already_reviewed.add((record.document_key, record.unit_id))
+            continue
         reasons: list[str] = []
         questions: list[str] = []
         priority = 99
@@ -182,7 +196,12 @@ def build_review_queue(
         )
 
     audit_n = min(packet_size, max(1, math.ceil(0.01 * max(1, len(records)))))
-    unused = [record for record in records if record.unit_id not in {c.unit_id for c in candidates}]
+    unused = [
+        record
+        for record in records
+        if (record.document_key, record.unit_id) not in already_reviewed
+        and record.unit_id not in {item.unit_id for item in candidates}
+    ]
     if unused:
         sample = unused[:]
         rng.shuffle(sample)

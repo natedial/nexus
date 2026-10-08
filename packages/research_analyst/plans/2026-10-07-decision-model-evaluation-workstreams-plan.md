@@ -15,9 +15,12 @@ Captured: 2026-10-07 America/New_York
   command writes gold, silver, and consistency into separate files in an
   immutable run directory. Silver never merges into gold. Live artifacts are
   optional and are copied, not reclassified.
-- Import of agreed review notes remains pending: the record schema requires
-  a full Noul vector, while the two stored `agreed by Nate` notes specify
-  only a subset. The mixed forecast/action case is not in `REVIEW_NOTES.md`.
+- The two stored `agreed by Nate` notes are imported as sparse
+  `status=agreed` records in `evals/decision_reviews/reviews.jsonl`. Only
+  explicitly agreed Noul keys are stored; omitted keys are unreviewed, not
+  false. Evaluation scores supplied labels only. Full-vector metrics exclude
+  these partial records until the remaining axes are completed. The mixed
+  forecast/action case is still absent from `REVIEW_NOTES.md`.
 
 ## Objective
 
@@ -43,10 +46,11 @@ The repository already provides:
 - deterministic assertion types and baseline mappings;
 - classification, coverage, provenance, latency, and error metrics;
 - a completed five-document Jev run containing 65 fully covered units;
-- three agreed review decisions currently recorded as prose in
-  `REVIEW_NOTES.md` alongside that run.
+- two agreed review decisions recorded as prose in `REVIEW_NOTES.md` and
+  imported as sparse `agreed` records; the mixed forecast/action case is
+  not in those notes.
 
-The three agreed decisions expose useful edge cases:
+The stored agreed decisions expose useful edge cases:
 
 - unrelated recommendation language contaminating a forecast classification;
 - a negative or status-quo recommendation being missed;
@@ -312,9 +316,12 @@ new definitions.
 
 Agent-friendly:
 
-- convert the three agreed review notes into proposed structured records;
-- validate them against the five-document artifacts;
-- generate a gold-change diff and coverage report.
+- convert the two stored agreed review notes into sparse structured records
+  (the third mixed-content case is not in the notes);
+- validate them against the copied shadow artifacts under
+  `evals/decision_reviews/sources`;
+- generate a gold-change diff and coverage report that counts unreviewed
+  Nouls separately from negatives.
 
 Human-in-the-loop:
 
@@ -409,8 +416,9 @@ specific failure.
 
 ## Immediate next actions
 
-1. Define the structured review-record schema and import the three agreed notes
-   as candidates.
+1. Define the structured review-record schema and import the two stored
+   agreed notes as sparse `agreed` records (done). The mixed-content case
+   remains missing until a later review.
 2. Add a gold-set validator, release manifest, and readable change report.
 3. Implement context-isolation tests using the contaminated-prefix case.
 4. Implement negative/status-quo recommendation silver rules and metamorphic

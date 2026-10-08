@@ -24,10 +24,11 @@ from research_analysis_layer.models.decision_models import (
     SUPPORT_NOUL_IDS,
 )
 
-REVIEW_RECORD_SCHEMA_VERSION = "decision-review-record-v1"
+REVIEW_RECORD_SCHEMA_VERSION = "decision-review-record-v2"
 RELEASE_MANIFEST_SCHEMA_VERSION = "decision-gold-release-manifest-v1"
 NOUL_QUESTION_IDS: tuple[str, ...] = (*SUBTYPE_NOUL_IDS, *SUPPORT_NOUL_IDS)
 ReviewStatus = Literal["candidate", "agreed", "superseded", "retired"]
+LabelCompleteness = Literal["complete", "partial"]
 SignalId = Literal[
     "is_observation",
     "is_forecast",
@@ -87,7 +88,11 @@ class ApprovalTrace(StrictModel):
 
 
 class ReviewedLabels(StrictModel):
-    """Complete human judgment for the current decision question set."""
+    """Human judgment for the current decision question set.
+
+    ``noul_labels`` may contain any subset of the recognized binary questions.
+    Omitted keys are unreviewed — never stored as false, never inferred.
+    """
 
     statement_type: Literal[
         "assertion",
@@ -97,13 +102,23 @@ class ReviewedLabels(StrictModel):
         "background_methodology",
         "other_or_unclear",
     ]
-    noul_labels: dict[str, bool]
+    noul_labels: dict[str, bool] = Field(default_factory=dict)
 
     @field_validator("noul_labels", mode="before")
     @classmethod
     def _binary_labels_are_booleans(cls, value: Any) -> Any:
+        if value is None:
+            return {}
         if not isinstance(value, dict):
             raise ValueError("noul_labels must be an object")
+        null_keys = sorted(
+            str(question_id) for question_id, label in value.items() if label is None
+        )
+        if null_keys:
+            raise ValueError(
+                "omitted Noul labels must be absent, not null: "
+                f"null_keys={null_keys}"
+            )
         non_boolean = sorted(
             str(question_id)
             for question_id, label in value.items()
@@ -118,25 +133,29 @@ class ReviewedLabels(StrictModel):
 
     @field_validator("noul_labels")
     @classmethod
-    def _all_binary_signals_present(cls, value: dict[str, bool]) -> dict[str, bool]:
-        expected = set(NOUL_QUESTION_IDS)
-        actual = set(value)
-        missing = sorted(expected - actual)
-        unknown = sorted(actual - expected)
-        if missing or unknown:
-            details: list[str] = []
-            if missing:
-                details.append(f"missing={missing}")
-            if unknown:
-                details.append(f"unknown={unknown}")
-            raise ValueError("noul_labels must cover the full question set: " + ", ".join(details))
-        return {question_id: bool(value[question_id]) for question_id in NOUL_QUESTION_IDS}
+    def _recognized_binary_signals_only(cls, value: dict[str, bool]) -> dict[str, bool]:
+        unknown = sorted(set(value) - set(NOUL_QUESTION_IDS))
+        if unknown:
+            raise ValueError(f"noul_labels contains unknown question ids: {unknown}")
+        return {
+            question_id: bool(value[question_id])
+            for question_id in NOUL_QUESTION_IDS
+            if question_id in value
+        }
+
+    @property
+    def unreviewed_noul_ids(self) -> list[str]:
+        return [question_id for question_id in NOUL_QUESTION_IDS if question_id not in self.noul_labels]
+
+    @property
+    def label_completeness(self) -> LabelCompleteness:
+        return "complete" if not self.unreviewed_noul_ids else "partial"
 
 
 class DecisionReviewRecord(StrictModel):
     """One immutable adjudication event for a source unit and taxonomy version."""
 
-    schema_version: Literal["decision-review-record-v1"] = REVIEW_RECORD_SCHEMA_VERSION
+    schema_version: Literal["decision-review-record-v2"] = REVIEW_RECORD_SCHEMA_VERSION
     review_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     document_type: str | None = None
@@ -151,6 +170,8 @@ class DecisionReviewRecord(StrictModel):
     model_version: str = Field(min_length=1)
     adapter_version: str = Field(min_length=1)
     labels: ReviewedLabels
+    label_completeness: LabelCompleteness | None = None
+    unreviewed_noul_ids: list[str] | None = None
     dominant_signals: list[SignalId] = Field(default_factory=list)
     secondary_signals: list[SignalId] = Field(default_factory=list)
     reviewer: str = Field(min_length=1)
@@ -207,6 +228,23 @@ class DecisionReviewRecord(StrictModel):
             raise ValueError("retirement_reason is only valid for retired records")
         if self.supersedes_review_id == self.review_id:
             raise ValueError("a review record cannot supersede itself")
+
+        expected_unreviewed = self.labels.unreviewed_noul_ids
+        expected_completeness = self.labels.label_completeness
+        if self.unreviewed_noul_ids is None:
+            self.unreviewed_noul_ids = expected_unreviewed
+        elif list(self.unreviewed_noul_ids) != expected_unreviewed:
+            raise ValueError(
+                "unreviewed_noul_ids must match omitted recognized Noul keys; "
+                "missing labels are unknown, not false"
+            )
+        if self.label_completeness is None:
+            self.label_completeness = expected_completeness
+        elif self.label_completeness != expected_completeness:
+            raise ValueError(
+                "label_completeness must be 'complete' iff every recognized Noul "
+                f"is reviewed; expected {expected_completeness!r}"
+            )
         return self
 
     @property
@@ -235,6 +273,14 @@ class ReviewValidationReport(StrictModel):
     issues: list[ValidationIssue] = Field(default_factory=list)
 
 
+def default_review_dir() -> Path:
+    return Path(__file__).resolve().parents[3] / "evals" / "decision_reviews"
+
+
+def default_review_records_path() -> Path:
+    return default_review_dir() / "reviews.jsonl"
+
+
 def load_review_records(path: Path) -> list[DecisionReviewRecord]:
     """Load review records from either a JSON array or JSONL file."""
     text = path.read_text(encoding="utf-8").strip()
@@ -247,6 +293,40 @@ def load_review_records(path: Path) -> list[DecisionReviewRecord]:
     if not isinstance(rows, list):
         raise ValueError("review record file must contain a JSON array or JSONL rows")
     return [DecisionReviewRecord.model_validate(row) for row in rows]
+
+
+def gold_labels_from_review_records(
+    records: Sequence[DecisionReviewRecord],
+    *,
+    require_complete: bool = False,
+) -> list[Any]:
+    """Project agreed reviews into gold labels.
+
+    Partial records are included unless ``require_complete`` is true. Callers
+    that need a full Noul vector must pass ``require_complete=True``.
+    """
+    from research_analysis_layer.evals.decision_metrics import GoldUnitLabel
+
+    labels: list[GoldUnitLabel] = []
+    for record in records:
+        if record.status != "agreed":
+            continue
+        if require_complete and record.label_completeness != "complete":
+            continue
+        labels.append(
+            GoldUnitLabel(
+                unit_id=record.unit_id,
+                document_id=record.document_id,
+                statement_type=record.labels.statement_type,
+                noul_labels=dict(record.labels.noul_labels),
+                notes=(
+                    "partial-label review; unreviewed Nouls omitted"
+                    if record.label_completeness == "partial"
+                    else record.rationale
+                ),
+            )
+        )
+    return labels
 
 
 def validate_review_records(
@@ -536,15 +616,27 @@ def coverage_report(records: Sequence[DecisionReviewRecord]) -> dict[str, Any]:
 
     def summarize(selected: Iterable[DecisionReviewRecord]) -> dict[str, Any]:
         rows = list(selected)
-        noul = {
-            question_id: {
-                "yes": sum(record.labels.noul_labels[question_id] for record in rows),
-                "no": sum(not record.labels.noul_labels[question_id] for record in rows),
+        noul = {}
+        for question_id in NOUL_QUESTION_IDS:
+            reviewed = [
+                record.labels.noul_labels[question_id]
+                for record in rows
+                if question_id in record.labels.noul_labels
+            ]
+            noul[question_id] = {
+                "yes": sum(reviewed),
+                "no": sum(not value for value in reviewed),
+                "unreviewed": len(rows) - len(reviewed),
+                "reviewed": len(reviewed),
             }
-            for question_id in NOUL_QUESTION_IDS
-        }
         return {
             "record_count": len(rows),
+            "complete_record_count": sum(
+                record.label_completeness == "complete" for record in rows
+            ),
+            "partial_record_count": sum(
+                record.label_completeness == "partial" for record in rows
+            ),
             "document_count": len({record.document_id for record in rows}),
             "documents": dict(sorted(Counter(record.document_id for record in rows).items())),
             "document_types": dict(
@@ -600,6 +692,7 @@ def change_report_markdown(
         "# Decision gold change report",
         "",
         "Only records with `status=agreed` are eligible for gold metrics. "
+        "Partial records keep human-agreed labels and omit unreviewed Nouls. "
         "Candidates and retained history are reported separately.",
         "",
         "## Summary",
@@ -608,6 +701,8 @@ def change_report_markdown(
         f"- Active changes: {len(changed)}",
         f"- Active removals: {len(removed)}",
         f"- Agreed records after change: {sum(r.status == 'agreed' for r in records)}",
+        f"- Partial agreed records: "
+        f"{sum(r.status == 'agreed' and r.label_completeness == 'partial' for r in records)}",
         f"- Candidate records after change: {sum(r.status == 'candidate' for r in records)}",
         "",
     ]
@@ -658,14 +753,16 @@ def _change_details(
             "Primary type: "
             f"`{previous.labels.statement_type}` → `{current.labels.statement_type}`"
         )
+    def _noul_token(labels: ReviewedLabels, question_id: str) -> str:
+        if question_id not in labels.noul_labels:
+            return "unreviewed"
+        return "yes" if labels.noul_labels[question_id] else "no"
+
     for question_id in NOUL_QUESTION_IDS:
-        old = previous.labels.noul_labels[question_id]
-        new = current.labels.noul_labels[question_id]
+        old = _noul_token(previous.labels, question_id)
+        new = _noul_token(current.labels, question_id)
         if old != new:
-            details.append(
-                f"`{question_id}`: `{'yes' if old else 'no'}` → "
-                f"`{'yes' if new else 'no'}`"
-            )
+            details.append(f"`{question_id}`: `{old}` → `{new}`")
     if previous.reviewed_text_sha256 != current.reviewed_text_sha256:
         details.append("Reviewed text changed; migration review is required")
     elif previous.stored_model_input_sha256 != current.stored_model_input_sha256:
@@ -700,6 +797,12 @@ def release_manifest(
         json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     )
     eligible = agreed if validation.valid and validation.sources_verified else []
+    eligible_complete = [
+        record for record in eligible if record.label_completeness == "complete"
+    ]
+    eligible_partial = [
+        record for record in eligible if record.label_completeness == "partial"
+    ]
     if not validation.valid:
         release_status = "invalid"
     elif not validation.sources_verified:
@@ -719,11 +822,15 @@ def release_manifest(
             record.status in {"superseded", "retired"} for record in records
         ),
         "eligible_review_ids": [record.review_id for record in eligible],
+        "eligible_complete_review_ids": [record.review_id for record in eligible_complete],
+        "eligible_partial_review_ids": [record.review_id for record in eligible_partial],
         "release_content_sha256": release_hash,
         "validation": validation.model_dump(mode="json"),
         "safety": {
             "candidates_excluded": True,
             "unverified_records_excluded": True,
+            "partial_records_excluded_from_full_vector_metrics": True,
+            "unreviewed_noul_labels_not_inferred": True,
             "production_routing_changed": False,
             "human_approval_required_for_new_or_changed_labels": True,
         },

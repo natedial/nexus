@@ -106,6 +106,24 @@ class ReviewQueueTest(unittest.TestCase):
             any("high_confidence_gold_disagreement" in item.reasons for item in queue)
         )
 
+    def test_agreed_document_gold_is_not_represented(self) -> None:
+        artifact = ShadowDecisionClassifier(FakeDecisionModel()).classify_assertions(
+            [_draft(1, "forecast", "We expect two cuts later this year.")],
+            document_key="doc_002",
+        )
+        gold = [
+            GoldUnitLabel(
+                unit_id="chunk-1:assertion-1",
+                document_id="doc_002",
+                statement_type="recommendation",
+                noul_labels={"is_forecast": True, "is_trade_or_action": False},
+            )
+        ]
+        queue = build_review_queue(artifact.units, gold_labels=gold, packet_size=5)
+        self.assertFalse(
+            any(item.unit_id == "chunk-1:assertion-1" for item in queue)
+        )
+
     def test_packet_markdown_marks_suggestions_as_proposals(self) -> None:
         artifact = ShadowDecisionClassifier(FakeDecisionModel()).classify_assertions(
             [_draft(1, "forecast", "We expect two cuts later this year.")]
