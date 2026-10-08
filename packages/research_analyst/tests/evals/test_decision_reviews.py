@@ -479,6 +479,15 @@ class ImportedDecisionReviewTest(unittest.TestCase):
         self.assertTrue(
             all("is_observation" not in label.noul_labels for label in gold)
         )
+        by_doc = {label.document_id: label for label in gold}
+        self.assertIn(
+            by_doc["doc_002"].reviewed_text or "",
+            by_doc["doc_002"].stored_model_input or "",
+        )
+        self.assertNotEqual(
+            by_doc["doc_002"].reviewed_text,
+            by_doc["doc_002"].stored_model_input,
+        )
 
     def test_evaluation_scores_only_supplied_noul_labels(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -7,6 +7,7 @@ import unittest
 from research_analysis_layer.evals.decision_consistency import (
     CONTAMINATED_PREFIX,
     SEED_FORECAST,
+    run_batch_invariance,
     run_compound_decomposition,
     run_context_isolation,
     run_formatting_invariance,
@@ -100,6 +101,96 @@ class ConsistencyFamilyTest(unittest.TestCase):
         cases = run_formatting_invariance(FakeDecisionModel())
         self.assertTrue(cases)
         self.assertFalse(any(case.failed for case in cases))
+
+    def test_batch_invariance_holds_for_fake_provider(self) -> None:
+        drafts = [
+            AssertionDraft(
+                chunk_order=1,
+                assertion_order=1,
+                assertion_type="forecast",
+                text=SEED_FORECAST,
+                normalized_text=normalize_text(SEED_FORECAST),
+                summary_text=SEED_FORECAST,
+            ),
+            AssertionDraft(
+                chunk_order=1,
+                assertion_order=2,
+                assertion_type="observation",
+                text="Payrolls printed 180k last month.",
+                normalized_text=normalize_text("Payrolls printed 180k last month."),
+                summary_text="Payrolls printed 180k last month.",
+            ),
+        ]
+        cases = run_batch_invariance(FakeDecisionModel(), drafts)
+        case_ids = {case.case_id for case in cases}
+        self.assertTrue(any(item.startswith("batch-size-") for item in case_ids))
+        self.assertTrue(any(item.startswith("batch-order-") for item in case_ids))
+        self.assertTrue(any(item.startswith("batch-neighbor-") for item in case_ids))
+        self.assertFalse(any(case.failed for case in cases))
+
+    def test_batch_neighbor_flip_is_a_failure(self) -> None:
+        def neighbor_sensitive(batch, question, unit):
+            if question.question_kind != "choice":
+                return None
+            if SEED_FORECAST not in unit.text:
+                return None
+            if any(
+                "recommend" in other.text.lower()
+                for other in batch.units
+                if other.unit_id != unit.unit_id
+            ):
+                return _choice_result(question, unit, "recommendation")
+            return _choice_result(question, unit, "assertion")
+
+        drafts = [
+            AssertionDraft(
+                chunk_order=1,
+                assertion_order=1,
+                assertion_type="forecast",
+                text=SEED_FORECAST,
+                normalized_text=normalize_text(SEED_FORECAST),
+                summary_text=SEED_FORECAST,
+            )
+        ]
+        cases = run_batch_invariance(
+            FakeDecisionModel(responder=neighbor_sensitive), drafts
+        )
+        neighbor_cases = [
+            case for case in cases if case.case_id.startswith("batch-neighbor-")
+        ]
+        self.assertTrue(neighbor_cases)
+        self.assertTrue(all(case.choice_label_flip and case.failed for case in neighbor_cases))
+
+    def test_batch_order_flip_is_a_failure(self) -> None:
+        def order_sensitive(batch, question, unit):
+            if question.question_kind != "choice":
+                return None
+            selected = (
+                "assertion"
+                if batch.units and batch.units[0].unit_id == unit.unit_id
+                else "recommendation"
+            )
+            return _choice_result(question, unit, selected)
+
+        drafts = [
+            AssertionDraft(
+                chunk_order=1,
+                assertion_order=index,
+                assertion_type="forecast",
+                text=f"We expect cut number {index} later this year.",
+                normalized_text=normalize_text(f"We expect cut number {index} later this year."),
+                summary_text=f"We expect cut number {index} later this year.",
+            )
+            for index in (1, 2)
+        ]
+        cases = run_batch_invariance(
+            FakeDecisionModel(responder=order_sensitive), drafts
+        )
+        order_cases = [
+            case for case in cases if case.case_id.startswith("batch-order-")
+        ]
+        self.assertTrue(order_cases)
+        self.assertTrue(any(case.choice_label_flip and case.failed for case in order_cases))
 
     def test_repeatability_is_stable_for_fake_provider(self) -> None:
         draft = AssertionDraft(

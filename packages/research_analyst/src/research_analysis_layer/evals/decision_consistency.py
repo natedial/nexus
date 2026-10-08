@@ -18,10 +18,7 @@ from research_analysis_layer.evals.decision_metrics import (
     noul_prediction,
 )
 from research_analysis_layer.models.assertion_models import AssertionDraft, normalize_text
-from research_analysis_layer.models.decision_models import (
-    SUPPORT_NOUL_IDS,
-    UnitClassificationRecord,
-)
+from research_analysis_layer.models.decision_models import UnitClassificationRecord
 from research_analysis_layer.services.decision_model import DecisionModel
 
 CONSISTENCY_SCHEMA_VERSION = "decision-consistency-report-v1"
@@ -42,6 +39,14 @@ SEED_NEGATIVE_REC = (
 )
 SEED_COMPOUND = (
     "Sticky services inflation will delay cuts and therefore keep the long end under pressure."
+)
+NEIGHBOR_RECOMMENDATION = (
+    "We recommend positioned for a flatter curve through mid-year."
+)
+BATCH_STABLE_FIELDS: tuple[str, ...] = (
+    "statement_type",
+    "is_forecast",
+    "is_trade_or_action",
 )
 
 NEGATIVE_REC_VARIANTS = (
@@ -134,6 +139,16 @@ def _classify(
     for record in artifact.units:
         by_text[record.source_text] = record
     return {record.unit_id: record for record in artifact.units} | by_text
+
+
+def _by_source_text(
+    classified: dict[str, UnitClassificationRecord],
+) -> dict[str, UnitClassificationRecord]:
+    unique: dict[str, UnitClassificationRecord] = {}
+    for record in classified.values():
+        if isinstance(record, UnitClassificationRecord):
+            unique[record.source_text] = record
+    return unique
 
 
 def _record_for_text(
@@ -400,28 +415,32 @@ def run_batch_invariance(
     *,
     sizes: Sequence[int] = (1, 2, 4, 8),
 ) -> list[ConsistencyCaseResult]:
+    """Batch size, neighbor, and order must not change labels of the same unit."""
+    results: list[ConsistencyCaseResult] = []
+    results.extend(_batch_size_invariance(model, drafts, sizes=sizes))
+    results.extend(_batch_order_invariance(model, drafts))
+    results.extend(_batch_neighbor_invariance(model))
+    return results
+
+
+def _batch_size_invariance(
+    model: DecisionModel,
+    drafts: Sequence[AssertionDraft],
+    *,
+    sizes: Sequence[int],
+) -> list[ConsistencyCaseResult]:
     if not drafts:
         return []
     by_size: dict[int, dict[str, UnitClassificationRecord]] = {}
     for size in sizes:
-        artifact_map = _classify(
-            model,
-            drafts,
-            batch_size=max(1, size),
-            document_key=f"consistency-batch-{size}",
+        by_size[size] = _by_source_text(
+            _classify(
+                model,
+                drafts,
+                batch_size=max(1, size),
+                document_key=f"consistency-batch-{size}",
+            )
         )
-        by_text = {
-            record.source_text: record
-            for record in artifact_map.values()
-            if isinstance(record, UnitClassificationRecord)
-        }
-        # _classify returns unit_id and text keys; keep unique texts only.
-        unique = {
-            record.source_text: record
-            for record in artifact_map.values()
-            if hasattr(record, "source_text")
-        }
-        by_size[size] = unique or by_text
     base_size = sizes[0]
     results: list[ConsistencyCaseResult] = []
     for text, base in by_size[base_size].items():
@@ -433,12 +452,100 @@ def run_batch_invariance(
                 _compare_pair(
                     family="batch_invariance",
                     kind="invariance",
-                    case_id=f"batch-{base_size}-vs-{size}-{base.unit_id}",
+                    case_id=f"batch-size-{base_size}-vs-{size}-{base.unit_id}",
                     base=base,
                     variant=variant,
-                    stable_fields=("statement_type", *SUPPORT_NOUL_IDS[:1]),
+                    stable_fields=BATCH_STABLE_FIELDS,
                 )
             )
+    return results
+
+
+def _batch_order_invariance(
+    model: DecisionModel,
+    drafts: Sequence[AssertionDraft],
+    *,
+    batch_size: int = 4,
+) -> list[ConsistencyCaseResult]:
+    ordered = list(drafts)
+    if len(ordered) < 2:
+        return []
+    forward = _by_source_text(
+        _classify(
+            model,
+            ordered,
+            batch_size=max(1, batch_size),
+            document_key="consistency-order-fwd",
+        )
+    )
+    reversed_order = _by_source_text(
+        _classify(
+            model,
+            list(reversed(ordered)),
+            batch_size=max(1, batch_size),
+            document_key="consistency-order-rev",
+        )
+    )
+    results: list[ConsistencyCaseResult] = []
+    for text, base in forward.items():
+        variant = reversed_order.get(text)
+        if variant is None:
+            continue
+        results.append(
+            _compare_pair(
+                family="batch_invariance",
+                kind="invariance",
+                case_id=f"batch-order-{base.unit_id}",
+                base=base,
+                variant=variant,
+                stable_fields=BATCH_STABLE_FIELDS,
+            )
+        )
+    return results
+
+
+def _batch_neighbor_invariance(model: DecisionModel) -> list[ConsistencyCaseResult]:
+    target = _draft("nbr-target", SEED_FORECAST, "forecast")
+    neighbor = _draft("nbr-rec", NEIGHBOR_RECOMMENDATION, "trade_claim")
+    solo = _by_source_text(
+        _classify(
+            model, [target], batch_size=1, document_key="consistency-neighbor-solo"
+        )
+    )
+    right = _by_source_text(
+        _classify(
+            model,
+            [target, neighbor],
+            batch_size=2,
+            document_key="consistency-neighbor-right",
+        )
+    )
+    left = _by_source_text(
+        _classify(
+            model,
+            [neighbor, target],
+            batch_size=2,
+            document_key="consistency-neighbor-left",
+        )
+    )
+    base = solo.get(SEED_FORECAST)
+    if base is None:
+        return []
+    results: list[ConsistencyCaseResult] = []
+    for name, group in (("right", right), ("left", left)):
+        variant = group.get(SEED_FORECAST)
+        if variant is None:
+            continue
+        results.append(
+            _compare_pair(
+                family="batch_invariance",
+                kind="invariance",
+                case_id=f"batch-neighbor-solo-vs-{name}",
+                base=base,
+                variant=variant,
+                stable_fields=BATCH_STABLE_FIELDS,
+            )
+        )
     return results
 
 
@@ -455,13 +562,7 @@ def run_repeatability(
         classified = _classify(
             model, drafts, batch_size=4, document_key=f"consistency-repeat-{index}"
         )
-        snapshots.append(
-            {
-                record.source_text: record
-                for record in classified.values()
-                if hasattr(record, "source_text")
-            }
-        )
+        snapshots.append(_by_source_text(classified))
     results: list[ConsistencyCaseResult] = []
     for text, base in snapshots[0].items():
         for run_index, snapshot in enumerate(snapshots[1:], start=1):
@@ -511,6 +612,7 @@ def run_consistency_suite(
         "compound_decomposition is a contrast family: differences are observations",
         "fake provider choice labels follow assertion_type, so wording-only "
         "families need --provider jev to expose model sensitivity",
+        "batch_invariance covers sizes 1/2/4/8 plus neighbor and order changes",
     ]
     return ConsistencyReport(
         case_count=len(cases),

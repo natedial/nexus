@@ -21,6 +21,9 @@ Captured: 2026-10-07 America/New_York
   false. Evaluation scores supplied labels only. Full-vector metrics exclude
   these partial records until the remaining axes are completed. The mixed
   forecast/action case is still absent from `REVIEW_NOTES.md`.
+- Batch invariance now covers sizes 1/2/4/8 plus neighbor and order
+  changes. Review packets collapse surrounding context and highlight
+  stored-model-input diffs versus the reviewed sentence.
 
 ## Objective
 
@@ -419,13 +422,19 @@ specific failure.
 1. Define the structured review-record schema and import the two stored
    agreed notes as sparse `agreed` records (done). The mixed-content case
    remains missing until a later review.
-2. Add a gold-set validator, release manifest, and readable change report.
-3. Implement context-isolation tests using the contaminated-prefix case.
+2. Add a gold-set validator, release manifest, and readable change report
+   (done).
+3. Implement context-isolation tests using the contaminated-prefix case
+   (done).
 4. Implement negative/status-quo recommendation silver rules and metamorphic
-   variants.
+   variants (done).
 5. Implement compound-sentence decomposition tests without changing the
-   runtime output schema.
+   runtime output schema (done).
 6. Produce the first standardized run directory over the 18-unit fixture and
-   65-unit live corpus.
+   65-unit live corpus (done for the fixture; live artifacts are copied, not
+   reclassified).
 7. Generate the first bounded human review packet from the resulting gaps and
-   disagreements.
+   disagreements (done; packets now collapse context and stored-input diffs).
+8. Run the consistency suite with `--provider jev` when a live pass is
+   wanted; FakeDecisionModel cannot expose wording-only or neighbor
+   sensitivity.

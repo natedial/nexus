@@ -324,6 +324,8 @@ def gold_labels_from_review_records(
                     if record.label_completeness == "partial"
                     else record.rationale
                 ),
+                reviewed_text=record.reviewed_text,
+                stored_model_input=record.model_input,
             )
         )
     return labels

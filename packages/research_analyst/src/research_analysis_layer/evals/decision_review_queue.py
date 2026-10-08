@@ -18,7 +18,8 @@ from research_analysis_layer.evals.decision_metrics import (
 from research_analysis_layer.evals.decision_silver import SilverAgreementReport
 from research_analysis_layer.models.decision_models import UnitClassificationRecord
 
-QUEUE_SCHEMA_VERSION = "decision-review-queue-v1"
+QUEUE_SCHEMA_VERSION = "decision-review-queue-v2"
+CONTEXT_CLIP_CHARS = 240
 HIGH_CONFIDENCE = 0.70
 NEAR_THRESHOLD = 0.10
 LOAD_BEARING_TYPES = frozenset({"recommendation"})
@@ -48,8 +49,13 @@ class ReviewCandidate:
     model_statement_type: str | None = None
     model_probability: float | None = None
     silver_labels: dict[str, str | bool] = field(default_factory=dict)
+    silver_rules: list[str] = field(default_factory=list)
     suggested_labels: dict[str, str | bool] = field(default_factory=dict)
     questions: list[str] = field(default_factory=list)
+    reviewed_text: str | None = None
+    stored_model_input: str | None = None
+    surrounding_context: str | None = None
+    model_noul: dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,6 +69,109 @@ def _cluster_id(text: str) -> str:
 
 def _gold_by_id(gold: Sequence[GoldUnitLabel]) -> dict[str, GoldUnitLabel]:
     return {item.unit_id: item for item in gold}
+
+
+def _clip(text: str, limit: int = CONTEXT_CLIP_CHARS) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1] + "…"
+
+
+def stored_input_diff(reviewed_text: str, stored_model_input: str) -> dict[str, Any]:
+    """Split stored model input into prefix / reviewed sentence / suffix."""
+    if reviewed_text == stored_model_input:
+        return {
+            "identical": True,
+            "prefix": "",
+            "sentence": reviewed_text,
+            "suffix": "",
+            "stored": stored_model_input,
+        }
+    if reviewed_text and reviewed_text in stored_model_input:
+        start = stored_model_input.index(reviewed_text)
+        return {
+            "identical": False,
+            "prefix": stored_model_input[:start],
+            "sentence": reviewed_text,
+            "suffix": stored_model_input[start + len(reviewed_text) :],
+            "stored": stored_model_input,
+        }
+    return {
+        "identical": False,
+        "prefix": "",
+        "sentence": reviewed_text,
+        "suffix": "",
+        "stored": stored_model_input,
+    }
+
+
+def _surrounding_context(
+    records: Sequence[UnitClassificationRecord],
+    current: UnitClassificationRecord,
+) -> str | None:
+    same = [
+        record
+        for record in records
+        if record.document_key == current.document_key
+    ]
+    same.sort(key=lambda record: record.unit_id)
+    idx = next(
+        (
+            index
+            for index, record in enumerate(same)
+            if record.unit_id == current.unit_id
+        ),
+        None,
+    )
+    parts: list[str] = []
+    title = (current.provenance or {}).get("doc_section_title")
+    if title:
+        parts.append(f"Section: {title}")
+    if idx is not None and idx > 0:
+        parts.append(f"Previous: {_clip(same[idx - 1].source_text)}")
+    if idx is not None and idx + 1 < len(same):
+        parts.append(f"Next: {_clip(same[idx + 1].source_text)}")
+    return "\n\n".join(parts) if parts else None
+
+
+def _model_noul_summary(record: UnitClassificationRecord) -> dict[str, str]:
+    summary: dict[str, str] = {}
+    for noul_id in sorted(LOAD_BEARING_NOULS):
+        pred, pred_p = noul_prediction(record, noul_id)
+        if pred is None:
+            continue
+        token = "yes" if pred else "no"
+        if pred_p is None:
+            summary[noul_id] = token
+        else:
+            summary[noul_id] = f"{token} (p={pred_p:.2f})"
+    return summary
+
+
+def _silver_rule_names(silver_row: Any | None) -> list[str]:
+    if silver_row is None:
+        return []
+    names: list[str] = []
+    for hit in silver_row.hits:
+        if hit.confidence_tier != "high":
+            continue
+        names.append(f"{hit.rule_id}:{hit.field}={hit.value}")
+    return names
+
+
+def _scope_texts(
+    record: UnitClassificationRecord,
+    gold_row: GoldUnitLabel | None,
+) -> tuple[str, str]:
+    reviewed = record.source_text
+    stored = record.source_text
+    if gold_row is not None:
+        if gold_row.reviewed_text:
+            reviewed = gold_row.reviewed_text
+        if gold_row.stored_model_input:
+            stored = gold_row.stored_model_input
+    return reviewed, stored
 
 
 def build_review_queue(
@@ -178,6 +287,7 @@ def build_review_queue(
 
         if not reasons:
             continue
+        reviewed_text, stored_input = _scope_texts(record, gold_row)
         candidates.append(
             ReviewCandidate(
                 unit_id=record.unit_id,
@@ -190,8 +300,13 @@ def build_review_queue(
                 model_statement_type=choice,
                 model_probability=choice_p,
                 silver_labels=silver_labels,
+                silver_rules=_silver_rule_names(silver_row),
                 suggested_labels=suggested,
                 questions=questions or ["Does the model label match the intended meaning?"],
+                reviewed_text=reviewed_text,
+                stored_model_input=stored_input,
+                surrounding_context=_surrounding_context(records, record),
+                model_noul=_model_noul_summary(record),
             )
         )
 
@@ -207,6 +322,8 @@ def build_review_queue(
         rng.shuffle(sample)
         for record in sample[:audit_n]:
             choice, choice_p = choice_prediction(record)
+            silver_row = silver_by_unit.get(record.unit_id)
+            reviewed_text, stored_input = _scope_texts(record, None)
             candidates.append(
                 ReviewCandidate(
                     unit_id=record.unit_id,
@@ -217,7 +334,13 @@ def build_review_queue(
                     cluster_id=_cluster_id(record.source_text),
                     model_statement_type=choice,
                     model_probability=choice_p,
+                    silver_labels=dict(silver_row.included_labels) if silver_row else {},
+                    silver_rules=_silver_rule_names(silver_row),
                     questions=["Random audit: is the current label correct?"],
+                    reviewed_text=reviewed_text,
+                    stored_model_input=stored_input,
+                    surrounding_context=_surrounding_context(records, record),
+                    model_noul=_model_noul_summary(record),
                 )
             )
 
@@ -235,6 +358,18 @@ def build_review_queue(
     return selected
 
 
+def _details_block(summary: str, body_lines: Sequence[str]) -> list[str]:
+    return [
+        "<details>",
+        f"<summary>{summary}</summary>",
+        "",
+        *body_lines,
+        "",
+        "</details>",
+        "",
+    ]
+
+
 def review_packet_markdown(candidates: Sequence[ReviewCandidate]) -> str:
     """One-screen-per-case markdown packet. Suggestions are marked as proposals."""
     lines = [
@@ -245,6 +380,9 @@ def review_packet_markdown(candidates: Sequence[ReviewCandidate]) -> str:
         "",
     ]
     for index, item in enumerate(candidates, start=1):
+        sentence = item.reviewed_text or item.source_text
+        stored = item.stored_model_input or item.source_text
+        diff = stored_input_diff(sentence, stored)
         lines.extend(
             [
                 f"## {index}. `{item.document_id or 'unknown'}` / `{item.unit_id}`",
@@ -253,14 +391,71 @@ def review_packet_markdown(candidates: Sequence[ReviewCandidate]) -> str:
                 "",
                 "### Sentence",
                 "",
-                f"> {item.source_text}",
+                f"> {sentence}",
                 "",
+            ]
+        )
+        context_body = (
+            item.surrounding_context.split("\n\n")
+            if item.surrounding_context
+            else ["No neighboring units or section title were available."]
+        )
+        context_lines: list[str] = []
+        for part in context_body:
+            context_lines.extend([part, ""])
+        if context_lines and context_lines[-1] == "":
+            context_lines.pop()
+        lines.extend(_details_block("Surrounding context", context_lines))
+        if diff["identical"]:
+            stored_lines = ["Identical to the sentence above."]
+        else:
+            stored_lines = []
+            if diff["prefix"].strip():
+                stored_lines.extend(
+                    [
+                        "**Extra prefix (not in review scope):**",
+                        "",
+                        f"> {diff['prefix'].rstrip()}",
+                        "",
+                    ]
+                )
+            stored_lines.extend(
+                ["**Reviewed sentence:**", "", f"> {diff['sentence']}", ""]
+            )
+            if diff["suffix"].strip():
+                stored_lines.extend(
+                    [
+                        "**Extra suffix (not in review scope):**",
+                        "",
+                        f"> {diff['suffix'].lstrip()}",
+                        "",
+                    ]
+                )
+            if not diff["prefix"] and not diff["suffix"] and diff["stored"] != sentence:
+                stored_lines.extend(
+                    [
+                        "**Stored model input:**",
+                        "",
+                        f"> {diff['stored']}",
+                        "",
+                    ]
+                )
+            if stored_lines and stored_lines[-1] == "":
+                stored_lines.pop()
+        lines.extend(_details_block("Stored model input", stored_lines))
+        noul_bits = ", ".join(
+            f"{name}={value}" for name, value in item.model_noul.items()
+        ) or "none"
+        lines.extend(
+            [
                 "### Model / gold / silver",
                 "",
                 f"- Model statement_type: `{item.model_statement_type}` "
                 f"(p={item.model_probability if item.model_probability is not None else 'n/a'})",
+                f"- Model load-bearing Nouls: `{noul_bits}`",
                 f"- Gold statement_type: `{item.gold_statement_type or 'none'}`",
                 f"- Silver labels: `{item.silver_labels or {}}`",
+                f"- Silver rules: `{item.silver_rules or []}`",
                 f"- Suggested labels (agent proposal): `{item.suggested_labels or {}}`",
                 "",
                 "### Questions",

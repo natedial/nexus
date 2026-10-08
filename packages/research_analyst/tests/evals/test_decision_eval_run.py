@@ -94,7 +94,12 @@ class DecisionEvalRunTest(unittest.TestCase):
             )
             self.assertIn("ineligible", summary.lower())
             self.assertIn("gold_metrics.json", summary)
-            self.assertLessEqual(packet.count("\n## "), 20)
+            self.assertLessEqual(
+                sum(1 for line in packet.splitlines() if line.startswith("## ")),
+                20,
+            )
+            self.assertIn("<details>", packet)
+            self.assertIn("Surrounding context", packet)
             queue_lines = [
                 line
                 for line in (output / "review_queue.jsonl").read_text(encoding="utf-8").splitlines()
