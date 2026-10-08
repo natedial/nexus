@@ -11,13 +11,21 @@ from pathlib import Path
 from research_analysis_layer.evals.decision_artifacts import write_shadow_artifact
 from research_analysis_layer.evals.decision_classifier import ShadowDecisionClassifier
 from research_analysis_layer.evals.decision_question_set import snapshot_question_set
+from research_analysis_layer.evals.decision_metrics import (
+    GoldUnitLabel,
+    evaluate_shadow_artifact,
+)
 from research_analysis_layer.evals.decision_reviews import (
+    NOUL_QUESTION_IDS,
     ApprovalTrace,
     DecisionReviewRecord,
     ReviewedLabels,
     SourceArtifactReference,
     change_report_markdown,
     coverage_report,
+    default_review_dir,
+    default_review_records_path,
+    gold_labels_from_review_records,
     load_review_records,
     sha256_bytes,
     sha256_text,
@@ -126,11 +134,46 @@ class DecisionReviewRecordTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "approval_trace"):
                 fixture.record(approval_trace=None)
 
-    def test_record_requires_all_binary_labels(self) -> None:
-        labels = _labels().model_dump(mode="json")
-        labels["noul_labels"].pop("is_forecast")
-        with self.assertRaisesRegex(ValueError, "missing"):
-            ReviewedLabels.model_validate(labels)
+    def test_sparse_noul_labels_are_unreviewed_not_false(self) -> None:
+        labels = ReviewedLabels(
+            statement_type="assertion",
+            noul_labels={"is_forecast": True, "is_trade_or_action": False},
+        )
+        self.assertEqual(labels.noul_labels.get("is_forecast"), True)
+        self.assertEqual(labels.noul_labels.get("is_trade_or_action"), False)
+        self.assertNotIn("is_observation", labels.noul_labels)
+        self.assertEqual(labels.label_completeness, "partial")
+        self.assertIn("is_observation", labels.unreviewed_noul_ids)
+
+    def test_null_noul_values_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "absent, not null"):
+            ReviewedLabels.model_validate(
+                {
+                    "statement_type": "assertion",
+                    "noul_labels": {"is_forecast": None},
+                }
+            )
+
+    def test_unknown_noul_ids_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown question ids"):
+            ReviewedLabels(
+                statement_type="assertion",
+                noul_labels={"not_a_noul": True},
+            )
+
+    def test_empty_noul_labels_are_partial_unreviewed(self) -> None:
+        labels = ReviewedLabels(statement_type="assertion")
+        self.assertEqual(labels.noul_labels, {})
+        self.assertEqual(labels.label_completeness, "partial")
+        self.assertEqual(labels.unreviewed_noul_ids, list(NOUL_QUESTION_IDS))
+
+    def test_completeness_mismatch_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = ReviewFixture(Path(tmp))
+            with self.assertRaisesRegex(ValueError, "label_completeness"):
+                fixture.record(label_completeness="partial")
+            with self.assertRaisesRegex(ValueError, "unreviewed_noul_ids"):
+                fixture.record(unreviewed_noul_ids=["is_forecast"])
 
     def test_binary_labels_do_not_coerce_strings(self) -> None:
         labels = _labels().model_dump(mode="json")
@@ -330,6 +373,136 @@ class DecisionReviewReportingTest(unittest.TestCase):
             )
             self.assertEqual(manifest["release_status"], "proposed_unverified")
             self.assertEqual(manifest["eligible_review_ids"], [])
+
+    def test_partial_agreed_records_are_split_from_full_vector_eligibility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = ReviewFixture(root)
+            agreed = fixture.record(
+                labels={
+                    "statement_type": "assertion",
+                    "noul_labels": {
+                        "is_forecast": True,
+                        "is_trade_or_action": False,
+                    },
+                }
+            )
+            self.assertEqual(agreed.label_completeness, "partial")
+            records_path = root / "records.jsonl"
+            records_path.write_text(
+                json.dumps(agreed.model_dump(mode="json")) + "\n",
+                encoding="utf-8",
+            )
+            validation = validate_review_records([agreed], artifact_root=root)
+            output_dir = root / "release"
+            write_release_outputs(
+                records=[agreed],
+                records_path=records_path,
+                output_dir=output_dir,
+                validation=validation,
+                release_version="decision-gold-test",
+            )
+            manifest = json.loads(
+                (output_dir / "release_manifest.json").read_text(encoding="utf-8")
+            )
+            coverage = json.loads(
+                (output_dir / "coverage.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["eligible_review_ids"], [agreed.review_id])
+            self.assertEqual(manifest["eligible_complete_review_ids"], [])
+            self.assertEqual(
+                manifest["eligible_partial_review_ids"], [agreed.review_id]
+            )
+            self.assertTrue(
+                manifest["safety"]["partial_records_excluded_from_full_vector_metrics"]
+            )
+            self.assertTrue(manifest["safety"]["unreviewed_noul_labels_not_inferred"])
+            gold = coverage["agreed_gold"]
+            self.assertEqual(gold["partial_record_count"], 1)
+            self.assertEqual(gold["complete_record_count"], 0)
+            self.assertEqual(gold["noul_labels"]["is_forecast"]["reviewed"], 1)
+            self.assertEqual(gold["noul_labels"]["is_forecast"]["yes"], 1)
+            self.assertEqual(gold["noul_labels"]["is_observation"]["reviewed"], 0)
+            self.assertEqual(gold["noul_labels"]["is_observation"]["unreviewed"], 1)
+            self.assertEqual(gold["noul_labels"]["is_observation"]["no"], 0)
+
+
+class ImportedDecisionReviewTest(unittest.TestCase):
+    def test_checked_in_agreed_notes_validate_as_partial_gold(self) -> None:
+        records_path = default_review_records_path()
+        self.assertTrue(records_path.is_file(), records_path)
+        records = load_review_records(records_path)
+        report = validate_review_records(
+            records, artifact_root=default_review_dir() / "sources"
+        )
+        self.assertTrue(report.valid, report.model_dump(mode="json"))
+        self.assertEqual(report.agreed_count, 2)
+        self.assertEqual(report.candidate_count, 0)
+        self.assertTrue(all(record.status == "agreed" for record in records))
+        self.assertTrue(
+            all(record.label_completeness == "partial" for record in records)
+        )
+        by_id = {record.review_id: record for record in records}
+        first = by_id["review-doc002-chunk6-assertion2-20260930"]
+        second = by_id["review-doc003-chunk7-assertion1-20261002"]
+        self.assertEqual(
+            first.labels.noul_labels,
+            {
+                "is_forecast": True,
+                "is_causal": True,
+                "is_trade_or_action": False,
+                "contains_reasoning_bridge": True,
+            },
+        )
+        self.assertEqual(
+            second.labels.noul_labels,
+            {
+                "is_forecast": False,
+                "is_causal": False,
+                "is_trade_or_action": True,
+                "contains_reasoning_bridge": False,
+            },
+        )
+        self.assertNotIn("is_observation", first.labels.noul_labels)
+        self.assertNotIn("is_observation", second.labels.noul_labels)
+
+    def test_require_complete_excludes_partial_agreed_records(self) -> None:
+        records = load_review_records(default_review_records_path())
+        self.assertEqual(
+            gold_labels_from_review_records(records, require_complete=True),
+            [],
+        )
+        gold = gold_labels_from_review_records(records)
+        self.assertEqual(len(gold), 2)
+        self.assertTrue(all(label.document_id for label in gold))
+        self.assertTrue(all(label.label_completeness == "partial" for label in gold))
+        self.assertTrue(
+            all("is_observation" not in label.noul_labels for label in gold)
+        )
+
+    def test_evaluation_scores_only_supplied_noul_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = ReviewFixture(Path(tmp))
+            gold = [
+                GoldUnitLabel(
+                    unit_id="chunk-1:assertion-1",
+                    document_id="doc-rates",
+                    statement_type="assertion",
+                    noul_labels={
+                        "is_forecast": True,
+                        "is_trade_or_action": False,
+                    },
+                )
+            ]
+            report = evaluate_shadow_artifact(fixture.artifact, gold)
+            self.assertEqual(report.unit_count, 1)
+            self.assertEqual(report.partial_label_unit_count, 1)
+            self.assertEqual(report.complete_label_unit_count, 0)
+            self.assertEqual(report.noul_reviewed["is_forecast"], 1)
+            self.assertEqual(report.noul_reviewed["is_trade_or_action"], 1)
+            self.assertEqual(report.noul_reviewed["is_observation"], 0)
+            self.assertNotIn("is_observation", report.noul_support)
+            self.assertIn("partial-label units excluded", " ".join(report.notes))
 
 
 if __name__ == "__main__":

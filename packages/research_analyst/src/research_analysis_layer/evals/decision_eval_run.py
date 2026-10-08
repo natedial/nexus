@@ -39,7 +39,13 @@ from research_analysis_layer.evals.decision_review_queue import (
     build_review_queue,
     review_packet_markdown,
 )
-from research_analysis_layer.evals.decision_reviews import sha256_bytes, sha256_text
+from research_analysis_layer.evals.decision_reviews import (
+    default_review_records_path,
+    gold_labels_from_review_records,
+    load_review_records,
+    sha256_bytes,
+    sha256_text,
+)
 from research_analysis_layer.evals.decision_silver import (
     SilverAgreementReport,
     evaluate_silver_agreement,
@@ -256,11 +262,43 @@ def run_decision_eval(
 
     gold_report = evaluate_shadow_artifact(fixture_artifact, gold_labels)
     live_units = [unit for artifact in live_artifacts for unit in artifact.units]
+    review_path = default_review_records_path()
+    review_records = load_review_records(review_path) if review_path.is_file() else []
+    review_gold = gold_labels_from_review_records(review_records)
+    live_gold_reports = [
+        evaluate_shadow_artifact(artifact, review_gold).as_dict()
+        for artifact in live_artifacts
+    ]
+    live_labeled = sum(report["unit_count"] for report in live_gold_reports)
+    live_partial = sum(
+        report.get("partial_label_unit_count", 0) for report in live_gold_reports
+    )
+    live_complete = sum(
+        report.get("complete_label_unit_count", 0) for report in live_gold_reports
+    )
+    merged_reviewed: dict[str, int] = {}
+    for report in live_gold_reports:
+        for question_id, count in (report.get("noul_reviewed") or {}).items():
+            merged_reviewed[question_id] = merged_reviewed.get(question_id, 0) + int(count)
     live_gold = {
         "artifact_count": len(live_artifacts),
         "unit_count": len(live_units),
-        "labeled_unit_count": 0,
-        "note": "no approved gold attached to live corpus units",
+        "labeled_unit_count": live_labeled,
+        "complete_label_unit_count": live_complete,
+        "partial_label_unit_count": live_partial,
+        "noul_reviewed": merged_reviewed,
+        "by_document": {
+            artifact.document_key or f"artifact-{index}": report
+            for index, (artifact, report) in enumerate(
+                zip(live_artifacts, live_gold_reports)
+            )
+        },
+        "note": (
+            "agreed reviews scored on supplied labels only; unreviewed Nouls "
+            "are unknown and partial records are excluded from full-vector metrics"
+            if review_gold
+            else "no approved gold attached to live corpus units"
+        ),
     }
     gold_payload = {
         "schema_version": "decision-gold-metrics-v1",
@@ -277,7 +315,7 @@ def run_decision_eval(
     )
     queue = build_review_queue(
         all_units,
-        gold_labels=gold_labels,
+        gold_labels=[*gold_labels, *review_gold],
         gold_document_id=fixture_artifact.document_key,
         silver=silver,
         consistency_cases=consistency.cases,

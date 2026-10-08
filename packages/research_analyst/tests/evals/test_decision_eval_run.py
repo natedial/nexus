@@ -14,6 +14,7 @@ from research_analysis_layer.evals.decision_eval_run import (
     run_decision_eval,
 )
 from research_analysis_layer.evals.decision_metrics import estimate_usage_cost
+from research_analysis_layer.evals.decision_reviews import default_review_dir
 from research_analysis_layer.models.assertion_models import AssertionDraft, normalize_text
 from research_analysis_layer.services.fake_decision_model import FakeDecisionModel
 
@@ -65,6 +66,9 @@ class DecisionEvalRunTest(unittest.TestCase):
             self.assertEqual(gold["schema_version"], "decision-gold-metrics-v1")
             self.assertGreater(gold["fixture"]["unit_count"], 0)
             self.assertEqual(gold["live"]["labeled_unit_count"], 0)
+            self.assertEqual(gold["live"]["partial_label_unit_count"], 0)
+            self.assertEqual(gold["live"]["complete_label_unit_count"], 0)
+            self.assertIn("noul_reviewed", gold["live"])
             self.assertIn("never gold", " ".join(silver["notes"]))
             self.assertIn("compound_decomposition", consistency["families"])
             self.assertTrue(manifest["safety"]["gold_silver_consistency_separated"])
@@ -110,6 +114,42 @@ class DecisionEvalRunTest(unittest.TestCase):
         self.assertIsNotNone(cost["estimated_usd"])
         self.assertAlmostEqual(cost["estimated_usd"], 0.0012, places=4)
         self.assertIn("provisional", cost["pricing_source"])
+
+    def test_live_gold_scores_supplied_labels_from_agreed_reviews(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "run"
+            run_decision_eval(
+                output_dir=output,
+                provider="fake",
+                live_artifact_root=default_review_dir() / "sources",
+                packet_size=8,
+                repeatability_runs=1,
+            )
+            gold = json.loads((output / "gold_metrics.json").read_text(encoding="utf-8"))
+            live = gold["live"]
+            self.assertEqual(live["labeled_unit_count"], 2)
+            self.assertEqual(live["partial_label_unit_count"], 2)
+            self.assertEqual(live["complete_label_unit_count"], 0)
+            self.assertEqual(live["noul_reviewed"].get("is_forecast"), 2)
+            self.assertEqual(live["noul_reviewed"].get("is_observation"), 0)
+            self.assertIn("supplied labels only", live["note"])
+            queue_rows = [
+                json.loads(line)
+                for line in (output / "review_queue.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line.strip()
+            ]
+            agreed_keys = {
+                ("doc_002", "chunk-6:assertion-2"),
+                ("doc_003", "chunk-7:assertion-1"),
+            }
+            self.assertFalse(
+                any(
+                    (row.get("document_id"), row.get("unit_id")) in agreed_keys
+                    for row in queue_rows
+                )
+            )
 
     def test_packet_size_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

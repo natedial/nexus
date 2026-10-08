@@ -24,13 +24,25 @@ NOUL_QUESTION_IDS: tuple[str, ...] = (*SUBTYPE_NOUL_IDS, *SUPPORT_NOUL_IDS)
 
 @dataclass(slots=True)
 class GoldUnitLabel:
-    """Hand-authored gold labels for one assertion unit."""
+    """Hand-authored gold labels for one assertion unit.
+
+    ``noul_labels`` may be sparse. Omitted keys are unreviewed, not false.
+    """
 
     unit_id: str
     statement_type: str
     noul_labels: dict[str, bool] = field(default_factory=dict)
+    document_id: str | None = None
     assertion_type: str | None = None
     notes: str | None = None
+
+    @property
+    def label_completeness(self) -> str:
+        return (
+            "complete"
+            if set(self.noul_labels) >= set(NOUL_QUESTION_IDS)
+            else "partial"
+        )
 
 
 @dataclass(slots=True)
@@ -45,6 +57,9 @@ class ClassificationMetricsReport:
     noul_precision: dict[str, float | None]
     noul_recall: dict[str, float | None]
     noul_support: dict[str, int]
+    noul_reviewed: dict[str, int]
+    complete_label_unit_count: int
+    partial_label_unit_count: int
     abstention_rate: float
     uncertain_rate: float
     coverage_full_rate: float
@@ -73,12 +88,28 @@ def evaluate_shadow_artifact(
     noul_threshold: float = 0.5,
 ) -> ClassificationMetricsReport:
     """Score an artifact against gold labels and deterministic baselines."""
-    gold_by_id = (
-        dict(gold_labels)
+    gold_list = (
+        list(gold_labels.values())
         if isinstance(gold_labels, Mapping)
-        else {label.unit_id: label for label in gold_labels}
+        else list(gold_labels)
     )
-    records = [unit for unit in artifact.units if unit.unit_id in gold_by_id]
+    gold_by_document_unit = {
+        (label.document_id, label.unit_id): label
+        for label in gold_list
+        if label.document_id
+    }
+    gold_by_unit = {
+        label.unit_id: label for label in gold_list if label.document_id is None
+    }
+
+    def _gold_for(record: UnitClassificationRecord) -> GoldUnitLabel | None:
+        if record.document_key:
+            keyed = gold_by_document_unit.get((record.document_key, record.unit_id))
+            if keyed is not None:
+                return keyed
+        return gold_by_unit.get(record.unit_id)
+
+    records = [unit for unit in artifact.units if _gold_for(unit) is not None]
 
     choice_pairs: list[tuple[str, str]] = []
     confusion: dict[str, Counter[str]] = defaultdict(Counter)
@@ -93,8 +124,15 @@ def evaluate_shadow_artifact(
     latencies: list[float] = []
     provenance_hits = 0
 
+    complete_label_unit_count = 0
+    partial_label_unit_count = 0
     for record in records:
-        gold = gold_by_id[record.unit_id]
+        gold = _gold_for(record)
+        assert gold is not None
+        if gold.label_completeness == "complete":
+            complete_label_unit_count += 1
+        else:
+            partial_label_unit_count += 1
         if record.provenance.get("assertion_key") or record.provenance.get("span_key"):
             provenance_hits += 1
         if record.latency_ms is not None:
@@ -160,7 +198,13 @@ def evaluate_shadow_artifact(
     notes = [
         "calibrated_probability is null in v1; raw_probability is scored as-is",
         "AUROC/AUPRC and Brier/ECE deferred until larger labeled splits exist",
+        "Noul metrics score only reviewed labels; omitted keys are unknown, not false",
     ]
+    if partial_label_unit_count:
+        notes.append(
+            f"{partial_label_unit_count} partial-label units excluded from "
+            "full-vector calculations; they remain in per-axis Noul support"
+        )
 
     return ClassificationMetricsReport(
         unit_count=len(records),
@@ -173,6 +217,12 @@ def evaluate_shadow_artifact(
         noul_precision=noul_precision,
         noul_recall=noul_recall,
         noul_support=dict(noul_support),
+        noul_reviewed={
+            question_id: int(noul_support[question_id])
+            for question_id in NOUL_QUESTION_IDS
+        },
+        complete_label_unit_count=complete_label_unit_count,
+        partial_label_unit_count=partial_label_unit_count,
         abstention_rate=(abstentions / result_count) if result_count else 0.0,
         uncertain_rate=(uncertains / result_count) if result_count else 0.0,
         coverage_full_rate=coverage_counts.get("full", 0) / unit_total,
@@ -444,8 +494,11 @@ def load_gold_labels(path: Any) -> list[GoldUnitLabel]:
                 unit_id=str(row["unit_id"]),
                 statement_type=str(row["statement_type"]),
                 noul_labels={
-                    str(k): bool(v) for k, v in (row.get("noul_labels") or {}).items()
+                    str(k): bool(v)
+                    for k, v in (row.get("noul_labels") or {}).items()
+                    if v is not None
                 },
+                document_id=None if row.get("document_id") is None else str(row["document_id"]),
                 assertion_type=row.get("assertion_type"),
                 notes=row.get("notes"),
             )
