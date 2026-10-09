@@ -35,6 +35,8 @@ class GoldUnitLabel:
     document_id: str | None = None
     assertion_type: str | None = None
     notes: str | None = None
+    reviewed_text: str | None = None
+    stored_model_input: str | None = None
 
     @property
     def label_completeness(self) -> str:
@@ -501,6 +503,8 @@ def load_gold_labels(path: Any) -> list[GoldUnitLabel]:
                 document_id=None if row.get("document_id") is None else str(row["document_id"]),
                 assertion_type=row.get("assertion_type"),
                 notes=row.get("notes"),
+                reviewed_text=row.get("reviewed_text"),
+                stored_model_input=row.get("stored_model_input"),
             )
         )
     return labels

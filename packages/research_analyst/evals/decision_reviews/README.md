@@ -90,6 +90,10 @@ are hashed and copied into the run directory; they are not reclassified and
 do not become gold. Agreed reviews are scored on the supplied labels only.
 The command cannot promote a candidate label or change production routing.
 
+`review_packet.md` shows the sentence to label, then collapsed surrounding
+context and a stored-model-input diff so reviewers do not have to recover
+prefixes from raw artifacts. Suggested labels remain agent proposals.
+
 ## Updating a judgment
 
 Do not overwrite the old event. Keep it with `status=superseded`, add a new
