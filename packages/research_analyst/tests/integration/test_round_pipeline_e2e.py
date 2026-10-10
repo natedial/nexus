@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -122,11 +123,13 @@ def test_round_executor_returns_document_analysis_on_valid_output():
         tool_registry=MagicMock(),
     )
 
+    # Use SimpleNamespace (not MagicMock) for chunks/assertions: RoundExecutor
+    # serializes them via _json_safe, and MagicMock.model_dump recurses forever.
     result = executor.run(
         document=_Document(),
-        chunks=[MagicMock(chunk_order=0, content="chunk")],
+        chunks=[SimpleNamespace(chunk_order=0, content="chunk")],
         evidence_units=[],
-        assertions=[MagicMock(claim="assertion")],
+        assertions=[SimpleNamespace(claim="assertion")],
         run_id=42,
         analysis_version="2026-04-16",
         rounds=[

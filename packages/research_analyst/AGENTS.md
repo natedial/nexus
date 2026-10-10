@@ -37,10 +37,40 @@ For plan files:
 
 Use the automated tests for implementation changes and editorial validation for plan changes.
 
+### Memory-safe test runs (required for agents)
+
+**Never run the full `research_analyst` suite unattended.** Unbounded or mock-recursion
+bugs have previously grown a single pytest process to 13–18 GB and OOM-killed a 16 GB
+workstation. Prefer targeted runs:
+
+```bash
+# Changed module only
+uv run pytest tests/services/test_json_safe_mocks.py -q
+
+# One directory
+uv run pytest tests/evals -q
+
+# Default suite is already capped (see below); still prefer targeting when iterating
+uv run pytest -q
+```
+
+Guardrails (wired in `tests/conftest.py` + `pyproject.toml`):
+
+| Control | Default | Override |
+| --- | --- | --- |
+| Per-test timeout (`pytest-timeout`) | **60s** | `--timeout=` or `RESEARCH_ANALYST_TEST_TIMEOUT` |
+| Soft per-test RSS fail | **2048 MiB** | `RESEARCH_ANALYST_TEST_RSS_MB` |
+| Process `RLIMIT_AS` / `RLIMIT_DATA` | **4096 MiB** (Linux; macOS does not enforce `RLIMIT_AS`) | `RESEARCH_ANALYST_TEST_AS_MB` |
+| `heavy` marker | **skipped by default** | `uv run pytest -m heavy` |
+
+Do not pass `MagicMock` instances into `RoundExecutor` as chunks/assertions/evidence —
+`_json_safe` must not be fed mock proxies (use `SimpleNamespace` or real models).
+
 For code changes:
 
-- run `PYTHONPATH=src python3 -m unittest discover -s tests`
-- run `uv run pytest` when the project environment is available
+- run targeted `uv run pytest <path> -q` for the code you touched
+- run `PYTHONPATH=src python3 -m unittest discover -s tests` only for unittest-style modules
+- use `uv run pytest -q` for a full default (non-`heavy`) pass before a PR, not as a background loop
 
 For plan changes:
 
