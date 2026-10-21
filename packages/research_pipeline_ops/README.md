@@ -24,12 +24,15 @@ SQLite spool path.
 
 ## Commands
 
+Run commands from the repository root and explicitly load its `.env`; selecting
+the package with `--project` does not load environment files automatically.
+
 ```bash
-uv run --project packages/research_pipeline_ops nexus-ops doctor
-uv run --project packages/research_pipeline_ops nexus-ops check --json
-uv run --project packages/research_pipeline_ops nexus-ops incidents --status open --json
-uv run --project packages/research_pipeline_ops nexus-ops claim --actor codex-batch-monitor --limit 5 --json
-uv run --project packages/research_pipeline_ops nexus-ops retry --incident INCIDENT_KEY --dry-run
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops doctor
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops check --json
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops incidents --status open --json
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops claim --actor codex-batch-monitor --limit 5 --json
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops retry --incident INCIDENT_KEY --dry-run
 ```
 
 Apply the root migrations before enabling producers. All initial job catalog
