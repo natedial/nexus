@@ -8,11 +8,15 @@ report content.
 
 ## Install
 
-Install it alongside a Nexus producer package:
+Nexus uses `uv` with a package-local virtual environment. From the repository
+root, install the package and its development dependencies with:
 
 ```bash
-python3 -m pip install -e packages/research_pipeline_ops
+uv sync --project packages/research_pipeline_ops --extra dev
 ```
+
+Do not install into or activate the repository-root `.venv`; it is not a Nexus
+application environment and may not contain `pip`.
 
 Set `PIPELINE_OPS_DATABASE_URL` or the shared `NEXUS_DATABASE_URL`. Producers
 normally construct `PipelineOpsClient.from_env(...)` with a package-owned
@@ -21,11 +25,11 @@ SQLite spool path.
 ## Commands
 
 ```bash
-nexus-ops doctor
-nexus-ops check --json
-nexus-ops incidents --status open --json
-nexus-ops claim --actor codex-batch-monitor --limit 5 --json
-nexus-ops retry --incident INCIDENT_KEY --dry-run
+uv run --project packages/research_pipeline_ops nexus-ops doctor
+uv run --project packages/research_pipeline_ops nexus-ops check --json
+uv run --project packages/research_pipeline_ops nexus-ops incidents --status open --json
+uv run --project packages/research_pipeline_ops nexus-ops claim --actor codex-batch-monitor --limit 5 --json
+uv run --project packages/research_pipeline_ops nexus-ops retry --incident INCIDENT_KEY --dry-run
 ```
 
 Apply the root migrations before enabling producers. All initial job catalog
