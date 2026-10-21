@@ -3,6 +3,17 @@
 Status: implementation in progress
 Captured: 2026-10-07 America/New_York
 
+## October 20 operating-model update
+
+The [agent-reviewed reference expansion plan](2026-10-20-agent-reviewed-reference-expansion-plan.md)
+supersedes this document's routine human audits, scheduled review packets, and
+per-release human approval for the new agent-reviewed collection. Human input
+is escalation-only. Agents may release explicitly identified agent-reviewed
+references under automated gates; existing human gold still requires verified
+human approval. Unresolved cases wait without blocking unrelated work. The
+earlier lane descriptions below remain historical context for the implemented
+human-gold tooling, not a recurring commitment from Nate.
+
 ## Implementation progress
 
 - Phase 0 foundation is in

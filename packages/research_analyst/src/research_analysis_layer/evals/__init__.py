@@ -75,6 +75,16 @@ from research_analysis_layer.evals.decision_metrics import (
     evaluate_shadow_artifact,
     load_gold_labels,
 )
+from research_analysis_layer.evals.decision_agent_references import (
+    AgentJudgment,
+    AgentReferenceRecord,
+    AgentReferenceSource,
+    PolicyEscalation,
+    ReferenceLabelView,
+    escalation_packet,
+    load_agent_references,
+    reference_label_views,
+)
 
 __all__ = [
     "Alert",
@@ -122,4 +132,12 @@ __all__ = [
     "GoldUnitLabel",
     "evaluate_shadow_artifact",
     "load_gold_labels",
+    "AgentJudgment",
+    "AgentReferenceRecord",
+    "AgentReferenceSource",
+    "PolicyEscalation",
+    "ReferenceLabelView",
+    "escalation_packet",
+    "load_agent_references",
+    "reference_label_views",
 ]
