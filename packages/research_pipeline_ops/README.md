@@ -37,3 +37,9 @@ uv run --env-file .env --project packages/research_pipeline_ops nexus-ops retry 
 
 Apply the root migrations before enabling producers. All initial job catalog
 rows are disabled until their package adoption and canary are complete.
+
+## Agent skill
+
+The operational agent skill lives at `skills/nexus-pipeline-ops`. Its canonical
+source is versioned with this package and can be installed into
+`~/.codex/skills` for automatic discovery.
