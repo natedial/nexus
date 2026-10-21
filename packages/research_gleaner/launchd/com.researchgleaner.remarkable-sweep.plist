@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.researchgleaner.remarkable-sweep</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ncdial/devwork/nexus/packages/research_gleaner/scripts/run-remarkable-sweep.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ncdial/devwork/nexus/packages/research_gleaner</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>4</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/ncdial/Library/Logs/research-gleaner/remarkable-sweep.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ncdial/Library/Logs/research-gleaner/remarkable-sweep.err.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PIPELINE_OPS_TRIGGER_SOURCE</key>
+        <string>launchd</string>
+    </dict>
+</dict>
+</plist>
