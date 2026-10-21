@@ -3,43 +3,10 @@
 import json
 import os
 import re
-import sys
-from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
 import structlog
-
-
-def _add_shared_workspace_paths() -> None:
-    module_path = Path(__file__).resolve()
-    repo_root = module_path.parents[1]
-
-    candidates: list[Path] = []
-    env_root = os.getenv("RESEARCH_PROCESSING_ROOT")
-    if env_root:
-        candidates.append(Path(env_root))
-    candidates.extend([repo_root.parent, repo_root])
-
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        if not (candidate / "research_pipeline_ops").exists():
-            continue
-        candidate_str = str(candidate)
-        if candidate_str not in sys.path:
-            sys.path.insert(0, candidate_str)
-
-
-_add_shared_workspace_paths()
-
-try:
-    from research_pipeline_ops import PipelineOpsClient, make_document_key
-except ImportError:
-    PipelineOpsClient = None  # type: ignore[misc, assignment]
-
-    def make_document_key(*, file_id: str, **_kwargs) -> str:
-        return file_id
 
 from src.config import Settings
 from src.drive import DriveWatcher
@@ -75,24 +42,6 @@ _CLEAN_TEXT_ARTIFACT = "clean_text.md"
 _PARSE_ARTIFACT = "parse.json"
 _BLOCKS_ARTIFACT = "blocks.jsonl"
 _FIGURES_ARTIFACT = "figures.jsonl"
-
-
-class _NoopPipelineOpsClient:
-    def flush(self) -> None:
-        return None
-
-    def start_run(self, **kwargs) -> str | None:
-        return None
-
-    def update_run(self, *args, **kwargs) -> None:
-        return None
-
-    def emit_stage_event(self, **kwargs) -> None:
-        return None
-
-    @contextmanager
-    def track_stage(self, **kwargs):
-        yield None
 
 
 def _parse_date_from_filename(file_name: str) -> str | None:
@@ -149,9 +98,6 @@ def build_source_document_from_relay(
 class Pipeline:
     """Download, parse, and store source-grounded research PDFs."""
 
-    ops = _NoopPipelineOpsClient()
-    _active_run_key: str | None = None
-
     def __init__(self, settings: Settings):
         self.settings = settings
         self.drive = DriveWatcher(
@@ -193,14 +139,6 @@ class Pipeline:
                     )
         self.state = StateStore(db_path=settings.state_db_path)
         self.source_store = PostgresSourceStore(database_url=settings.database_url)
-        if PipelineOpsClient is not None:
-            self.ops = PipelineOpsClient.from_env(
-                default_spool_db_path=str(settings.state_db_path.parent / "pipeline_ops_spool.db"),
-                emitted_by="research_parser",
-            )
-        else:
-            self.ops = _NoopPipelineOpsClient()
-        self._active_run_key = None
         logger.info("Pipeline initialized")
 
     def process_file(
@@ -221,7 +159,6 @@ class Pipeline:
                 file_id,
                 file_name,
                 attempt_log,
-                attempt=attempt,
                 force=force,
                 local_pdf_path=local_pdf_path,
                 relay_artifact=relay_artifact,
@@ -250,27 +187,13 @@ class Pipeline:
         file_name: str,
         log: structlog.stdlib.BoundLogger,
         *,
-        attempt: int,
         force: bool = False,
         local_pdf_path: Path | None = None,
         relay_artifact: RelayIntakeArtifact | None = None,
     ) -> tuple[ProcessingStatus, str | None]:
         artifact_dir = self._artifact_dir(file_id)
-        document_key = make_document_key(file_id=file_id)
-        document_fields = {"document_name": file_name}
         prior_state = self.state.get_state(file_id)
         self.state.start_processing(file_id, file_name)
-        self.ops.emit_stage_event(
-            repo_name="research_parser",
-            stage_name="parser.complete",
-            status="started",
-            run_key=self._active_run_key,
-            document_key=document_key,
-            file_id=file_id,
-            attempt=attempt,
-            payload={"file_name": file_name},
-            document_fields=document_fields,
-        )
 
         file_path = None
         try:
@@ -295,23 +218,10 @@ class Pipeline:
                         file_path = local_pdf_path
                         log.info("Using relay intake PDF", path=str(local_pdf_path))
                     else:
-                        with self.ops.track_stage(
-                            repo_name="research_parser",
-                            stage_name="parser.download",
-                            run_key=self._active_run_key,
-                            document_key=document_key,
-                            file_id=file_id,
-                            attempt=attempt,
-                            payload={"file_name": file_name},
-                            document_fields=document_fields,
-                        ):
-                            file_path = self.drive.download_file(file_id, file_name)
+                        file_path = self.drive.download_file(file_id, file_name)
                 except Exception as exc:
                     message = f"Download failed: {exc}"
                     log.exception("Download failed")
-                    self._fail_complete(
-                        document_key, file_id, file_name, attempt, document_fields, exc
-                    )
                     self.state.mark_failed(file_id, message)
                     return ProcessingStatus.FAILED, message
 
@@ -330,29 +240,9 @@ class Pipeline:
                     log.error("PDF parsing failed", error=str(exc))
                     self.state.update_step(file_id, "parse", False, error_message=message)
                     self.state.mark_failed(file_id, message)
-                    self._fail_complete(
-                        document_key, file_id, file_name, attempt, document_fields, exc
-                    )
                     return ProcessingStatus.FAILED, message
 
                 self.state.update_step(file_id, "parse", True)
-                self.ops.emit_stage_event(
-                    repo_name="research_parser",
-                    stage_name="parser.parse_pdf",
-                    status="succeeded",
-                    run_key=self._active_run_key,
-                    document_key=document_key,
-                    file_id=file_id,
-                    attempt=attempt,
-                    payload={
-                        "backend": parsed.backend_name,
-                        "confidence_status": parsed.confidence.status,
-                        "confidence_score": parsed.confidence.score,
-                        "ocr_retried": parsed.ocr_retried,
-                        "ocr_retry_reasons": parsed.ocr_retry_reasons,
-                    },
-                    document_fields=document_fields,
-                )
                 try:
                     write_artifacts(artifact_dir, parsed.text_result, parsed.figures)
                     self._write_parse_artifact(artifact_dir, parsed=parsed, log=log)
@@ -392,85 +282,32 @@ class Pipeline:
             self.state.update_step(file_id, "storage", False, ProcessingStatus.STORING)
             artifact_context = self._build_artifact_context(artifact_dir, parse_blocks)
             try:
-                with self.ops.track_stage(
-                    repo_name="research_parser",
-                    stage_name="parser.store_source",
-                    run_key=self._active_run_key,
-                    document_key=document_key,
-                    file_id=file_id,
-                    attempt=attempt,
-                    payload={"file_name": file_name},
-                    document_fields=document_fields,
-                ):
-                    research_row = self.source_store.insert_research(
-                        source,
-                        file_name,
-                        artifact_context=artifact_context,
-                    )
+                self.source_store.insert_research(
+                    source,
+                    file_name,
+                    artifact_context=artifact_context,
+                )
             except Exception as exc:
                 message = f"Storage failed: {exc}"
                 log.exception("Storage failed")
                 self.state.update_step(file_id, "storage", False, error_message=message)
                 self.state.mark_failed(file_id, message)
-                self._fail_complete(
-                    document_key, file_id, file_name, attempt, document_fields, exc
-                )
                 return ProcessingStatus.FAILED, message
 
             self.state.update_step(file_id, "storage", True)
             self.state.mark_completed(file_id)
-            self.ops.emit_stage_event(
-                repo_name="research_parser",
-                stage_name="parser.complete",
-                status="succeeded",
-                run_key=self._active_run_key,
-                document_key=document_key,
-                file_id=file_id,
-                research_id=int(research_row["id"]) if research_row.get("id") is not None else None,
-                document_hash=str(research_row.get("document_hash") or "") or None,
-                attempt=attempt,
-                payload={"file_name": file_name, "source": source.source},
-                document_fields={
-                    "document_name": file_name,
-                    "source": source.source,
-                    "source_date": source.source_date,
-                    "parser_updated_at": datetime.utcnow().isoformat(),
-                },
-            )
             log.info(
                 "File processing complete",
                 source=source.source,
                 text_length=len(source.full_text),
             )
             return ProcessingStatus.COMPLETED, None
-        except Exception as exc:
-            self._fail_complete(
-                document_key, file_id, file_name, attempt, document_fields, exc
-            )
-            raise
         finally:
             try:
                 if file_path is not None and file_path.exists():
                     os.unlink(file_path)
             except Exception:
                 pass
-
-    def _fail_complete(
-        self, document_key, file_id, file_name, attempt, document_fields, exc
-    ) -> None:
-        self.ops.emit_stage_event(
-            repo_name="research_parser",
-            stage_name="parser.complete",
-            status="failed",
-            run_key=self._active_run_key,
-            document_key=document_key,
-            file_id=file_id,
-            attempt=attempt,
-            payload={"file_name": file_name},
-            error_type=exc.__class__.__name__,
-            error_text=str(exc),
-            document_fields=document_fields,
-        )
 
     def _ocr_backend(self, log):
         if not self.settings.docling_ocr_retry:
@@ -637,109 +474,57 @@ class Pipeline:
 
     def run_once(self, days_ago: int | None = None, since: datetime | None = None) -> int:
         logger.info("Starting polling cycle", days_ago=days_ago, since=since)
-        self.ops.flush()
-        run_key = self.ops.start_run(
-            repo_name="research_parser",
-            stage_family="parser",
-            run_type="poll_cycle",
-            trigger_source="drive_poll",
-            stats={
-                "days_ago": days_ago,
-                "since": since.isoformat() if since is not None else None,
-            },
-        )
-        self._active_run_key = run_key
         processed_count = self.run_relay_intake_once()
-        try:
-            retryable_partials = self.state.get_retryable_partials(
-                self.settings.poll_interval_minutes
-            )
-            partial_ids: set[str] = set()
-            for partial in retryable_partials:
-                partial_ids.add(partial.file_id)
-                logger.info("Retrying partial file", file_id=partial.file_id)
-                try:
-                    if self.process_file(partial.file_id, partial.file_name):
-                        processed_count += 1
-                except Exception as exc:
-                    logger.exception(
-                        "Unexpected error retrying partial file",
-                        file_id=partial.file_id,
-                    )
-                    self.state.mark_failed(partial.file_id, f"Unexpected error: {exc}")
+        retryable_partials = self.state.get_retryable_partials(
+            self.settings.poll_interval_minutes
+        )
+        partial_ids: set[str] = set()
+        for partial in retryable_partials:
+            partial_ids.add(partial.file_id)
+            logger.info("Retrying partial file", file_id=partial.file_id)
+            try:
+                if self.process_file(partial.file_id, partial.file_name):
+                    processed_count += 1
+            except Exception as exc:
+                logger.exception(
+                    "Unexpected error retrying partial file",
+                    file_id=partial.file_id,
+                )
+                self.state.mark_failed(partial.file_id, f"Unexpected error: {exc}")
 
-            stale_files = self.state.get_stale_in_progress(
-                self.settings.stale_processing_timeout_minutes
-            )
-            stale_ids: set[str] = set()
-            for stale in stale_files:
-                stale_ids.add(stale.file_id)
-                logger.warning("Retrying stale in-progress file", file_id=stale.file_id)
-                try:
-                    if self.process_file(stale.file_id, stale.file_name):
-                        processed_count += 1
-                except Exception as exc:
-                    logger.exception("Unexpected error retrying stale file", file_id=stale.file_id)
-                    self.state.mark_failed(stale.file_id, f"Unexpected error: {exc}")
+        stale_files = self.state.get_stale_in_progress(
+            self.settings.stale_processing_timeout_minutes
+        )
+        stale_ids: set[str] = set()
+        for stale in stale_files:
+            stale_ids.add(stale.file_id)
+            logger.warning("Retrying stale in-progress file", file_id=stale.file_id)
+            try:
+                if self.process_file(stale.file_id, stale.file_name):
+                    processed_count += 1
+            except Exception as exc:
+                logger.exception("Unexpected error retrying stale file", file_id=stale.file_id)
+                self.state.mark_failed(stale.file_id, f"Unexpected error: {exc}")
 
-            self.ops.emit_stage_event(
-                repo_name="research_parser",
-                stage_name="parser.drive_discovery",
-                status="started",
-                run_key=run_key,
-                payload={
-                    "days_ago": days_ago,
-                    "since": since.isoformat() if since is not None else None,
-                },
-            )
-            all_files = self.drive.list_pdfs(days_ago=days_ago, since=since)
-            self.ops.emit_stage_event(
-                repo_name="research_parser",
-                stage_name="parser.drive_discovery",
-                status="succeeded",
-                run_key=run_key,
-                payload={"discovered_count": len(all_files)},
-            )
-            new_files = [
-                item
-                for item in all_files
-                if item.id not in partial_ids
-                and item.id not in stale_ids
-                and not self.state.is_processed(item.id)
-            ]
-            stats = {
-                "processed_count": processed_count,
-                "retryable_partials": len(retryable_partials),
-                "stale_retries": len(stale_files),
-                "discovered_count": len(all_files),
-                "new_files_count": len(new_files),
-            }
-            if not new_files:
-                logger.info("No new files to process", processed=processed_count)
-                self.ops.update_run(run_key, status="completed", stats=stats, completed=True)
-                return processed_count
-
-            logger.info("Processing new files", count=len(new_files))
-            for item in new_files:
-                try:
-                    if self.process_file(item.id, item.name):
-                        processed_count += 1
-                except Exception as exc:
-                    logger.exception("Unexpected error processing file", file_id=item.id)
-                    self.state.mark_failed(item.id, f"Unexpected error: {exc}")
-            stats["processed_count"] = processed_count
-            logger.info("Polling cycle complete", processed=processed_count)
-            self.ops.update_run(run_key, status="completed", stats=stats, completed=True)
+        all_files = self.drive.list_pdfs(days_ago=days_ago, since=since)
+        new_files = [
+            item
+            for item in all_files
+            if item.id not in partial_ids
+            and item.id not in stale_ids
+            and not self.state.is_processed(item.id)
+        ]
+        if not new_files:
+            logger.info("No new files to process", processed=processed_count)
             return processed_count
-        except Exception as exc:
-            self.ops.update_run(
-                run_key,
-                status="failed",
-                error_text=str(exc),
-                stats={"processed_count": processed_count},
-                completed=True,
-            )
-            raise
-        finally:
-            self._active_run_key = None
-            self.ops.flush()
+
+        logger.info("Processing new files", count=len(new_files))
+        for item in new_files:
+            try:
+                if self.process_file(item.id, item.name):
+                    processed_count += 1
+            except Exception as exc:
+                logger.exception("Unexpected error processing file", file_id=item.id)
+                self.state.mark_failed(item.id, f"Unexpected error: {exc}")
+        logger.info("Polling cycle complete", processed=processed_count)
+        return processed_count

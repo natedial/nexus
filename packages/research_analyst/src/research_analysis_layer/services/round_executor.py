@@ -8,9 +8,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from research_analysis_layer.models.agent_outputs import (
     ARGUMENT_MAP_VERSION,
@@ -1599,15 +1600,28 @@ class RoundExecutor:
         return payload
 
     @classmethod
-    def _json_safe(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        if hasattr(value, "model_dump"):
-            return cls._json_safe(value.model_dump())
-        if is_dataclass(value):
-            return cls._json_safe(asdict(value))
+    def _json_safe(cls, value: Any, *, _depth: int = 0) -> Any:
+        """Convert nested values into JSON-friendly primitives.
+
+        Uses ``isinstance(..., BaseModel)`` rather than ``hasattr(..., "model_dump")``.
+        MagicMock and similar proxies advertise every attribute, so a bare hasattr
+        check recurses forever and can grow RSS into the multi-GB range.
+        """
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if _depth > 64:
+            return str(value)
+        if isinstance(value, BaseModel):
+            return cls._json_safe(value.model_dump(mode="python"), _depth=_depth + 1)
+        if is_dataclass(value) and not isinstance(value, type):
+            return cls._json_safe(asdict(value), _depth=_depth + 1)
+        if isinstance(value, SimpleNamespace):
+            return cls._json_safe(vars(value), _depth=_depth + 1)
         if isinstance(value, dict):
-            return {str(key): cls._json_safe(item) for key, item in value.items()}
-        if isinstance(value, list):
-            return [cls._json_safe(item) for item in value]
+            return {
+                str(key): cls._json_safe(item, _depth=_depth + 1)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [cls._json_safe(item, _depth=_depth + 1) for item in value]
         return value

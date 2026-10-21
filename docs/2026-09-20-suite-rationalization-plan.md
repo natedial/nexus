@@ -128,7 +128,7 @@ everything else.
 |---|---|---|
 | `research_parser` | `supabase-py`; writes `parsed_research`, `research_document_artifacts`, `research_spans`, `research_retrieval_chunks` | Port |
 | `research_analyst` | Raw PostgREST reads in `db/parsed_db_client.py` and `db/calendar_db_client.py`; optional `economic_event_forecasts` write | Port |
-| `research_dispatcher` | `supabase-py` parser-mode queries; `pipeline_ops` schema; Edge Functions and Storage (retired) | Delete parser mode; delete the retired function surface |
+| `research_dispatcher` | `supabase-py` parser-mode queries; Edge Functions and Storage (retired) | Delete parser mode; delete the retired function surface |
 | `research-store` | `distill-index-supabase` worker over `parsed_research` | Delete with the package |
 | `morning_research` | Optional `research_digest_*` tables | Delete with the package |
 
@@ -149,8 +149,7 @@ entirely self-contained:
   their validation, and the cases in `tests/test_pdf_generator.py:58-69`
 
 Deleting all of it removes `packages/research_dispatcher/supabase/` wholesale
-once `20260402105000_create_pipeline_ops.sql` moves out, and takes the hardcoded
-project URL default at `config.py:143` and the committed CLI cache at
+and takes the hardcoded project URL default at `config.py:143` and the committed CLI cache at
 `supabase/.temp/` (which contains `project-ref` and `pooler-url`) with it.
 
 ## Database strategy
@@ -203,19 +202,18 @@ sufficient.
 
 ### Schema consolidation
 
-Nine SQL migrations live in four packages under three naming conventions:
+Eight SQL migrations live in four packages under three naming conventions:
 
 - `packages/research_parser/migrations/001..005`
 - `packages/research_analyst/migrations/001_agent_tables.sql`
-- `packages/research_dispatcher/supabase/migrations/001_create_report_feedback.sql` and `20260402105000_create_pipeline_ops.sql`
+- `packages/research_dispatcher/supabase/migrations/001_create_report_feedback.sql`
 - `packages/morning_research/migrations/001_research_digest.sql`
 
 There is no migration runner. Standing up local PostgreSQL includes choosing one
 — plain SQL files with an ordering manifest is enough at this stage — and
-deciding which carry forward. Three are already settled:
+deciding which carry forward. Two are already settled:
 `001_create_report_feedback.sql` is dropped with the retired function surface,
-`20260402105000_create_pipeline_ops.sql` moves out of the `supabase/`
-directory, and parser migration 004's claims/entities/relations tables are
+and parser migration 004's claims/entities/relations tables are
 **dropped, not adopted**. No live code writes them. The live claims layer is
 analyst-owned: `argument_map` with `claim_key` / `referent_key`, plus consensus,
 the argument graph, and street-agrees derived from those maps. Adopting 004 as
@@ -224,10 +222,9 @@ canonical would create the second semantic store the non-goals forbid.
 ### Where the instance lives
 
 `packages/research_parser/docker-compose.yml` is written for a containerized
-deployment with Raspberry Pi memory limits, and it mounts
-`../research_pipeline_ops` from outside the monorepo. "One local PostgreSQL"
-therefore needs a designated host and a reachable address, not a localhost
-socket, unless every package runs on the same machine. Settle this in Phase 0.
+deployment with Raspberry Pi memory limits. "One local PostgreSQL" therefore
+needs a designated host and a reachable address, not a localhost socket, unless
+every package runs on the same machine. Settle this in Phase 0.
 
 `AGENTS.md` states the repo root is not an app. A shared development database is
 infrastructure rather than an app, so a root-level compose file defining only the
@@ -311,10 +308,8 @@ keep claims analyst-owned). The rest are still cheap to answer.
 5. **On-disk parser artifacts.** `data/artifacts/{file_id}/` holds
    `document.md`, `clean_text.md`, `blocks.jsonl`, `figures.jsonl`, and
    `parse.json`. Canonical, cache, or absorbed into the database?
-6. **`research_pipeline_ops`.** Bring it into the monorepo or pin it as a
-   declared external dependency. Three packages import it, it is not here, and
-   the legacy checkout has its own copy at
-   `research_processing/research_pipeline_ops`.
+6. **Cross-pipeline operations telemetry.** Remove the undeclared shared
+   dependency and rely on each package's existing durable run and status state.
 
 The Edge Functions and Storage surface was a further decision in an earlier
 draft. It is settled: that surface is retired and is deleted, not replaced.
@@ -475,11 +470,9 @@ Mostly default flips plus one deletion.
    `src/pdf_generator.py:366-393`, the `FEEDBACK_*` and `DOCUMENT_*` settings and
    validation in `config.py` (including the hardcoded project URL default at
    `config.py:143`), and the cases in `tests/test_pdf_generator.py:58-69`.
-5. Move the `pipeline_ops` schema into local PostgreSQL, then delete
-   `packages/research_dispatcher/supabase/` entirely — functions, storage,
-   `001_create_report_feedback.sql`, the committed `.temp/` CLI cache, and the
-   stray `.DS_Store`. Moving `pipeline_ops` off PostgREST also fixes the 406
-   errors in `cron.log` caused by a non-public schema not being exposed.
+5. Delete `packages/research_dispatcher/supabase/` entirely — functions,
+   storage, `001_create_report_feedback.sql`, the committed `.temp/` CLI cache,
+   and the stray `.DS_Store`.
 
 Once analyst records live in PostgreSQL, the JSON file bridge can optionally be
 replaced by a read keyed on `batch_key` and `analysis_version`. Worth doing only

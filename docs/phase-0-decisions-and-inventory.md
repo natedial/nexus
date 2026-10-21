@@ -15,7 +15,7 @@ mini as the eventual PostgreSQL host.
 | Scope | Nexus-only code this week | No crontab/container repointing on the mini. Root `docker-compose.yml` and docs may assume the mini as eventual host. |
 | Morning digest | Kill | Phase 1 for `morning_research` is remove/archive, not freeze-and-rebuild. |
 | PostgreSQL host | Mac mini | Root-level `docker-compose.yml` provisions `nexus-postgres`. Not deployed from this agent run. |
-| `research_pipeline_ops` | Not relevant | Do not bring into monorepo; not a blocker. Parser compose mount remains legacy until repoint. |
+| Cross-pipeline operations telemetry | Remove | Package-local state is canonical; do not carry the undeclared shared telemetry dependency into Nexus. |
 | Migration 004 claims | Settled (plan) | Drop parser `research_claims` / entities / relations. Analyst `argument_map` (`claim_key` / `referent_key`) is the one semantic store. |
 | Re-derive vs backfill | Re-derive | Default path: clear `processed_files`, re-parse from Drive, re-run analyst. No dual-write or parity gates. |
 | On-disk parser artifacts | Local re-generable cache | See [§ On-disk artifacts](#on-disk-artifacts). |
@@ -58,7 +58,7 @@ One documented owner per durable semantic field crossing a package boundary.
 | `file_id` | **parser** (alias) | Same value as `document_id` in pipeline code | analyst `run_batch`, relay archive, morning_research (deleting) |
 | `research_id` | **parser** | `parsed_research.id` surrogate PK | analyst, dispatcher ledger, store indexer (deleting) |
 | `document_hash` | **parser** | Content hash of parsed document version | analyst `document_analysis` key, dispatch batch |
-| `document_key` | **analyst** (canonical) | `file:{file_id}` or `doc:{research_id}:{document_hash}` | dispatch batch, pipeline_ops, parity validator |
+| `document_key` | **analyst** (canonical) | `file:{file_id}` or `doc:{research_id}:{document_hash}` | dispatch batch, parity validator |
 | `parser_version` | **parser** | `parser-source-v1` (`research_memory/records.py`) | spans, artifacts, analyst `ParsedPayload` |
 | `span_version` | **parser** | `span-v3` | `research_spans` |
 | `chunker_version` (parser) | **parser** | `retrieval-chunker-v3` | `research_retrieval_chunks` |
@@ -95,7 +95,7 @@ One documented owner per durable semantic field crossing a package boundary.
 | --- | --- | --- | --- |
 | `research_parser` | `supabase-py` | `parsed_research`, artifacts, spans, chunks | Port Phase 2 |
 | `research_analyst` | PostgREST | parsed hydration, calendar, optional forecasts | Port Phase 3 |
-| `research_dispatcher` | `supabase-py` | parser mode, `pipeline_ops` | Delete parser mode Phase 4; move ops schema |
+| `research_dispatcher` | `supabase-py` | parser mode | Delete parser mode Phase 4 |
 | `research-store` | `supabase-py` | `parsed_research` index columns | Delete with package Phase 1 |
 | `morning_research` | `supabase-py` | `research_digest_*` | Delete with package Phase 1 |
 | `research-relay` | none | — | R1 metadata scrub (parallel track) |

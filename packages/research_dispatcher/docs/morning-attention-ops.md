@@ -17,7 +17,7 @@ Coverage gap (acknowledged): only docs that already ran parser→analyst appear.
 
 ## Minimum env for live MA feed (Proey)
 
-Export reads the **analysis store** only. It does **not** need `research_pipeline_ops` / PipelineOpsClient.
+Export reads the **analysis store** only.
 
 | Variable | Role |
 | --- | --- |
@@ -30,7 +30,6 @@ Unrelated / not this path:
 | Item | Note |
 | --- | --- |
 | Empty Proton `research_claims` | **Unrelated** to the MA argument_map feed. Do not treat an empty claims table as an export blocker. |
-| `research_pipeline_ops` | **Not required** for `export-dispatch-batch`. Required only for cron-style `run` / backfill / reprocess. |
 | Fixtures / invented ClaimNodes | **Forbidden** for live dry-run sign-off. Use analysis-DB-backed export only. |
 
 Hold merge of the argument_map MA PR until Gerhard signs a **live or analysis-DB-backed** dry-run (fixture-only dry-run is insufficient for 6:25 resume).

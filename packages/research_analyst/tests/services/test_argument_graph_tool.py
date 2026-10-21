@@ -253,13 +253,6 @@ class ArgumentGraphToolTest(unittest.TestCase):
         self.assertIn("publisher", schema["description"])
 
     def test_register_agent_tools_adds_argument_graph_beside_search(self) -> None:
-        import sys
-        import types
-
-        if "research_pipeline_ops" not in sys.modules:
-            stub = types.ModuleType("research_pipeline_ops")
-            stub.PipelineOpsClient = MagicMock
-            sys.modules["research_pipeline_ops"] = stub
         from research_analysis_layer.main import register_agent_tools
         from research_analysis_layer.services.tools.argument_graph_tool import (
             ARGUMENT_GRAPH_TOOL_NAME,

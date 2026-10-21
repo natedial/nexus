@@ -10,16 +10,11 @@ import sys
 import os
 import logging
 from datetime import datetime
-from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-if str(_WORKSPACE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_WORKSPACE_ROOT))
 
 from config import Config
-from research_pipeline_ops import PipelineOpsClient
 from src.database import DatabaseClient
 from src.dispatch_loader import load_dispatch_documents
 from src.dispatch_store import DispatchStore
@@ -60,29 +55,7 @@ def main():
     logger.info("Mode: %s", Config.MODE)
     logger.info("Input mode: %s", Config.DISPATCH_INPUT_MODE)
     dispatch_store = DispatchStore(Config.DISPATCH_DB_PATH)
-    ops = PipelineOpsClient.from_env(
-        default_spool_db_path=str(
-            Path(Config.DISPATCH_DB_PATH).parent / "pipeline_ops_spool.db"
-        ),
-        emitted_by="research_dispatcher",
-    )
-    ops.flush()
     dispatch_run_id: int | None = None
-    ops_run_key = ops.start_run(
-        repo_name="research_dispatcher",
-        stage_family="dispatcher",
-        run_type="email_dispatch",
-        trigger_source="manual_or_scheduler",
-        stats={
-            "mode": Config.MODE,
-            "input_mode": Config.DISPATCH_INPUT_MODE,
-            "analyst_batch_path": (
-                Config.ANALYST_BATCH_PATH
-                if Config.DISPATCH_INPUT_MODE == "analyst"
-                else None
-            ),
-        },
-    )
 
     try:
         # Validate configuration
@@ -95,54 +68,27 @@ def main():
         dispatch_batch = None
         source_type = "analyst_batch"
 
-        with ops.track_stage(
-            repo_name="research_dispatcher",
-            stage_name="dispatcher.select_documents",
-            run_key=ops_run_key,
-            payload={
-                "input_mode": Config.DISPATCH_INPUT_MODE,
-                "source_type": source_type,
-                "analyst_batch_path": Config.ANALYST_BATCH_PATH,
-            },
-        ):
-            logger.info(
-                "Loading analyst dispatch batch: %s", Config.ANALYST_BATCH_PATH
-            )
-            data, dispatch_batch, source_type = load_dispatch_documents(
-                analyst_batch_path=Config.ANALYST_BATCH_PATH,
-            )
-            logger.info(
-                "Loaded batch %s with %d document(s)",
-                dispatch_batch.batch_key,
-                len(dispatch_batch.documents),
-            )
+        logger.info(
+            "Loading analyst dispatch batch: %s", Config.ANALYST_BATCH_PATH
+        )
+        data, dispatch_batch, source_type = load_dispatch_documents(
+            analyst_batch_path=Config.ANALYST_BATCH_PATH,
+        )
+        logger.info(
+            "Loaded batch %s with %d document(s)",
+            dispatch_batch.batch_key,
+            len(dispatch_batch.documents),
+        )
 
         # Query calendar data
-        with ops.track_stage(
-            repo_name="research_dispatcher",
-            stage_name="dispatcher.query_calendar",
-            run_key=ops_run_key,
-        ):
-            economic_events = db_client.query_economic_events()
-            logger.info("Retrieved %d economic events", len(economic_events))
+        economic_events = db_client.query_economic_events()
+        logger.info("Retrieved %d economic events", len(economic_events))
 
-            supply_events = db_client.query_supply_events()
-            logger.info("Retrieved %d supply events", len(supply_events))
+        supply_events = db_client.query_supply_events()
+        logger.info("Retrieved %d supply events", len(supply_events))
 
         if not data:
             logger.info("No documents to process.")
-            ops.update_run(
-                ops_run_key,
-                status="completed",
-                stats={
-                    "document_count": 0,
-                    "input_mode": Config.DISPATCH_INPUT_MODE,
-                    "source_type": source_type,
-                    "economic_events": len(economic_events),
-                    "supply_events": len(supply_events),
-                },
-                completed=True,
-            )
             return 0
 
         # Build active filters for display in report and synthesis scope
@@ -165,35 +111,24 @@ def main():
             or Config.DEEPINFRA_API_KEY
             or Config.OPENROUTER_API_KEY
         ):
-            with ops.track_stage(
-                repo_name="research_dispatcher",
-                stage_name="dispatcher.synthesize_batch",
-                run_key=ops_run_key,
-                payload={
-                    "document_count": len(data),
-                    "input_mode": Config.DISPATCH_INPUT_MODE,
-                    "source_type": source_type,
-                    "use_skill_pipeline": Config.USE_SKILL_PIPELINE,
-                },
-            ):
-                logger.info("Running cross-document synthesis...")
-                if Config.USE_SKILL_PIPELINE:
-                    logger.info("Using skill-based pipeline")
-                synthesizer = Synthesizer(
-                    anthropic_api_key=Config.ANTHROPIC_API_KEY,
-                    openai_api_key=Config.OPENAI_API_KEY,
-                    deepinfra_api_key=Config.DEEPINFRA_API_KEY,
-                    openrouter_api_key=Config.OPENROUTER_API_KEY,
-                    use_skill_pipeline=Config.USE_SKILL_PIPELINE,
-                )
-                synthesis_input = dispatch_batch if dispatch_batch is not None else data
-                synthesis_result = synthesizer.synthesize(
-                    synthesis_input, scope=active_filters
-                )
-                if synthesis_result:
-                    logger.info("Synthesis complete: %s", synthesis_result.title)
-                else:
-                    logger.warning("Synthesis failed or returned no results")
+            logger.info("Running cross-document synthesis...")
+            if Config.USE_SKILL_PIPELINE:
+                logger.info("Using skill-based pipeline")
+            synthesizer = Synthesizer(
+                anthropic_api_key=Config.ANTHROPIC_API_KEY,
+                openai_api_key=Config.OPENAI_API_KEY,
+                deepinfra_api_key=Config.DEEPINFRA_API_KEY,
+                openrouter_api_key=Config.OPENROUTER_API_KEY,
+                use_skill_pipeline=Config.USE_SKILL_PIPELINE,
+            )
+            synthesis_input = dispatch_batch if dispatch_batch is not None else data
+            synthesis_result = synthesizer.synthesize(
+                synthesis_input, scope=active_filters
+            )
+            if synthesis_result:
+                logger.info("Synthesis complete: %s", synthesis_result.title)
+            else:
+                logger.warning("Synthesis failed or returned no results")
         elif not Config.ENABLE_SYNTHESIS:
             logger.info("Synthesis disabled (ENABLE_SYNTHESIS=false)")
         else:
@@ -205,31 +140,25 @@ def main():
         logger.info("Formatting report...")
         formatter = ReportFormatter()
 
-        with ops.track_stage(
-            repo_name="research_dispatcher",
-            stage_name="dispatcher.format_report",
-            run_key=ops_run_key,
-            payload={"document_count": len(data)},
-        ):
-            if Config.FILTER_TRADE_CONVICTION != "all":
-                active_filters["trade_conviction"] = Config.FILTER_TRADE_CONVICTION
-            report_source = dispatch_batch if dispatch_batch is not None else data
-            report_data = formatter.format_report(
-                report_source,
-                active_filters=active_filters,
-                conviction_filter=Config.FILTER_TRADE_CONVICTION,
-                input_mode=Config.DISPATCH_INPUT_MODE,
-                source_pipeline=(
-                    "research_analyst"
-                    if Config.DISPATCH_INPUT_MODE == "analyst"
-                    else "parsed_research"
-                ),
-                analyst_batch_path=(
-                    Config.ANALYST_BATCH_PATH
-                    if Config.DISPATCH_INPUT_MODE == "analyst"
-                    else None
-                ),
-            )
+        if Config.FILTER_TRADE_CONVICTION != "all":
+            active_filters["trade_conviction"] = Config.FILTER_TRADE_CONVICTION
+        report_source = dispatch_batch if dispatch_batch is not None else data
+        report_data = formatter.format_report(
+            report_source,
+            active_filters=active_filters,
+            conviction_filter=Config.FILTER_TRADE_CONVICTION,
+            input_mode=Config.DISPATCH_INPUT_MODE,
+            source_pipeline=(
+                "research_analyst"
+                if Config.DISPATCH_INPUT_MODE == "analyst"
+                else "parsed_research"
+            ),
+            analyst_batch_path=(
+                Config.ANALYST_BATCH_PATH
+                if Config.DISPATCH_INPUT_MODE == "analyst"
+                else None
+            ),
+        )
 
         batch_key = _derive_dispatch_batch_key(
             dispatch_batch=dispatch_batch,
@@ -290,16 +219,10 @@ def main():
 
         # Generate PDF
         logger.info("Generating PDF...")
-        with ops.track_stage(
-            repo_name="research_dispatcher",
-            stage_name="dispatcher.generate_pdf",
-            run_key=ops_run_key,
-            payload={"document_count": len(data)},
-        ):
-            pdf_generator = PDFGenerator(format_rules_path="format_rules.yaml")
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            pdf_filename = f"research_report_{timestamp}.pdf"
-            pdf_path = pdf_generator.generate(report_data, pdf_filename)
+        pdf_generator = PDFGenerator(format_rules_path="format_rules.yaml")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        pdf_filename = f"research_report_{timestamp}.pdf"
+        pdf_path = pdf_generator.generate(report_data, pdf_filename)
         logger.info("PDF generated: %s", pdf_path)
         dispatch_store.mark_pdf_generated(
             dispatch_run_id,
@@ -310,14 +233,8 @@ def main():
 
         # Send email
         logger.info("Sending email...")
-        with ops.track_stage(
-            repo_name="research_dispatcher",
-            stage_name="dispatcher.send_email",
-            run_key=ops_run_key,
-            payload={"pdf_path": pdf_path},
-        ):
-            email_sender = EmailSender()
-            recipient_list = email_sender.send_report(pdf_path)
+        email_sender = EmailSender()
+        recipient_list = email_sender.send_report(pdf_path)
         logger.info(
             "Email sent to %d recipient(s): %s",
             len(recipient_list),
@@ -334,59 +251,11 @@ def main():
             )
             logger.info("Saved synthesis snapshot for delta tracking")
 
-        ops.emit_stage_event(
-            repo_name="research_dispatcher",
-            stage_name="dispatcher.complete",
-            status="succeeded",
-            run_key=ops_run_key,
-            payload={
-                "document_count": len(data),
-                "throughline_count": len(report_data.get("through_lines", [])),
-                "callout_count": len(report_data.get("callouts", [])),
-                "recipient_count": len(recipient_list),
-                "batch_key": batch_key,
-                "input_mode": Config.DISPATCH_INPUT_MODE,
-                "source_type": source_type,
-            },
-        )
-        ops.update_run(
-            ops_run_key,
-            status="completed",
-            stats={
-                "document_count": len(data),
-                "economic_events": len(economic_events),
-                "supply_events": len(supply_events),
-                "throughline_count": len(report_data.get("through_lines", [])),
-                "callout_count": len(report_data.get("callouts", [])),
-                "recipient_count": len(recipient_list),
-                "batch_key": batch_key,
-                "input_mode": Config.DISPATCH_INPUT_MODE,
-                "source_type": source_type,
-            },
-            completed=True,
-        )
         dispatch_store.finalize_run(dispatch_run_id, status="completed")
         logger.info("Research Dispatch completed successfully")
-        ops.flush()
         return 0
 
     except Exception as e:
-        ops.emit_stage_event(
-            repo_name="research_dispatcher",
-            stage_name="dispatcher.complete",
-            status="failed",
-            run_key=ops_run_key,
-            payload={"dispatch_run_id": dispatch_run_id},
-            error_type=e.__class__.__name__,
-            error_text=str(e),
-        )
-        ops.update_run(
-            ops_run_key,
-            status="failed",
-            error_text=str(e),
-            stats={"dispatch_run_id": dispatch_run_id},
-            completed=True,
-        )
         if dispatch_run_id is not None:
             dispatch_store.finalize_run(
                 dispatch_run_id,
@@ -394,7 +263,6 @@ def main():
                 error_text=str(e),
             )
         logger.exception("Unhandled error: %s", str(e))
-        ops.flush()
         return 1
 
 

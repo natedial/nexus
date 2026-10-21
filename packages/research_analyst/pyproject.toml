@@ -15,6 +15,7 @@ dependencies = [
   "pydantic>=2.12.5",
   "psycopg[binary]>=3.2.0",
   "pytest>=8,<9",
+  "pytest-timeout>=2.3.1",
   "pyyaml>=6.0.3",
   "httpx>=0.27.0",
 ]
@@ -29,7 +30,12 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
+# Keep unattended suite runs from hanging or OOMing a workstation.
+# Override timeout with RESEARCH_ANALYST_TEST_TIMEOUT or --timeout=.
+timeout = 60
+timeout_method = "thread"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "heavy: memory- or CPU-heavy tests; skipped by default (opt in with '-m heavy')",
     "jev_live: optional live Jev API tests (requires RESEARCH_ANALYST_JEV_LIVE=1 and credentials)",
 ]

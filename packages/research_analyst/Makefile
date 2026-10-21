@@ -8,7 +8,6 @@ ENV_FILE_FLAGS ?= $(if $(wildcard $(ROOT_ENV_FILE)),--env-file $(ROOT_ENV_FILE),
 	$(if $(wildcard $(ENV_FILE)),--env-file $(ENV_FILE),)
 HOST_STATE_DB_PATH ?= ../research_parser/data/state.db
 HOST_ANALYSIS_DIR ?= $(CURDIR)/data
-HOST_PIPELINE_OPS_DIR ?= ../research_pipeline_ops
 CONTAINER_STATE_DB_PATH ?= /parser-data/state.db
 CONTAINER_ANALYSIS_DIR ?= /data
 RESEARCH_ANALYST_STATE_DB_PATH ?= $(CONTAINER_STATE_DB_PATH)
@@ -37,7 +36,6 @@ run-hourly:
 		-e RESEARCH_ANALYST_FORECAST_UPLOAD_LIMIT=$(RESEARCH_ANALYST_FORECAST_UPLOAD_LIMIT) \
 		-v $(HOST_STATE_DB_PATH):$(CONTAINER_STATE_DB_PATH):ro \
 		-v $(HOST_ANALYSIS_DIR):$(CONTAINER_ANALYSIS_DIR) \
-		-v $(HOST_PIPELINE_OPS_DIR):/app/research_pipeline_ops:ro \
 		$(IMAGE_NAME):$(IMAGE_TAG)
 
 run-once:
@@ -49,7 +47,6 @@ run-once:
 		-e RESEARCH_ANALYST_RUN_BATCH_LIMIT=$(RESEARCH_ANALYST_RUN_BATCH_LIMIT) \
 		-v $(HOST_STATE_DB_PATH):$(CONTAINER_STATE_DB_PATH):ro \
 		-v $(HOST_ANALYSIS_DIR):$(CONTAINER_ANALYSIS_DIR) \
-		-v $(HOST_PIPELINE_OPS_DIR):/app/research_pipeline_ops:ro \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
 		python -m research_analysis_layer.main run --limit $(RESEARCH_ANALYST_RUN_BATCH_LIMIT)
 
@@ -61,7 +58,6 @@ doctor:
 		-e RESEARCH_ANALYST_ANALYSIS_DB_URL=$(RESEARCH_ANALYST_ANALYSIS_DB_URL) \
 		-v $(HOST_STATE_DB_PATH):$(CONTAINER_STATE_DB_PATH):ro \
 		-v $(HOST_ANALYSIS_DIR):$(CONTAINER_ANALYSIS_DIR) \
-		-v $(HOST_PIPELINE_OPS_DIR):/app/research_pipeline_ops:ro \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
 		python -m research_analysis_layer.main doctor
 
@@ -76,7 +72,6 @@ shell:
 		-e RESEARCH_ANALYST_ANALYSIS_DB_URL=$(RESEARCH_ANALYST_ANALYSIS_DB_URL) \
 		-v $(HOST_STATE_DB_PATH):$(CONTAINER_STATE_DB_PATH):ro \
 		-v $(HOST_ANALYSIS_DIR):$(CONTAINER_ANALYSIS_DIR) \
-		-v $(HOST_PIPELINE_OPS_DIR):/app/research_pipeline_ops:ro \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
 		/bin/sh
 

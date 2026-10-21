@@ -341,7 +341,7 @@ CLI notes:
 
 ### Observability
 
-Stay consistent with the existing `PipelineOpsClient` stage-event model.
+Keep stage reporting consistent with the analyst's durable run and run-item state.
 
 Emit stage events such as:
 
