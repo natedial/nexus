@@ -1,6 +1,6 @@
 # Agent-reviewed reference expansion with escalation-only human input
 
-Status: implementation in progress; Slices 1-2 complete
+Status: implementation in progress; Slices 1-2 complete, Slice 3 tooling complete
 Date: 2026-10-20 America/New_York
 Owner: research_analyst
 
@@ -31,8 +31,22 @@ Owner: research_analyst
   finalized runs refuse mutation.
 - Scripted-provider tests cover isolation, bounded retries and schema repair,
   budget stops, interruption recovery, global call identity, disagreement
-  quarantine, and immutable output directories. No live calls have started;
-  Slice 3 qualification is the next implementation boundary.
+  quarantine, and immutable output directories.
+- Slice 3 tooling verifies source artifacts and approval traces before admitting
+  a human example to the qualification inventory. The checked-in inventory has
+  two verified, partially labeled examples; omitted human axes remain unknown.
+- Annotation providers receive opaque qualification source IDs and exact source
+  scope, but never human labels, review IDs, rationales, or approval evidence.
+- Qualification reports publish support, scored coverage, abstentions, errors,
+  positive/negative coverage, correlated-model counts, and a 95% Wilson upper
+  error bound independently for every axis.
+- Qualification rules must be frozen explicitly. Missing rules, insufficient
+  support, weak error bounds, or correlated families keep an axis provisional.
+  A report can promote only matching-configuration axes and cannot mutate its
+  input references.
+- Scripted blind-run tests include the known-wrong-agreement case and confirm
+  that agreement alone cannot qualify an axis. No live qualification calls have
+  started; selecting a real provider and frozen policy precedes the first run.
 
 ## Outcome and precedence
 
