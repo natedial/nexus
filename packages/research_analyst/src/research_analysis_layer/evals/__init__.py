@@ -85,6 +85,14 @@ from research_analysis_layer.evals.decision_agent_references import (
     load_agent_references,
     reference_label_views,
 )
+from research_analysis_layer.evals.decision_agent_reference_run import (
+    HarnessConfig,
+    JudgmentRequest,
+    ReferenceBatchHarness,
+    ResourceLimits,
+    RetryableProviderError,
+    curate_reference,
+)
 
 __all__ = [
     "Alert",
@@ -140,4 +148,10 @@ __all__ = [
     "escalation_packet",
     "load_agent_references",
     "reference_label_views",
+    "HarnessConfig",
+    "JudgmentRequest",
+    "ReferenceBatchHarness",
+    "ResourceLimits",
+    "RetryableProviderError",
+    "curate_reference",
 ]

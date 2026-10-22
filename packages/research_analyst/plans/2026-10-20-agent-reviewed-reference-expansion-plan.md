@@ -1,6 +1,6 @@
 # Agent-reviewed reference expansion with escalation-only human input
 
-Status: implementation in progress; Slice 1 contracts complete
+Status: implementation in progress; Slices 1-2 complete
 Date: 2026-10-20 America/New_York
 Owner: research_analyst
 
@@ -17,8 +17,22 @@ Owner: research_analyst
   and suppresses unchanged notifications.
 - Versioned annotator, independent-reviewer, and curator instructions live in
   `prompts/evals/decision_references/`.
-- No live model calls or annotation jobs have started. Slice 2 is the next
-  implementation boundary.
+- Slice 1 made no live model calls or annotation jobs.
+- Slice 2 adds a provider-neutral, checkpointed batch harness in
+  `research_analysis_layer.evals.decision_agent_reference_run`.
+- Blind annotator and reviewer requests cannot contain another judgment.
+  Disagreements permit one bounded comparison call but remain quarantined
+  unless the two first passes independently agree.
+- Run-wide request, token, elapsed-time, and dollar caps are frozen in the
+  manifest. Live configurations require a dollar cap; unknown cost stops a
+  capped run rather than being reported as zero.
+- New destinations must not exist, interrupted runs persist valid completed
+  calls, resumes verify the exact source inventory and configuration, and
+  finalized runs refuse mutation.
+- Scripted-provider tests cover isolation, bounded retries and schema repair,
+  budget stops, interruption recovery, global call identity, disagreement
+  quarantine, and immutable output directories. No live calls have started;
+  Slice 3 qualification is the next implementation boundary.
 
 ## Outcome and precedence
 
