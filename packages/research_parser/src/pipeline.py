@@ -3,10 +3,12 @@
 import json
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
 import structlog
+from research_pipeline_ops import PipelineOpsClient, make_document_key
 
 from src.config import Settings
 from src.drive import DriveWatcher
@@ -98,8 +100,12 @@ def build_source_document_from_relay(
 class Pipeline:
     """Download, parse, and store source-grounded research PDFs."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, *, ops_client: PipelineOpsClient | None = None):
         self.settings = settings
+        self.ops_client = ops_client
+        self.ops_run_key: str | None = None
+        self.ops_failed_count = 0
+        self.ops_processed_count = 0
         self.drive = DriveWatcher(
             credentials_path=settings.google_credentials_path,
             folder_id=settings.google_drive_folder_id,
@@ -141,6 +147,55 @@ class Pipeline:
         self.source_store = PostgresSourceStore(database_url=settings.database_url)
         logger.info("Pipeline initialized")
 
+    def begin_ops_run(self, run_key: str | None) -> None:
+        self.ops_run_key = run_key
+        self.ops_failed_count = 0
+        self.ops_processed_count = 0
+
+    def end_ops_run(self) -> None:
+        self.ops_run_key = None
+
+    def _emit_document_event(
+        self,
+        *,
+        file_id: str,
+        file_name: str,
+        status: str,
+        attempt: int | None = None,
+        duration_ms: int | None = None,
+        error_type: str | None = None,
+        error_text: str | None = None,
+    ) -> None:
+        ops_client = getattr(self, "ops_client", None)
+        if ops_client is None:
+            return
+        ops_client.emit_stage_event(
+            repo_name="research_parser",
+            stage_name="parser.complete",
+            status=status,
+            run_key=getattr(self, "ops_run_key", None),
+            document_key=make_document_key(file_id=file_id),
+            file_id=file_id,
+            attempt=attempt,
+            duration_ms=duration_ms,
+            document_fields={"document_name": file_name},
+            error_type=error_type,
+            error_text=error_text,
+        )
+
+    def _heartbeat_ops(self) -> None:
+        ops_client = getattr(self, "ops_client", None)
+        run_key = getattr(self, "ops_run_key", None)
+        if ops_client is None or run_key is None:
+            return
+        ops_client.heartbeat(
+            run_key,
+            stats={
+                "processed_count": getattr(self, "ops_processed_count", 0),
+                "failed_count": getattr(self, "ops_failed_count", 0),
+            },
+        )
+
     def process_file(
         self,
         file_id: str,
@@ -152,34 +207,67 @@ class Pipeline:
     ) -> bool:
         log = logger.bind(file_id=file_id, file_name=file_name, force=force)
         max_attempts = 2
-        for attempt in range(1, max_attempts + 1):
-            attempt_log = log.bind(attempt=attempt, max_attempts=max_attempts)
-            attempt_log.info("Starting file processing attempt")
-            status, error_message = self._process_file_once(
-                file_id,
-                file_name,
-                attempt_log,
-                force=force,
-                local_pdf_path=local_pdf_path,
-                relay_artifact=relay_artifact,
-            )
-            if status == ProcessingStatus.COMPLETED:
-                return True
-            if attempt < max_attempts:
-                attempt_log.warning(
-                    "Processing incomplete, retrying",
+        started = time.monotonic()
+        final_error: str | None = None
+        final_error_type: str | None = None
+        final_status = "failed"
+        attempt = 0
+        self._emit_document_event(
+            file_id=file_id,
+            file_name=file_name,
+            status="started",
+            attempt=1,
+        )
+        try:
+            for attempt in range(1, max_attempts + 1):
+                attempt_log = log.bind(attempt=attempt, max_attempts=max_attempts)
+                attempt_log.info("Starting file processing attempt")
+                status, error_message = self._process_file_once(
+                    file_id,
+                    file_name,
+                    attempt_log,
+                    force=force,
+                    local_pdf_path=local_pdf_path,
+                    relay_artifact=relay_artifact,
+                )
+                final_error = error_message
+                if status == ProcessingStatus.COMPLETED:
+                    final_status = "succeeded"
+                    self.ops_processed_count = getattr(self, "ops_processed_count", 0) + 1
+                    return True
+                if attempt < max_attempts:
+                    attempt_log.warning(
+                        "Processing incomplete, retrying",
+                        status=status.value,
+                        error=error_message,
+                    )
+                    continue
+                attempt_log.error(
+                    "Processing failed after retries",
                     status=status.value,
                     error=error_message,
                 )
-                continue
-            attempt_log.error(
-                "Processing failed after retries",
-                status=status.value,
-                error=error_message,
-            )
-            self.state.mark_failed(file_id, error_message or "Max retries exceeded")
+                self.state.mark_failed(file_id, error_message or "Max retries exceeded")
+                self.ops_failed_count = getattr(self, "ops_failed_count", 0) + 1
+                final_error_type = "ProcessingFailed"
+                return False
             return False
-        return False
+        except Exception as exc:
+            final_error = str(exc)
+            final_error_type = exc.__class__.__name__
+            self.ops_failed_count = getattr(self, "ops_failed_count", 0) + 1
+            raise
+        finally:
+            self._emit_document_event(
+                file_id=file_id,
+                file_name=file_name,
+                status=final_status,
+                attempt=attempt or 1,
+                duration_ms=round((time.monotonic() - started) * 1000),
+                error_type=final_error_type,
+                error_text=final_error_type if final_error is not None else None,
+            )
+            self._heartbeat_ops()
 
     def _process_file_once(
         self,

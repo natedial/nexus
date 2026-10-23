@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from research_pipeline_ops import PipelineOpsClient
 
 from research_relay.alerts import AlertEvent, classify_exception, classify_run_result, maybe_alert, notify
 from research_relay.auth import build_auth
 from research_relay.config import load_config
+from research_relay.env import load_environment
 from research_relay.exceptions import AlreadyRunningError, ConfigError, KeychainError, RelayError
 from research_relay.gmail_imap import GmailImap
 from research_relay.health import run_health
@@ -18,6 +22,31 @@ from research_relay.proton_imap import ProtonImap
 from research_relay.proton_smtp import ProtonSmtp
 from research_relay.runner import process_messages
 from research_relay.runtime import clear_max_runtime, install_max_runtime
+
+
+_OPS_JOBS = {
+    "run": "relay.email",
+    "archive": "relay.archive",
+    "archive-enqueue": "relay.archive_enqueue",
+}
+
+
+@dataclass
+class _OpsOutcome:
+    status: str | None = None
+    stats: dict[str, object] = field(default_factory=dict)
+    error_text: str | None = None
+
+    def record(
+        self,
+        status: str,
+        *,
+        stats: dict[str, object] | None = None,
+        error_text: str | None = None,
+    ) -> None:
+        self.status = status
+        self.stats = stats or {}
+        self.error_text = error_text
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -156,7 +185,66 @@ def _extract_config_option(argv: list[str]) -> tuple[str | None, list[str]]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_environment()
     args = parse_cli(argv)
+    job_key = _OPS_JOBS.get(args.command)
+    if job_key is None:
+        return _run_command(args)
+    return _run_with_ops(args, job_key=job_key)
+
+
+def _run_with_ops(args: argparse.Namespace, *, job_key: str) -> int:
+    spool_path = Path(
+        os.getenv(
+            "RESEARCH_RELAY_PIPELINE_OPS_SPOOL",
+            "~/.local/state/research-relay/pipeline_ops_spool.db",
+        )
+    ).expanduser()
+    ops = PipelineOpsClient.from_env(
+        default_spool_db_path=spool_path,
+        emitted_by="research_relay",
+    )
+    ops.flush()
+    run_key = ops.start_run(
+        job_key=job_key,
+        repo_name="research_relay",
+        stage_family="relay",
+        run_type=args.command.replace("-", "_"),
+        trigger_source=os.getenv("PIPELINE_OPS_TRIGGER_SOURCE", "manual"),
+    )
+    outcome = _OpsOutcome()
+    try:
+        exit_code = _run_command(args, ops_outcome=outcome)
+    except Exception as exc:
+        ops.finish_run(
+            run_key,
+            status="failed",
+            error_text=exc.__class__.__name__,
+            exit_code=1,
+        )
+        ops.flush()
+        raise
+
+    status = outcome.status or ("succeeded" if exit_code == 0 else "failed")
+    error_text = outcome.error_text
+    if status == "failed" and error_text is None:
+        error_text = f"{args.command} exited with status {exit_code}"
+    ops.finish_run(
+        run_key,
+        status=status,
+        stats=outcome.stats,
+        error_text=error_text,
+        exit_code=exit_code,
+    )
+    ops.flush()
+    return exit_code
+
+
+def _run_command(
+    args: argparse.Namespace,
+    *,
+    ops_outcome: _OpsOutcome | None = None,
+) -> int:
     try:
         config_path = _resolve_config(args.config)
         apply_secrets_file(secrets_path_for_config(config_path))
@@ -173,9 +261,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise ConfigError("--limit must be >= 1")
             cfg = replace(cfg, archive=replace(cfg.archive, max_retries_per_run=args.limit))
     except ConfigError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(f"config error: {exc}", file=sys.stderr)
         return 2
     except KeychainError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(str(exc), file=sys.stderr)
         return 2
 
@@ -211,8 +303,6 @@ def main(argv: list[str] | None = None) -> int:
         except (ConfigError, RelayError) as exc:
             print(str(exc), file=sys.stderr)
             return 2
-
-    import os
 
     extra = [
         os.environ[name].strip()
@@ -273,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
         args.hours = hours
         args.since_dt = since
         args.limit = limit
-        return _run_archive_enqueue(args, cfg, logger)
+        return _run_archive_enqueue(args, cfg, logger, ops_outcome=ops_outcome)
 
     if args.command == "archive":
         logger = install_logging(cfg, extra_redactions=extra)
@@ -285,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "force", False) and not getattr(args, "key", None):
             print("config error: --force requires --key", file=sys.stderr)
             return 2
-        return _run_archive(args, cfg, dry_run, logger)
+        return _run_archive(args, cfg, dry_run, logger, ops_outcome=ops_outcome)
 
     logger = install_logging(cfg, extra_redactions=extra)
     try:
@@ -317,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
         lock.acquire()
     except AlreadyRunningError:
         logger.info("another relay process is running; exiting")
+        if ops_outcome is not None:
+            ops_outcome.record("skipped", stats={"reason": "overlap"})
         return 0
 
     max_runtime = getattr(args, "max_runtime", None)
@@ -377,19 +469,52 @@ def main(argv: list[str] | None = None) -> int:
             alert_event = proton_skip_event
         else:
             alert_event = classify_run_result(result)
+        if ops_outcome is not None:
+            degraded = bool(
+                result.temporary_failures
+                or result.permanent_failures
+                or result.operational_failures
+                or result.circuit_open
+                or result.circuit_tripped
+                or result.daily_cap_reached
+                or proton_skip_event is not None
+            )
+            ops_outcome.record(
+                "degraded" if degraded else "succeeded",
+                stats={
+                    "sent": result.sent,
+                    "label_retries": result.label_retries,
+                    "temporary_failures": result.temporary_failures,
+                    "permanent_failures": result.permanent_failures,
+                    "operational_failures": result.operational_failures,
+                    "skipped": result.skipped,
+                    "dry_run_candidates": result.dry_run_candidates,
+                    "circuit_open": result.circuit_open,
+                    "circuit_tripped": result.circuit_tripped,
+                    "daily_cap_reached": result.daily_cap_reached,
+                },
+            )
         return result.exit_code()
     except SystemExit:
         alert_event = AlertEvent("max_runtime", "max runtime exceeded")
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text="max_runtime")
         return 1
     except ConfigError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(f"config error: {exc}", file=sys.stderr)
         alert_event = classify_exception(exc)
         return 2
     except KeychainError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(str(exc), file=sys.stderr)
         alert_event = classify_exception(exc)
         return 2
     except RelayError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         logger.error("run failed: %s", exc)
         print(str(exc), file=sys.stderr)
         alert_event = classify_exception(exc)
@@ -432,12 +557,14 @@ def _archive_status(cfg) -> int:
         ledger.close()
 
 
-def _run_archive_enqueue(args, cfg, logger) -> int:
+def _run_archive_enqueue(args, cfg, logger, *, ops_outcome: _OpsOutcome | None = None) -> int:
     from research_relay.archive_job import enqueue_recent_archives
 
     if not cfg.archive.enabled:
         logger.info("archive disabled; exiting")
         print("archive disabled (archive.enabled = false)")
+        if ops_outcome is not None:
+            ops_outcome.record("skipped", stats={"reason": "disabled"})
         return 0
 
     dry_run = bool(getattr(args, "dry_run", False))
@@ -450,6 +577,8 @@ def _run_archive_enqueue(args, cfg, logger) -> int:
         lock.acquire()
     except AlreadyRunningError:
         logger.info("another archive process is running; exiting")
+        if ops_outcome is not None:
+            ops_outcome.record("skipped", stats={"reason": "overlap"})
         return 0
 
     proton_imap = None
@@ -498,16 +627,35 @@ def _run_archive_enqueue(args, cfg, logger) -> int:
         )
         for note in result.notes:
             print(note)
+        if ops_outcome is not None:
+            ops_outcome.record(
+                "succeeded",
+                stats={
+                    "scanned": result.scanned,
+                    "enqueued": result.enqueued,
+                    "skipped_existing": result.skipped_existing,
+                    "skipped_domain": result.skipped_domain,
+                    "skipped_other": result.skipped_other,
+                    "skipped_limit": result.skipped_limit,
+                    "dry_run": result.dry_run,
+                },
+            )
         return 0
     except ConfigError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(f"config error: {exc}", file=sys.stderr)
         alert_event = classify_exception(exc)
         return 2
     except KeychainError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(str(exc), file=sys.stderr)
         alert_event = classify_exception(exc)
         return 2
     except RelayError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         logger.error("archive-enqueue failed: %s", exc)
         print(str(exc), file=sys.stderr)
         alert_event = classify_exception(exc)
@@ -522,7 +670,14 @@ def _run_archive_enqueue(args, cfg, logger) -> int:
         maybe_alert(cfg, alert_event, proton_password, skip=dry_run)
 
 
-def _run_archive(args, cfg, dry_run: bool, logger) -> int:
+def _run_archive(
+    args,
+    cfg,
+    dry_run: bool,
+    logger,
+    *,
+    ops_outcome: _OpsOutcome | None = None,
+) -> int:
     from research_relay.archive_job import process_archives
     from research_relay.ledger import Ledger
     from research_relay.oauth import OAuthTokenStore
@@ -530,6 +685,8 @@ def _run_archive(args, cfg, dry_run: bool, logger) -> int:
     if not cfg.archive.enabled:
         logger.info("archive disabled; exiting")
         print("archive disabled (archive.enabled = false)")
+        if ops_outcome is not None:
+            ops_outcome.record("skipped", stats={"reason": "disabled"})
         return 0
 
     lock = FileLock(cfg.paths.archive_lock_file)
@@ -537,6 +694,8 @@ def _run_archive(args, cfg, dry_run: bool, logger) -> int:
         lock.acquire()
     except AlreadyRunningError:
         logger.info("another archive process is running; exiting")
+        if ops_outcome is not None:
+            ops_outcome.record("skipped", stats={"reason": "overlap"})
         return 0
 
     max_runtime = getattr(args, "max_runtime", None)
@@ -583,19 +742,44 @@ def _run_archive(args, cfg, dry_run: bool, logger) -> int:
             print(note)
         if result.operational_failures:
             alert_event = AlertEvent("drive", "Drive auth or permission failure")
+        if ops_outcome is not None:
+            degraded = bool(
+                result.temporary_failures
+                or result.operational_failures
+                or result.unrecoverable
+            )
+            ops_outcome.record(
+                "degraded" if degraded else "succeeded",
+                stats={
+                    "attempted": result.attempted,
+                    "completed": result.completed,
+                    "temporary_failures": result.temporary_failures,
+                    "operational_failures": result.operational_failures,
+                    "unrecoverable": result.unrecoverable,
+                    "dry_run": dry_run,
+                },
+            )
         return result.exit_code()
     except SystemExit:
         alert_event = AlertEvent("max_runtime", "max runtime exceeded")
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text="max_runtime")
         return 1
     except ConfigError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(f"config error: {exc}", file=sys.stderr)
         alert_event = classify_exception(exc)
         return 2
     except KeychainError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         print(str(exc), file=sys.stderr)
         alert_event = classify_exception(exc)
         return 2
     except RelayError as exc:
+        if ops_outcome is not None:
+            ops_outcome.record("failed", error_text=exc.__class__.__name__)
         logger.error("archive failed: %s", exc)
         print(str(exc), file=sys.stderr)
         alert_event = classify_exception(exc)

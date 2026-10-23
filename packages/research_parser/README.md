@@ -170,6 +170,18 @@ research_parser/
 
 ## Docker Deployment
 
+Each scheduled poll records a `parser.poll` run in the shared Nexus operations
+journal. Per-document processing records `parser.complete` stage events keyed
+by Drive file ID. Long polls heartbeat after every terminal document result;
+PostgreSQL outages spool events beside the parser state database and do not
+interrupt parsing.
+
+The Docker build uses the Nexus repository root as its build context so the
+image can install `packages/research_pipeline_ops`. Ensure the container's
+`NEXUS_DATABASE_URL` hostname is reachable from Docker (for example the Compose
+database service name or `host.docker.internal`, not container-local
+`localhost`).
+
 ### Build and Run
 
 Docker binds the repo-root `credentials/` directory by default (not a package-local

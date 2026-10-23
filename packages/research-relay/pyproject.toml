@@ -12,7 +12,12 @@ dependencies = [
     "pypdf>=5.0",
     "pillow>=10.0",
     "reportlab>=4.0",
+    "python-dotenv>=1.0",
+    "research-pipeline-ops>=0.1.0",
 ]
+
+[tool.uv.sources]
+research-pipeline-ops = { path = "../research_pipeline_ops", editable = true }
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4"]

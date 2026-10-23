@@ -17,6 +17,7 @@ elif [ -f "venv/bin/activate" ]; then
 fi
 
 export TZ="${TZ:-America/New_York}"
+export PIPELINE_OPS_TRIGGER_SOURCE="${PIPELINE_OPS_TRIGGER_SOURCE:-launchd}"
 
 WATERMARK="${RESEARCH_DISPATCHER_MORNING_WATERMARK:-state/morning_attention_last_run.json}"
 HANDOFF="${RESEARCH_DISPATCHER_MORNING_HANDOFF_DIR:-state/morning_attention_handoff}"

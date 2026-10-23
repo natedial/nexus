@@ -1,14 +1,17 @@
 """Main entry point for the research parser service."""
 
+import argparse
+import os
 import signal
 import sys
-import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from pathlib import Path
 
 import structlog
 from apscheduler.schedulers import SchedulerNotRunningError
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from research_pipeline_ops import PipelineOpsClient
 
 from src.config import get_settings
 from src.pipeline import Pipeline
@@ -40,7 +43,18 @@ class ResearchParserService:
 
     def __init__(self):
         self.settings = get_settings()
-        self.pipeline = Pipeline(self.settings)
+        spool_path = Path(
+            os.getenv(
+                "RESEARCH_PARSER_PIPELINE_OPS_SPOOL",
+                str(self.settings.state_db_path.parent / "pipeline_ops_spool.db"),
+            )
+        ).expanduser()
+        self.ops = PipelineOpsClient.from_env(
+            default_spool_db_path=spool_path,
+            emitted_by="research_parser",
+        )
+        self.ops.flush()
+        self.pipeline = Pipeline(self.settings, ops_client=self.ops)
         self.scheduler = BlockingScheduler()
         self._running = True
         self._since = self._parse_since(self.settings.drive_since_date)
@@ -67,7 +81,7 @@ class ResearchParserService:
         if not value:
             return None
         try:
-            return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
         except ValueError:
             logger.warning("Invalid since date; expected YYYY-MM-DD", since=value)
             return None
@@ -77,11 +91,35 @@ class ResearchParserService:
         if not self._running:
             return
 
+        run_key = self.ops.start_run(
+            job_key="parser.poll",
+            repo_name="research_parser",
+            stage_family="parser",
+            run_type="poll_cycle",
+            trigger_source=os.getenv("PIPELINE_OPS_TRIGGER_SOURCE", "scheduler"),
+        )
+        self.pipeline.begin_ops_run(run_key)
         try:
             processed = self.pipeline.run_once(since=self._since)
             logger.info("Poll complete", processed_count=processed)
-        except Exception:
+            failed = self.pipeline.ops_failed_count
+            self.ops.finish_run(
+                run_key,
+                status="degraded" if failed else "succeeded",
+                stats={"processed_count": processed, "failed_count": failed},
+                exit_code=1 if failed else 0,
+            )
+        except Exception as exc:
             logger.exception("Error in polling job")
+            self.ops.finish_run(
+                run_key,
+                status="failed",
+                error_text=exc.__class__.__name__,
+                exit_code=1,
+            )
+        finally:
+            self.pipeline.end_ops_run()
+            self.ops.flush()
 
     def run(self):
         """Start the service."""
