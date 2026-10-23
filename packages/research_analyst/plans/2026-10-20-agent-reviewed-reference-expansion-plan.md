@@ -1,6 +1,6 @@
 # Agent-reviewed reference expansion with escalation-only human input
 
-Status: implementation in progress; Slices 1-2 complete, Slice 3 tooling complete
+Status: implementation in progress; Slices 1-2 complete, Slices 3-4 tooling complete
 Date: 2026-10-20 America/New_York
 Owner: research_analyst
 
@@ -47,6 +47,21 @@ Owner: research_analyst
 - Scripted blind-run tests include the known-wrong-agreement case and confirm
   that agreement alone cannot qualify an axis. No live qualification calls have
   started; selecting a real provider and frozen policy precedes the first run.
+- Slice 4 preparation adds a tool-free structured-model adapter that injects
+  trusted model, call, time, usage, and cost provenance outside model output.
+  It rejects unpinned resolved models and clients with hidden internal retries.
+- Pilot selection loads only explicitly supplied, content-addressed shadow
+  artifacts; excludes agreed human-review units; and deterministically covers
+  documents, assertion types, and recorded failure-mode strata. The two current
+  approved artifacts yield 24 eligible units after two qualification examples
+  are excluded.
+- The no-spend pilot check freezes exact sources, role models, pricing sources,
+  request/token/time/dollar caps, audit rate, and qualification state. It checks
+  the full annotation envelope before retries and writes an immutable preparation
+  bundle without constructing or invoking a network client.
+- No live pilot has started. Exact provider/model pins, a frozen qualification
+  policy, and an approved budget configuration are still required inputs rather
+  than values inferred by the tooling.
 
 ## Outcome and precedence
 

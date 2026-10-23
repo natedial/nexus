@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from research_analysis_layer.evals.decision_agent_reference_run import (
     HarnessConfig,
+    InvalidJudgmentResponse,
     JudgmentRequest,
     ReferenceBatchHarness,
     ResourceLimits,
@@ -282,6 +283,36 @@ def test_one_schema_repair_uses_unchanged_source_and_taxonomy(tmp_path) -> None:
     assert provider.requests[0].taxonomy_sha256 == provider.requests[1].taxonomy_sha256
     attempts = _rows(output / "attempts.jsonl")
     assert attempts[0]["status"] == "schema_error"
+
+
+class PaidRepairingProvider(CapturingProvider):
+    def generate(self, request: JudgmentRequest) -> AgentJudgment:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            raise InvalidJudgmentResponse(
+                "paid malformed response",
+                usage=CallUsage(
+                    input_tokens=40,
+                    output_tokens=10,
+                    estimated_usd=0.02,
+                ),
+            )
+        return _judgment(request, call_suffix=str(len(self.requests)))
+
+
+def test_schema_repair_counts_usage_from_the_invalid_attempt(tmp_path) -> None:
+    output = tmp_path / "run"
+    ReferenceBatchHarness(PaidRepairingProvider()).run(
+        output_dir=output,
+        sources=[_source()],
+        config=_config(),
+    )
+    usage = json.loads((output / "manifest.json").read_text())["usage"]
+    # Invalid attempt (40/10/$0.02) plus two successful calls (10/5/$0.01 each).
+    assert usage["requests"] == 3
+    assert usage["input_tokens"] == 60
+    assert usage["output_tokens"] == 20
+    assert usage["estimated_usd"] == pytest.approx(0.04)
 
 
 class AlwaysRetryableProvider(CapturingProvider):

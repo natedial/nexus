@@ -28,6 +28,7 @@ from research_analysis_layer.evals.decision_agent_references import (
     AgentReferenceSource,
     SourceTransformation,
     load_agent_references,
+    role_prompt_sha256,
 )
 from research_analysis_layer.evals.decision_reviews import (
     DecisionReviewRecord,
@@ -304,11 +305,49 @@ def qualification_configuration_fingerprint(
         raise ValueError("qualification references mix multiple gate versions")
     if not first_pass_configurations:
         return sha256_text("no-reference-configuration")
+    return _configuration_fingerprint(
+        first_pass_configurations=first_pass_configurations,
+        gate_versions=gate_versions,
+    )
+
+
+def _configuration_fingerprint(
+    *,
+    first_pass_configurations: set[
+        tuple[str, str, str, str, str, str, str, str, str]
+    ],
+    gate_versions: set[str],
+) -> str:
     payload = {
         "first_passes": sorted(first_pass_configurations),
         "gate_versions": sorted(gate_versions),
     }
     return sha256_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+
+
+def harness_configuration_fingerprint(config: HarnessConfig) -> str:
+    """Predict the qualification fingerprint for a frozen harness config."""
+
+    first_passes = set()
+    for role in ("annotator", "reviewer"):
+        identity = config.role_models[role]
+        first_passes.add(
+            (
+                role,
+                identity.provider,
+                identity.model,
+                identity.model_family,
+                identity.resolved_version,
+                "decision-reference-role-v1",
+                role_prompt_sha256(role),
+                config.taxonomy_version,
+                config.taxonomy_sha256,
+            )
+        )
+    return _configuration_fingerprint(
+        first_pass_configurations=first_passes,
+        gate_versions={config.gate_version},
+    )
 
 
 def _wilson_upper(errors: int, support: int, z: float = 1.959963984540054) -> float | None:
@@ -567,6 +606,7 @@ __all__ = [
     "build_qualification_inventory",
     "build_qualification_report",
     "apply_qualification_report",
+    "harness_configuration_fingerprint",
     "qualification_configuration_fingerprint",
     "run_blind_qualification",
 ]

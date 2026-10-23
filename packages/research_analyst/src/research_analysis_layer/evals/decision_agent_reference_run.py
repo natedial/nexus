@@ -24,6 +24,7 @@ from research_analysis_layer.evals.decision_agent_references import (
     AgentReferenceRecord,
     AgentReferenceSource,
     AxisJudgment,
+    CallUsage,
     ModelIdentity,
     canonical_record_hash,
     role_prompt_path,
@@ -109,6 +110,22 @@ class JudgmentProvider(Protocol):
 
 class RetryableProviderError(RuntimeError):
     """A transport failure that the harness may retry within its fixed bound."""
+
+
+class ProviderAttemptError(RuntimeError):
+    """A completed provider attempt that failed after incurring usage."""
+
+    def __init__(self, message: str, *, usage: CallUsage) -> None:
+        super().__init__(message)
+        self.usage = usage
+
+
+class InvalidJudgmentResponse(ProviderAttemptError):
+    """A paid response eligible for the single schema-repair allowance."""
+
+
+class ProviderContractError(ProviderAttemptError):
+    """A paid response that violated a non-repairable frozen provider contract."""
 
 
 class BudgetExhausted(RuntimeError):
@@ -435,6 +452,28 @@ class ReferenceBatchHarness:
             self._checkpoint(output_dir, manifest, usage)
             try:
                 raw = self.provider.generate(request)
+            except InvalidJudgmentResponse as exc:
+                self._add_usage(usage, exc.usage)
+                _append_json(
+                    output_dir / "attempts.jsonl",
+                    _attempt_row(request, "schema_error", str(exc)),
+                )
+                self._checkpoint(output_dir, manifest, usage)
+                self._check_post_call_budget(config, usage)
+                if schema_repairs >= config.max_schema_repairs:
+                    raise
+                schema_repairs += 1
+                previous_error = str(exc)
+                continue
+            except ProviderContractError as exc:
+                self._add_usage(usage, exc.usage)
+                _append_json(
+                    output_dir / "attempts.jsonl",
+                    _attempt_row(request, "fatal_error", str(exc)),
+                )
+                self._checkpoint(output_dir, manifest, usage)
+                self._check_post_call_budget(config, usage)
+                raise
             except RetryableProviderError as exc:
                 _append_json(
                     output_dir / "attempts.jsonl",
@@ -469,15 +508,19 @@ class ReferenceBatchHarness:
 
             _append_json(output_dir / "attempts.jsonl", _attempt_row(request, "success"))
             _append_json(output_dir / "judgments.jsonl", judgment)
-            usage.input_tokens += judgment.usage.input_tokens or 0
-            usage.output_tokens += judgment.usage.output_tokens or 0
-            if judgment.usage.estimated_usd is None:
-                usage.estimated_usd = None
-            elif usage.estimated_usd is not None:
-                usage.estimated_usd += judgment.usage.estimated_usd
+            self._add_usage(usage, judgment.usage)
             self._checkpoint(output_dir, manifest, usage)
             self._check_post_call_budget(config, usage)
             return judgment
+
+    @staticmethod
+    def _add_usage(usage: UsageState, call_usage: CallUsage) -> None:
+        usage.input_tokens += call_usage.input_tokens or 0
+        usage.output_tokens += call_usage.output_tokens or 0
+        if call_usage.estimated_usd is None:
+            usage.estimated_usd = None
+        elif usage.estimated_usd is not None:
+            usage.estimated_usd += call_usage.estimated_usd
 
     def _validate_judgment(
         self,
@@ -725,10 +768,12 @@ __all__ = [
     "BudgetExhausted",
     "HARNESS_SCHEMA_VERSION",
     "HarnessConfig",
+    "InvalidJudgmentResponse",
     "JudgmentProvider",
     "JudgmentRequest",
     "ReferenceBatchHarness",
     "ResourceLimits",
+    "ProviderContractError",
     "RetryableProviderError",
     "UsageState",
     "curate_reference",

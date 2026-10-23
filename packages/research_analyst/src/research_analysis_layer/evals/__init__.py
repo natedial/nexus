@@ -87,6 +87,7 @@ from research_analysis_layer.evals.decision_agent_references import (
 )
 from research_analysis_layer.evals.decision_agent_reference_run import (
     HarnessConfig,
+    InvalidJudgmentResponse,
     JudgmentRequest,
     ReferenceBatchHarness,
     ResourceLimits,
@@ -102,7 +103,22 @@ from research_analysis_layer.evals.decision_agent_qualification import (
     apply_qualification_report,
     build_qualification_inventory,
     build_qualification_report,
+    harness_configuration_fingerprint,
     run_blind_qualification,
+)
+from research_analysis_layer.evals.decision_agent_provider import (
+    StructuredJudgmentProvider,
+    TokenPricing,
+)
+from research_analysis_layer.evals.decision_agent_pilot import (
+    PilotDryRunReport,
+    PilotSelection,
+    PilotSpecification,
+    build_pilot_specification,
+    dry_run_pilot,
+    load_pilot_candidates,
+    select_stratified_pilot,
+    write_pilot_preparation,
 )
 
 __all__ = [
@@ -160,6 +176,7 @@ __all__ = [
     "load_agent_references",
     "reference_label_views",
     "HarnessConfig",
+    "InvalidJudgmentResponse",
     "JudgmentRequest",
     "ReferenceBatchHarness",
     "ResourceLimits",
@@ -173,5 +190,16 @@ __all__ = [
     "apply_qualification_report",
     "build_qualification_inventory",
     "build_qualification_report",
+    "harness_configuration_fingerprint",
     "run_blind_qualification",
+    "StructuredJudgmentProvider",
+    "TokenPricing",
+    "PilotDryRunReport",
+    "PilotSelection",
+    "PilotSpecification",
+    "build_pilot_specification",
+    "dry_run_pilot",
+    "load_pilot_candidates",
+    "select_stratified_pilot",
+    "write_pilot_preparation",
 ]

@@ -12,6 +12,7 @@ from research_analysis_layer.evals.decision_agent_qualification import (
     QualificationPolicy,
     apply_qualification_report,
     build_qualification_inventory,
+    harness_configuration_fingerprint,
     run_blind_qualification,
 )
 from research_analysis_layer.evals.decision_agent_reference_run import (
@@ -226,11 +227,12 @@ def test_two_agents_agreeing_on_known_wrong_answer_does_not_qualify(tmp_path) ->
 
 def test_matching_labels_can_pass_only_the_axis_with_a_frozen_rule(tmp_path) -> None:
     output = tmp_path / "qualification"
+    config = _config()
     report = run_blind_qualification(
         output_dir=output,
         records_path=default_review_records_path(),
         artifact_root=default_review_dir() / "sources",
-        harness_config=_config(),
+        harness_config=config,
         policy=_policy(
             {
                 "statement_type": _rule(
@@ -244,6 +246,7 @@ def test_matching_labels_can_pass_only_the_axis_with_a_frozen_rule(tmp_path) -> 
         provider=BlindQualificationProvider(),
     )
     assert report.qualified_axis_ids == ["statement_type"]
+    assert report.configuration_fingerprint == harness_configuration_fingerprint(config)
     assert report.results["statement_type"].errors == 0
     assert "is_forecast" in report.provisional_axis_ids
 
