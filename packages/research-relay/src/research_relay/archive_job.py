@@ -7,11 +7,11 @@ from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 
 from research_relay.archive_format import (
-    archive_html_document,
-    archive_html_name,
+    archive_body_pdf_name,
     archive_pdf_name,
 )
 from research_relay.attachments import AttachmentDecision, AttachmentPolicy
+from research_relay.body_pdf import render_body_pdf
 from research_relay.config import AppConfig
 from research_relay.drive_archive import upload_html as _upload_html
 from research_relay.drive_archive import upload_pdf as _upload_pdf
@@ -204,7 +204,7 @@ def process_archives(
                 if store.archive_is_complete(fresh):
                     result.completed += 1
                     log.info("archive done key=%s", row.gmail_msgid[-24:])
-                    if cfg.intake.enabled and fresh is not None and fresh.kind == "pdfs":
+                    if cfg.intake.enabled and fresh is not None:
                         _maybe_write_intake_handoff(
                             cfg,
                             store,
@@ -265,25 +265,16 @@ def _process_row(
         original, gmail_msgid=row.gmail_msgid, settings=settings
     )
     when = _message_when(original)
-    subject = str(reconstructed.message.get("Subject") or "")
     private = cfg.relay.private_address
     if row.kind == "html":
         if row.html_id:
             return
-        body_part = reconstructed.message.get_body(preferencelist=("plain",))
-        body = body_part.get_content() if body_part is not None else ""
-        html = archive_html_document(
-            sender=reconstructed.sender_address,
-            date_text=str(original.get("Date") or ""),
-            subject=subject,
-            body=body,
-            private_address=private,
-        )
-        name = archive_html_name(when, subject, private_address=private)
-        file_id = upload_html(access_token, cfg.archive.pdf_folder_id, name, html)
+        generated = _archive_pdf_payloads(reconstructed, original, when, private)
+        name, payload = next(iter(generated.items()))
+        file_id = upload_pdf(access_token, cfg.archive.pdf_folder_id, name, payload)
         ledger.record_html_id(row.gmail_msgid, file_id)
         return
-    payloads = _pdf_payloads(reconstructed, when, subject, private)
+    payloads = _archive_pdf_payloads(reconstructed, original, when, private)
     for name in row.expected_names:
         payload = payloads.get(name)
         if payload is None:
@@ -305,9 +296,13 @@ def _plan(
     when = _message_when(original)
     subject = str(reconstructed.message.get("Subject") or "")
     names = list(_pdf_payloads(reconstructed, when, subject, cfg.relay.private_address))
-    if names:
-        return "pdfs", names
-    return "html", []
+    if not names:
+        names = [
+            archive_body_pdf_name(
+                when, subject, private_address=cfg.relay.private_address
+            )
+        ]
+    return "pdfs", names
 
 
 def _pdf_payloads(
@@ -327,6 +322,30 @@ def _pdf_payloads(
         )
         out[name] = item.payload
     return out
+
+
+def _archive_pdf_payloads(
+    reconstructed: Reconstruction,
+    original: EmailMessage,
+    when: datetime,
+    private: str,
+) -> dict[str, bytes]:
+    subject = str(reconstructed.message.get("Subject") or "")
+    payloads = _pdf_payloads(reconstructed, when, subject, private)
+    if payloads:
+        return payloads
+    body_part = reconstructed.message.get_body(preferencelist=("plain",))
+    body = body_part.get_content() if body_part is not None else ""
+    name = archive_body_pdf_name(when, subject, private_address=private)
+    return {
+        name: render_body_pdf(
+            sender=reconstructed.sender_address,
+            date_text=str(original.get("Date") or ""),
+            subject=subject,
+            body=body,
+            private_address=private,
+        )
+    }
 
 
 def _message_when(original: EmailMessage) -> datetime:
@@ -357,7 +376,9 @@ def _maybe_write_intake_handoff(
     )
     when = _message_when(original)
     subject = str(reconstructed.message.get("Subject") or "")
-    payloads = _pdf_payloads(reconstructed, when, subject, cfg.relay.private_address)
+    payloads = _archive_pdf_payloads(
+        reconstructed, original, when, cfg.relay.private_address
+    )
     if not payloads:
         return
     original_date = str(original.get("Date") or "").strip() or None

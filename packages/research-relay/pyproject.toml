@@ -12,6 +12,7 @@ dependencies = [
     "pypdf>=5.0",
     "pillow>=10.0",
     "python-dotenv>=1.0",
+    "reportlab>=4.0",
     "research-pipeline-ops>=0.1.0",
 ]
 

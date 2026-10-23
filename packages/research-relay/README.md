@@ -304,7 +304,7 @@ launchctl unload ~/Library/LaunchAgents/com.researchrelay.archive.plist 2>/dev/n
 launchctl load ~/Library/LaunchAgents/com.researchrelay.archive.plist
 ```
 
-`research-relay health` fails on unrecoverable archive rows, or incomplete rows older than 9 hours. `archive-status` lists missing PDFs/Docs/HTML. Mail processed before archive enqueue existed can be queued with `archive-enqueue --hours 48`.
+`research-relay health` fails on unrecoverable archive rows, or incomplete rows older than 9 hours. `archive-status` lists missing PDFs/Docs. Messages without PDF attachments are rendered as searchable PDFs, archived to Drive, and included in the parser intake handoff. Mail processed before archive enqueue existed can be queued with `archive-enqueue --hours 48`.
 
 ## Upgrade
 
