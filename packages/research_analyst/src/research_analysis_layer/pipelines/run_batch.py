@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 
+from research_pipeline_ops import PipelineOpsClient, make_document_key
+
 from research_analysis_layer.config import Settings
 from research_analysis_layer.db import AnalysisStore, CalendarDbClient, ParsedDbClient, StateDbReader
 from research_analysis_layer.models import ParserStateRecord
@@ -55,6 +57,8 @@ class RunBatchPipeline:
         hydrator: Hydrator,
         analyze_document: AnalyzeDocumentPipeline,
         quality_reviewer: QualityReviewer,
+        ops_client: PipelineOpsClient | None = None,
+        ops_run_key: str | None = None,
     ):
         self.settings = settings
         self.state_reader = state_reader
@@ -65,6 +69,41 @@ class RunBatchPipeline:
         self.hydrator = hydrator
         self.analyze_document = analyze_document
         self.quality_reviewer = quality_reviewer
+        self.ops_client = ops_client
+        self.ops_run_key = ops_run_key
+
+    def _emit_document_event(
+        self,
+        state_row: ParserStateRecord,
+        *,
+        status: str,
+        research_id: int | None,
+        document_hash: str | None,
+        payload: dict[str, object] | None = None,
+        error_type: str | None = None,
+        error_text: str | None = None,
+    ) -> None:
+        if self.ops_client is None:
+            return
+        document_key = make_document_key(
+            file_id=state_row.file_id,
+            research_id=research_id,
+            document_hash=document_hash,
+        )
+        self.ops_client.emit_stage_event(
+            repo_name="research_analyst",
+            stage_name="analyst.complete",
+            status=status,
+            run_key=self.ops_run_key,
+            document_key=document_key,
+            file_id=state_row.file_id,
+            research_id=research_id,
+            document_hash=document_hash,
+            payload=payload,
+            document_fields={"document_name": state_row.file_name},
+            error_type=error_type,
+            error_text=error_text,
+        )
 
     def run(
         self,
@@ -315,6 +354,12 @@ class RunBatchPipeline:
                     research_id=hydrated.research_id,
                     document_hash=hydrated.document_hash,
                 )
+                self._emit_document_event(
+                    state_row,
+                    status="started",
+                    research_id=hydrated.research_id,
+                    document_hash=hydrated.document_hash,
+                )
                 try:
                     result = self.analyze_document.run(
                         run_id=run.id,
@@ -343,6 +388,24 @@ class RunBatchPipeline:
                         error_type=result.error_type,
                         error_text=result.error_text,
                     )
+                    stage_status = {
+                        "success": "succeeded",
+                        "error": "failed",
+                    }.get(result.status, "skipped")
+                    self._emit_document_event(
+                        state_row,
+                        status=stage_status,
+                        research_id=hydrated.research_id,
+                        document_hash=hydrated.document_hash,
+                        payload={
+                            "chunk_count": result.chunk_count,
+                            "assertion_count": result.assertion_count,
+                            "open_question_count": result.open_question_count,
+                            "agent_error_count": result.agent_error_count,
+                        },
+                        error_type=result.error_type,
+                        error_text=result.error_type,
+                    )
                 except Exception as exc:  # pragma: no cover - exercised by CLI
                     logger.exception("Document analysis failed", extra={"file_id": state_row.file_id})
                     self.store.finalize_run_item(
@@ -353,6 +416,14 @@ class RunBatchPipeline:
                         document_hash=hydrated.document_hash,
                         error_type="analysis_error",
                         error_text=str(exc),
+                    )
+                    self._emit_document_event(
+                        state_row,
+                        status="failed",
+                        research_id=hydrated.research_id,
+                        document_hash=hydrated.document_hash,
+                        error_type=exc.__class__.__name__,
+                        error_text=exc.__class__.__name__,
                     )
             summary = self.store.finalize_run(run.id, selected_watermark=max_watermark)
             return BatchRunResult(

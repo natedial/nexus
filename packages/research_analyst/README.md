@@ -39,6 +39,17 @@ python -m research_analysis_layer.main review-document --research-id 1234
 
 ## Docker hourly runner
 
+Each hourly tick records one `analyst.hourly` parent run covering bounded batch
+draining and forecast synchronization. The parent heartbeats after every batch,
+and selected documents emit `analyst.complete` events using the parser's Drive
+file identity. Document-level errors produce a degraded parent run without
+changing the analyst's own run/item persistence semantics.
+
+The Docker image uses the Nexus repository root as its build context so it can
+install `packages/research_pipeline_ops`. Keep the telemetry spool on the
+mounted `/data` volume and ensure `NEXUS_DATABASE_URL` uses a hostname reachable
+from inside Docker.
+
 The repo now includes a small Docker image and `Makefile` targets for a long-running hourly worker.
 
 Build the image:

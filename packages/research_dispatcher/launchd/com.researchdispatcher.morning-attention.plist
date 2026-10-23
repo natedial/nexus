@@ -28,6 +28,8 @@
   <dict>
     <key>TZ</key>
     <string>America/New_York</string>
+    <key>PIPELINE_OPS_TRIGGER_SOURCE</key>
+    <string>launchd</string>
   </dict>
   <key>StandardOutPath</key>
   <string>/Users/ncdial/devwork/nexus/packages/research_dispatcher/logs/morning_attention.stdout.log</string>

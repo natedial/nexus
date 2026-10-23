@@ -14,7 +14,11 @@ dependencies = [
     "structlog>=24.4.0",
     "tenacity>=9.0.0",
     "pyyaml>=6.0.0",
+    "research-pipeline-ops>=0.1.0",
 ]
+
+[tool.uv.sources]
+research-pipeline-ops = { path = "../research_pipeline_ops", editable = true }
 
 [project.optional-dependencies]
 docling = [

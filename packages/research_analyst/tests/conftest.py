@@ -24,6 +24,9 @@ import sys
 
 import pytest
 
+# Unit tests must never publish stages to a developer's configured Nexus database.
+os.environ.setdefault("PIPELINE_OPS_MODE", "off")
+
 # Soft RSS fail threshold. macOS does not enforce RLIMIT_AS; this is the
 # cross-platform backstop so a runaway test fails instead of OOM-killing the host.
 DEFAULT_RSS_LIMIT_MB = 2048

@@ -1,8 +1,8 @@
 services:
   research-parser:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: packages/research_parser/Dockerfile
     container_name: research-parser
     restart: unless-stopped
 
@@ -51,8 +51,8 @@ services:
     profiles:
       - dev
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: packages/research_parser/Dockerfile
     container_name: research-parser-dev
     env_file:
       - path: ../../.env

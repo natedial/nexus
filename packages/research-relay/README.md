@@ -25,10 +25,8 @@ Live SMTP submission and Gmail label changes are **off by default**. Use dry-run
 ## Install
 
 ```bash
-cd /path/to/research_relay
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install -e ".[dev]"
+cd /path/to/nexus
+uv sync --project packages/research-relay --extra dev
 mkdir -p ~/.config/research-relay \
   ~/Library/Application\ Support/research-relay \
   ~/Library/Logs/research-relay
@@ -142,6 +140,17 @@ Reconstructed mail is stamped (`X-Research-Relay`, `Auto-Submitted: auto-generat
 If a live Proton pass sends mail and one of those natives is still in `Relay/pending` afterward, the circuit breaker opens. Own-relay and Gmail copies that Bridge deposits into `Relay/pending` during the run are dismissed before that check, so they do not open the breaker. Later live runs still dismiss copies but do not send until you run `research-relay breaker-reset`. Health reports the breaker as failed while it is open.
 
 ## Commands
+
+The mutating `run`, `archive`, and `archive-enqueue` commands publish sanitized
+run summaries to the shared Nexus `pipeline_ops` journal. The CLI loads the
+repo-root `.env` before package configuration, uses `NEXUS_DATABASE_URL` by
+default, and spools validated events locally if PostgreSQL is unavailable.
+
+Set `RESEARCH_RELAY_PIPELINE_OPS_SPOOL` only to override the default spool at
+`~/.local/state/research-relay/pipeline_ops_spool.db`. LaunchAgent definitions
+set `PIPELINE_OPS_TRIGGER_SOURCE=launchd`; manual commands default to `manual`.
+Telemetry contains counters and generic error classes only, never addresses,
+subjects, message IDs, attachment names, or message content.
 
 Dry-run (default even if you forget a flag):
 

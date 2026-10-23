@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-20
 
-**Status:** Proposed
+**Status:** Implemented; producer canaries and monitor activation pending
 
 **Scope:** Nexus-wide scheduled and batch operations
 **Primary owner:** `packages/research_pipeline_ops`
@@ -39,17 +39,18 @@ and document processing state.
 
 | Existing component | Current state | Plan |
 | --- | --- | --- |
-| `migrations/003_pipeline_ops_schema.sql` | Applied locally; defines runs, stage events, projections, and basic views | Keep and extend additively |
-| Parser instrumentation | Emits run and stage events through `PipelineOpsClient` | Retain hooks; replace external/missing client dependency |
-| Analyst instrumentation | Emits batch and per-document stage events | Retain hooks; standardize statuses and heartbeats |
-| Legacy dispatcher instrumentation | Covers the legacy email-dispatch entry point | Keep compatible, but instrument canonical Morning Attention separately |
-| Relay SQLite ledger and alerts | Tracks delivery/archive domain state and sends failure/recovery alerts | Keep authoritative; publish summarized run outcomes only |
-| Gleaner SQLite store and source locks | Tracks captures, revisions, delivery state, and overlap prevention | Keep authoritative; publish summarized sweep outcomes only |
-| PostgreSQL container | Healthy shared Nexus PostgreSQL instance | Use as the control-plane source of truth |
+| `migrations/003_pipeline_ops_schema.sql` | Applied locally; defines runs, stage events, projections, and basic views | Retained and extended additively |
+| Parser instrumentation | Emits poll runs and per-document stage events through the in-repo client | Canary before enabling the catalog job |
+| Analyst instrumentation | Emits hourly parent runs and per-document stage events | Canary before enabling the catalog job |
+| Canonical dispatcher instrumentation | Morning Attention generation/handoff emits one summarized run | Keep external delivery outside this status |
+| Relay SQLite ledger and alerts | Remains authoritative while email, archive, and enqueue publish summarized outcomes | Keep automatic retry disabled |
+| Gleaner SQLite store and source locks | Remains authoritative while Notion and reMarkable sweeps publish summarized outcomes | Canary before enabling both catalog jobs |
+| PostgreSQL container | Hosts the applied control-plane schema and disabled-by-default job catalog | Enable jobs individually after canaries |
 
-The live `pipeline_ops` schema currently contains zero runs and zero stage
-events. `packages/research_pipeline_ops` exists but is empty, so the existing
-producer hooks cannot currently form a complete in-repo solution.
+`packages/research_pipeline_ops` now provides the shared client, durable SQLite
+spool, monitor, incident lifecycle, safe retry policy, CLI, and agent skill.
+Migration 005 is applied locally. All catalog jobs remain disabled until their
+manual and scheduled canaries have been reviewed.
 
 ## Scope challenge
 

@@ -33,6 +33,18 @@ class _SourceStoreRecorder:
         return {"document_name": document_name, "id": 1, "document_hash": "hash"}
 
 
+class _OpsRecorder:
+    def __init__(self):
+        self.events = []
+        self.heartbeats = []
+
+    def emit_stage_event(self, **kwargs):
+        self.events.append(kwargs)
+
+    def heartbeat(self, run_key, **kwargs):
+        self.heartbeats.append((run_key, kwargs))
+
+
 def _build_pipeline(tmp_path, state: StateStore) -> Pipeline:
     pipeline = Pipeline.__new__(Pipeline)
     pipeline.settings = SimpleNamespace(
@@ -110,6 +122,36 @@ def test_process_file_resumes_from_artifacts(tmp_path):
     final_state = state.get_state(file_id)
     assert final_state is not None
     assert final_state.status == ProcessingStatus.COMPLETED
+
+
+def test_process_file_emits_document_completion_and_heartbeat(tmp_path):
+    file_id = "drive-ops-1"
+    file_name = "2026-08-31_GS_Rates_Report.pdf"
+    state = StateStore(tmp_path / "state.db")
+    pipeline = _build_pipeline(tmp_path, state)
+    ops = _OpsRecorder()
+    pipeline.ops_client = ops
+    pipeline.begin_ops_run("parser:test-run")
+
+    state.start_processing(file_id, file_name)
+    state.update_step(file_id, "parse", True)
+    state.update_step(file_id, "boilerplate", True, ProcessingStatus.PARSING)
+    artifact_dir = pipeline.settings.artifact_base_dir / file_id
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "clean_text.md").write_text("Research body\n", encoding="utf-8")
+    (artifact_dir / "blocks.jsonl").write_text("", encoding="utf-8")
+
+    assert pipeline.process_file(file_id, file_name) is True
+
+    assert [event["status"] for event in ops.events] == ["started", "succeeded"]
+    assert ops.events[-1]["stage_name"] == "parser.complete"
+    assert ops.events[-1]["document_key"] == f"file:{file_id}"
+    assert ops.events[-1]["document_fields"] == {"document_name": file_name}
+    assert ops.heartbeats[-1][0] == "parser:test-run"
+    assert ops.heartbeats[-1][1]["stats"] == {
+        "processed_count": 1,
+        "failed_count": 0,
+    }
 
 
 def test_run_once_retries_old_partial_rows_before_new_files(tmp_path):
@@ -206,4 +248,3 @@ def test_process_file_force_reparses_instead_of_resuming(tmp_path, monkeypatch):
     assert "NEW BODY FROM OCR" in stored.full_text
     assert stored_kwargs["artifact_context"].parse_backend == "docling-ocr"
     assert stored_kwargs["artifact_context"].ocr_retried is True
-
