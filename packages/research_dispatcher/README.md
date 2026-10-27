@@ -17,6 +17,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+The canonical Morning Attention command publishes one sanitized
+`dispatcher.morning_attention_handoff` run to the shared Nexus operations
+journal. Empty claim windows are successful runs with zero counts. A successful
+run attests only that the handoff was generated; it does not claim that Proey's
+external connectors delivered it. PostgreSQL outages spool events locally at
+`state/pipeline_ops_spool.db` by default.
+
 ### 3. Configure environment
 
 Configuration comes from two files: the repo-root `.env` for credentials shared

@@ -6,9 +6,12 @@ import argparse
 from dataclasses import asdict
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 from urllib.error import HTTPError
+
+from research_pipeline_ops import PipelineOpsClient
 
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 if str(_WORKSPACE_ROOT) not in sys.path:
@@ -177,6 +180,17 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         claim_resolver=ClaimKeyResolver(),
     )
 
+    spool_path = Path(
+        os.getenv(
+            "RESEARCH_ANALYST_PIPELINE_OPS_SPOOL",
+            "data/pipeline_ops_spool.db",
+        )
+    ).expanduser()
+    ops_client = PipelineOpsClient.from_env(
+        default_spool_db_path=spool_path,
+        emitted_by="research_analyst",
+    )
+    ops_client.flush()
     pipeline = RunBatchPipeline(
         settings=settings,
         state_reader=state_reader,
@@ -187,6 +201,8 @@ def build_app(settings: Settings) -> RunBatchPipeline:
         hydrator=hydrator,
         analyze_document=analyze_document,
         quality_reviewer=QualityReviewer(settings),
+        ops_client=ops_client,
+        ops_run_key=os.getenv("PIPELINE_OPS_PARENT_RUN_KEY"),
     )
     pipeline.eval_trigger = eval_trigger
     return pipeline

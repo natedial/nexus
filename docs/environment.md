@@ -28,11 +28,12 @@ level.
 
 | Name shape | Meaning | Lives in |
 | --- | --- | --- |
-| `NEXUS_DATABASE_URL`, `GOOGLE_*`, `NOTION_*`, `OPENAI_API_KEY`, `RESEARCH_PROCESSING_ROOT` | shared: one value per service or account, used by the pipeline as a whole | repo-root `.env` |
+| `NEXUS_DATABASE_URL`, `PIPELINE_OPS_*`, `GOOGLE_*`, `NOTION_*`, `OPENAI_API_KEY`, `RESEARCH_PROCESSING_ROOT` | shared: one value per service or account, used by the pipeline as a whole | repo-root `.env` |
 | `RESEARCH_PARSER_*` | owned by `packages/research_parser` | that package's `.env` |
 | `RESEARCH_ANALYST_*` | owned by `packages/research_analyst` | that package's `.env` |
 | `RESEARCH_DISPATCHER_*` | owned by `packages/research_dispatcher` | that package's `.env` |
 | `RESEARCH_RELAY_*` | owned by `packages/research-relay` | secrets file / keychain, see below |
+| `RESEARCH_GLEANER_*` | owned by `packages/research_gleaner` | that package's `.env` |
 
 Two rules follow from the table, and they are the whole convention:
 
@@ -70,7 +71,9 @@ fallbacks can be deleted once every deployment has moved.
 | Variable | Consumers |
 | --- | --- |
 | `NEXUS_DATABASE_URL` | parser, analyst, dispatcher |
+| `PIPELINE_OPS_*` | pipeline ops and instrumented batch packages |
 | `GOOGLE_CREDENTIALS_PATH`, `GOOGLE_DRIVE_FOLDER_ID` | parser |
+| `NOTION_TOKEN` | gleaner |
 | `RESEARCH_PROCESSING_ROOT` | analyst |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPINFRA_API_KEY` | dispatcher |
 
@@ -102,6 +105,35 @@ the macOS Keychain or a mode-600 secrets file, not from a `.env`. Its variables
 (`RESEARCH_RELAY_CONFIG`, `RESEARCH_RELAY_SECRETS_FILE`,
 `RESEARCH_RELAY_PROTON_PASSWORD`, `RESEARCH_RELAY_HMAC_KEY`) already follow the
 prefix convention.
+
+### `packages/research_gleaner/.env.example`
+
+Notion data source identity, the local capture-state database, and the JSON
+output directory. The shared Notion credential remains `NOTION_TOKEN` in the
+repo-root `.env`; all package-owned values use `RESEARCH_GLEANER_*`.
+
+### Pipeline ops (`packages/research_pipeline_ops`)
+
+The in-repo package writes run and stage metadata directly to the shared Nexus
+PostgreSQL database. `PIPELINE_OPS_DATABASE_URL` overrides the target; otherwise
+the client uses `NEXUS_DATABASE_URL`.
+
+`PIPELINE_OPS_MODE` accepts `best_effort`, `required`, or `off`. Scheduled jobs
+use `best_effort`: validated events spool to a package-owned SQLite database
+during a PostgreSQL outage and replay later. Deployment checks use `required`
+so missing configuration or schema fails immediately. `off` is only for an
+explicit local-development session.
+
+Install the shared package alongside a producer:
+
+```bash
+python3 -m pip install -e packages/research_pipeline_ops
+```
+
+Apply both `003_pipeline_ops_schema.sql` and
+`005_pipeline_ops_control_plane.sql` before enabling a job in the catalog. All
+seeded jobs are disabled by default so applying migrations alone cannot create
+overdue incidents or trigger remediation.
 
 ## Adding a variable
 

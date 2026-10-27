@@ -6,6 +6,7 @@ Pipeline pieces, formerly three repos:
 - packages/research_analyst
 - packages/research_dispatcher
 - packages/research-relay
+- packages/research_gleaner
 
 Rules:
 - Work in the smallest package that owns the change.

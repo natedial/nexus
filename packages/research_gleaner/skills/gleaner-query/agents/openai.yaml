@@ -1,0 +1,4 @@
+interface:
+  display_name: "Query Gleaner"
+  short_description: "Query captured research highlights quickly"
+  default_prompt: "Use $gleaner-query to find relevant captured research highlights."

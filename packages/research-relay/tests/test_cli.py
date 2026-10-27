@@ -1,4 +1,25 @@
+import argparse
+
+from research_relay import cli
 from research_relay.cli import parse_cli
+
+
+class FakeOps:
+    def __init__(self):
+        self.started = []
+        self.finished = []
+        self.flush_count = 0
+
+    def flush(self):
+        self.flush_count += 1
+        return 0
+
+    def start_run(self, **kwargs):
+        self.started.append(kwargs)
+        return "relay:test-run"
+
+    def finish_run(self, run_key, **kwargs):
+        self.finished.append((run_key, kwargs))
 
 
 def test_config_flag_after_auth_subcommand() -> None:
@@ -78,3 +99,53 @@ def test_archive_enqueue_since_flag() -> None:
     assert args.since == "2026-08-15"
     assert args.hours is None
     assert args.limit is None
+
+
+def test_tracked_command_records_allowlisted_degraded_outcome(monkeypatch, tmp_path):
+    ops = FakeOps()
+    monkeypatch.setenv("RESEARCH_RELAY_PIPELINE_OPS_SPOOL", str(tmp_path / "ops.db"))
+    monkeypatch.setattr(cli.PipelineOpsClient, "from_env", lambda **_kwargs: ops)
+
+    def fake_run(_args, *, ops_outcome):
+        ops_outcome.record("degraded", stats={"temporary_failures": 1})
+        return 1
+
+    monkeypatch.setattr(cli, "_run_command", fake_run)
+    result = cli._run_with_ops(argparse.Namespace(command="run"), job_key="relay.email")
+
+    assert result == 1
+    assert ops.started[0]["job_key"] == "relay.email"
+    assert ops.finished == [
+        (
+            "relay:test-run",
+            {
+                "status": "degraded",
+                "stats": {"temporary_failures": 1},
+                "error_text": None,
+                "exit_code": 1,
+            },
+        )
+    ]
+    assert ops.flush_count == 2
+
+
+def test_tracked_command_records_exception_class_only(monkeypatch, tmp_path):
+    ops = FakeOps()
+    monkeypatch.setenv("RESEARCH_RELAY_PIPELINE_OPS_SPOOL", str(tmp_path / "ops.db"))
+    monkeypatch.setattr(cli.PipelineOpsClient, "from_env", lambda **_kwargs: ops)
+
+    def fail(_args, *, ops_outcome):
+        del ops_outcome
+        raise RuntimeError("private@example.com secret subject")
+
+    monkeypatch.setattr(cli, "_run_command", fail)
+
+    try:
+        cli._run_with_ops(argparse.Namespace(command="archive"), job_key="relay.archive")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected RuntimeError")
+
+    assert ops.finished[-1][1]["status"] == "failed"
+    assert ops.finished[-1][1]["error_text"] == "RuntimeError"
