@@ -168,7 +168,7 @@ def test_drain_uploads_pdf_then_gdoc(tmp_path: Path) -> None:
     assert ledger.archive_is_complete(ledger.get_archive("proton:<pdf@proton.me>"))
 
 
-def test_drain_html_when_no_pdf(tmp_path: Path) -> None:
+def test_drain_generates_pdf_when_no_pdf_attachment(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     ledger = Ledger(cfg.paths.ledger)
     raw = _plain_raw()
@@ -191,8 +191,74 @@ def test_drain_html_when_no_pdf(tmp_path: Path) -> None:
         upload_gdoc=doc,
         upload_html=html,
     )
-    assert [item[0] for item in calls] == ["html"]
-    assert calls[0][1].endswith(".html")
+    assert [item[0] for item in calls] == ["pdf", "doc"]
+    assert calls[0][1].endswith(".pdf")
+
+
+def test_body_pdf_is_written_to_parser_handoff(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    cfg = _config(tmp_path)
+    cfg = replace(
+        cfg,
+        intake=replace(cfg.intake, enabled=True, handoff_dir=tmp_path / "intake"),
+    )
+    ledger = Ledger(cfg.paths.ledger)
+    raw = _plain_raw()
+    original = parse_rfc822(raw)
+    from research_relay.archive_job import reconstruction_settings
+
+    reconstructed = reconstruct_message(
+        original, gmail_msgid="proton:<x>", settings=reconstruction_settings(cfg, b"k")
+    )
+    enqueue_proton_archive(cfg, ledger, "proton:<x>", original=original, reconstructed=reconstructed)
+    calls, pdf, doc, html = _drive()
+    result = process_archives(
+        cfg,
+        imap=FakeImap({"<proton-native-plain@proton.me>": raw}),
+        hmac_key=b"k",
+        dry_run=False,
+        ledger=ledger,
+        access_token="tok",
+        upload_pdf=pdf,
+        upload_gdoc=doc,
+        upload_html=html,
+    )
+
+    assert result.completed == 1
+    manifests = list((tmp_path / "intake").glob("*/manifest.json"))
+    assert len(manifests) == 1
+    pdfs = list(manifests[0].parent.glob("*.pdf"))
+    assert len(pdfs) == 1
+    assert pdfs[0].read_bytes().startswith(b"%PDF")
+
+
+def test_legacy_html_queue_row_uploads_generated_pdf(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    ledger = Ledger(cfg.paths.ledger)
+    raw = _plain_raw()
+    ledger.enqueue_archive(
+        "proton:<legacy>",
+        message_id="<proton-native-plain@proton.me>",
+        kind="html",
+        expected_names=[],
+    )
+    calls, pdf, doc, html = _drive()
+    result = process_archives(
+        cfg,
+        imap=FakeImap({"<proton-native-plain@proton.me>": raw}),
+        hmac_key=b"k",
+        dry_run=False,
+        ledger=ledger,
+        access_token="tok",
+        upload_pdf=pdf,
+        upload_gdoc=doc,
+        upload_html=html,
+    )
+
+    assert result.completed == 1
+    assert [item[0] for item in calls] == ["pdf"]
+    assert calls[0][1].endswith(".pdf")
 
 
 def test_dry_run_does_not_fetch_or_upload(tmp_path: Path) -> None:

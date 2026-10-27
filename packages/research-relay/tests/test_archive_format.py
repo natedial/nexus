@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from research_relay.archive_format import (
+    archive_body_pdf_name,
     archive_doc_name,
     archive_html_document,
     archive_html_name,
@@ -53,6 +54,13 @@ def test_html_name() -> None:
     assert name.endswith(".html")
     assert "/" not in name
     assert " " not in name
+
+
+def test_body_pdf_name() -> None:
+    name = archive_body_pdf_name(datetime(2026, 8, 28), "Hello / there", private_address="")
+    assert name.startswith("2026-08-28_")
+    assert name.endswith(".pdf")
+    assert "/" not in name
 
 
 def test_html_document_escapes_and_omits_private_address() -> None:

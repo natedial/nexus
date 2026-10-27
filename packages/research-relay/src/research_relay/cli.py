@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("health", help="Check config, Keychain, SQLite, IMAP, SMTP, and circuit breaker without sending mail")
     sub.add_parser("breaker-reset", help="Clear a tripped send circuit breaker")
-    archive_p = sub.add_parser("archive", help="Upload Proton-native PDFs/HTML to Google Drive")
+    archive_p = sub.add_parser("archive", help="Upload Proton-native PDFs to Google Drive")
     archive_p.add_argument("--dry-run", action="store_true", help="List incomplete archive rows; do not fetch or upload")
     archive_p.add_argument(
         "--live",
