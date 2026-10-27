@@ -10,7 +10,10 @@ from research_analysis_layer.services.jev_decision_model import (
     DEFAULT_PINNED_MODEL,
     JevDecisionModel,
 )
-from research_analysis_layer.services.jev_transport import HttpJevTransport
+from research_analysis_layer.services.jev_transport import (
+    CappedJevTransport,
+    HttpJevTransport,
+)
 
 
 class DecisionModelConfigError(ValueError):
@@ -47,11 +50,24 @@ def build_decision_model(
             "jev provider requested but RESEARCH_ANALYST_JEV_API_KEY is missing"
         )
 
+    max_requests = settings.jev_max_requests or 0
+    max_tokens = settings.jev_max_total_tokens or 0
+    if max_requests <= 0 or max_tokens <= 0:
+        raise DecisionModelConfigError(
+            "jev provider requires hard caps: set "
+            "RESEARCH_ANALYST_JEV_MAX_REQUESTS and "
+            "RESEARCH_ANALYST_JEV_MAX_TOTAL_TOKENS to positive integers"
+        )
+
     model = (settings.jev_model or DEFAULT_PINNED_MODEL).strip() or DEFAULT_PINNED_MODEL
-    transport = HttpJevTransport(
-        api_key=api_key,
-        base_url=settings.jev_base_url,
-        timeout_seconds=float(settings.jev_timeout_seconds),
+    transport = CappedJevTransport(
+        HttpJevTransport(
+            api_key=api_key,
+            base_url=settings.jev_base_url,
+            timeout_seconds=float(settings.jev_timeout_seconds),
+        ),
+        max_requests=max_requests,
+        max_total_tokens=max_tokens,
     )
     return JevDecisionModel(
         transport,

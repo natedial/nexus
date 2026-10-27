@@ -183,6 +183,8 @@ class Settings:
     jev_model: str = "jev-1.13.0"
     jev_timeout_seconds: int = 30
     jev_max_retries: int = 2
+    jev_max_requests: int | None = None
+    jev_max_total_tokens: int | None = None
     jev_live_tests: bool = False
 
     @classmethod
@@ -340,6 +342,8 @@ class Settings:
             jev_model=env("JEV_MODEL", "jev-1.13.0") or "jev-1.13.0",
             jev_timeout_seconds=_env_int("JEV_TIMEOUT_SECONDS", 30),
             jev_max_retries=_env_int("JEV_MAX_RETRIES", 2),
+            jev_max_requests=_env_int("JEV_MAX_REQUESTS", 0) or None,
+            jev_max_total_tokens=_env_int("JEV_MAX_TOTAL_TOKENS", 0) or None,
             jev_live_tests=_env_bool("JEV_LIVE", False),
         )
 
@@ -537,6 +541,15 @@ class Settings:
                     "decision_model_provider=jev requires "
                     f"{ENV_PREFIX}JEV_API_KEY"
                 )
+            for label, value in (
+                ("JEV_MAX_REQUESTS", self.jev_max_requests),
+                ("JEV_MAX_TOTAL_TOKENS", self.jev_max_total_tokens),
+            ):
+                if value is None or value <= 0:
+                    errors.append(
+                        "decision_model_provider=jev requires a positive "
+                        f"{ENV_PREFIX}{label} hard cap"
+                    )
         return errors
 
     @property
