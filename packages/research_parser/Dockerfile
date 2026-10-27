@@ -34,8 +34,10 @@ RUN uv export \
     --extra docling \
     --no-editable \
     --no-emit-project \
+    --no-emit-package research-pipeline-ops \
     --output-file requirements.txt \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --no-deps /research_pipeline_ops
 
 FROM base
 
