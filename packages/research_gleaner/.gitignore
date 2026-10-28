@@ -6,3 +6,6 @@ out/
 src/*.egg-info/
 __pycache__/
 *.py[cod]
+
+ingested_recent.json
+.ingested_recent.json.*.tmp
