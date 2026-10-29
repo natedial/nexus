@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from src.claim_notes.library import FakeLibraryDigestReader
 from src.claim_notes.ops import MorningAttentionOps
@@ -126,6 +127,53 @@ class ArgumentMapMorningAttentionTests(unittest.TestCase):
             self.assertEqual(code, 0)
             payload = json.loads(buf.getvalue())
             self.assertTrue(payload["silent"])
+
+    def test_cli_records_handoff_run_without_content_payloads(self):
+        class FakeOps:
+            def __init__(self):
+                self.finished = []
+
+            def flush(self):
+                return 0
+
+            def start_run(self, **kwargs):
+                self.started = kwargs
+                return "dispatcher:test-run"
+
+            def finish_run(self, run_key, **kwargs):
+                self.finished.append((run_key, kwargs))
+
+        with TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "empty.json"
+            empty.write_text('{"documents": []}\n', encoding="utf-8")
+            fake = FakeOps()
+            with (
+                patch(
+                    "src.claim_notes.run_morning_attention.PipelineOpsClient.from_env",
+                    return_value=fake,
+                ),
+                redirect_stdout(StringIO()),
+            ):
+                code = run_main(
+                    [
+                        "--argument-map-json",
+                        str(empty),
+                        "--handoff-dir",
+                        str(Path(tmp) / "handoff"),
+                        "--watermark",
+                        str(Path(tmp) / "watermark.json"),
+                        "--dry-run",
+                        "--fake-delivery",
+                    ]
+                )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.started["job_key"], "dispatcher.morning_attention_handoff")
+        terminal = fake.finished[-1][1]
+        self.assertEqual(terminal["status"], "succeeded")
+        self.assertEqual(terminal["stats"]["claim_note_count"], 0)
+        self.assertTrue(terminal["stats"]["silent"])
+        self.assertNotIn("points", terminal["stats"])
 
 
 if __name__ == "__main__":

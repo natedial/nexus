@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
+
+from research_pipeline_ops import PipelineOpsClient
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -119,6 +122,57 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    spool_path = Path(
+        os.getenv(
+            "RESEARCH_DISPATCHER_PIPELINE_OPS_SPOOL",
+            "state/pipeline_ops_spool.db",
+        )
+    ).expanduser()
+    pipeline_ops = PipelineOpsClient.from_env(
+        default_spool_db_path=spool_path,
+        emitted_by="research_dispatcher",
+    )
+    pipeline_ops.flush()
+    run_key = pipeline_ops.start_run(
+        job_key="dispatcher.morning_attention_handoff",
+        repo_name="research_dispatcher",
+        stage_family="dispatcher",
+        run_type="morning_attention_handoff",
+        trigger_source=os.getenv("PIPELINE_OPS_TRIGGER_SOURCE", "manual"),
+    )
+    try:
+        payload = _run(args)
+    except BaseException as exc:
+        pipeline_ops.finish_run(
+            run_key,
+            status="failed",
+            error_text=exc.__class__.__name__,
+            exit_code=1,
+        )
+        pipeline_ops.flush()
+        raise
+
+    print(json.dumps(payload, indent=2))
+    pipeline_ops.finish_run(
+        run_key,
+        status="succeeded",
+        stats={
+            "silent": payload["silent"],
+            "point_count": len(payload["points"]),
+            "claim_note_count": payload["claim_note_count"],
+            "library_note_count": payload["library_note_count"],
+            "handoff_written": payload["handoff_manifest"] is not None,
+            "watermark_written": payload["watermark_written"] is not None,
+            "dry_run": payload["dry_run"],
+        },
+        exit_code=0,
+    )
+    pipeline_ops.flush()
+    return 0
+
+
+def _run(args: argparse.Namespace) -> dict[str, object]:
+
     watermark = RunWatermarkStore(args.watermark)
     notes = _load_notes(args, watermark)
     library_reader = _build_library_reader(args)
@@ -156,8 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         "dry_run": result.dry_run,
         "claim_source": "argument_map",
     }
-    print(json.dumps(payload, indent=2))
-    return 0
+    return payload
 
 
 def _load_notes(args, watermark: RunWatermarkStore) -> list:

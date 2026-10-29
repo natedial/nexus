@@ -32,6 +32,8 @@
     <dict>
         <key>LANG</key>
         <string>en_US.UTF-8</string>
+        <key>PIPELINE_OPS_TRIGGER_SOURCE</key>
+        <string>launchd</string>
     </dict>
 </dict>
 </plist>

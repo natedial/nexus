@@ -62,6 +62,16 @@ Owner: research_analyst
 - No live pilot has started. Exact provider/model pins, a frozen qualification
   policy, and an approved budget configuration are still required inputs rather
   than values inferred by the tooling.
+- The live Jev path now requires hard request and total-token caps
+  (`RESEARCH_ANALYST_JEV_MAX_REQUESTS`, `RESEARCH_ANALYST_JEV_MAX_TOTAL_TOKENS`).
+  Every HTTP attempt counts, and unreported usage is charged at a pessimistic
+  estimate.
+- Codex assessments of Jev output made outside the harness have a separate,
+  quarantine-only path in `decision_codex_assessments`. `decision-codex-export`
+  writes per-pass packets; `decision-codex-import` validates identity and spans
+  and appends to `codex_assessments.jsonl`. Records are fixed as quarantined,
+  non-independent, and ineligible for promotion; repeated passes count as one
+  independent judgment.
 
 ## Outcome and precedence
 

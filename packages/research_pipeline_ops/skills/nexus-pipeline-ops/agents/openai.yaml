@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nexus Pipeline Ops"
+  short_description: "Monitor and safely remediate Nexus batch jobs"
+  default_prompt: "Use $nexus-pipeline-ops to check Nexus batch health and triage actionable incidents."

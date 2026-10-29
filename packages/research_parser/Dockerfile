@@ -25,7 +25,8 @@ FROM base AS deps
 # Install dependency graph from the lockfile so normal source edits don't
 # invalidate the expensive docling/torch layer.
 RUN pip install --no-cache-dir uv
-COPY pyproject.toml uv.lock ./
+COPY packages/research_parser/pyproject.toml packages/research_parser/uv.lock ./
+COPY packages/research_pipeline_ops /research_pipeline_ops
 RUN uv export \
     --frozen \
     --format requirements.txt \
@@ -33,14 +34,16 @@ RUN uv export \
     --extra docling \
     --no-editable \
     --no-emit-project \
+    --no-emit-package research-pipeline-ops \
     --output-file requirements.txt \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --no-deps /research_pipeline_ops
 
 FROM base
 
 COPY --from=deps /usr/local /usr/local
-COPY src/ ./src/
-COPY config/ ./config/
+COPY packages/research_parser/src/ ./src/
+COPY packages/research_parser/config/ ./config/
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

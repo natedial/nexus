@@ -732,7 +732,9 @@ def test_proton_native_live_run_enqueues_archive(tmp_path: Path) -> None:
     assert result.sent == 1
     row = Ledger(cfg.paths.ledger).get_archive("proton:<native@proton.me>")
     assert row is not None
-    assert row.kind == "html"
+    assert row.kind == "pdfs"
+    assert len(row.expected_names) == 1
+    assert row.expected_names[0].endswith(".pdf")
     assert "<proton-native-plain@proton.me>" in row.message_id
 
 

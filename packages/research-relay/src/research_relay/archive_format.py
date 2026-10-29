@@ -64,6 +64,15 @@ def archive_html_name(when: datetime, subject: str, *, private_address: str) -> 
     return name
 
 
+def archive_body_pdf_name(when: datetime, subject: str, *, private_address: str) -> str:
+    date_prefix = format_archive_date(when)
+    sanitized_subject = _safe_subject(subject, private_address)
+    name = f"{date_prefix}_{sanitized_subject}.pdf"
+    if len(name) > 200:
+        name = name[: 196] + ".pdf"
+    return name
+
+
 def archive_html_document(
     *,
     sender: str,
