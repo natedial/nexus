@@ -6,9 +6,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from research_analysis_layer.evals.decision_artifacts import write_shadow_artifact
 from research_analysis_layer.evals.decision_classifier import ShadowDecisionClassifier
+from research_analysis_layer.evals import decision_eval_run as decision_eval_run_module
 from research_analysis_layer.evals.decision_eval_run import (
     TOP_LEVEL_OUTPUTS,
     run_decision_eval,
@@ -74,8 +76,10 @@ class DecisionEvalRunTest(unittest.TestCase):
             self.assertTrue(manifest["safety"]["gold_silver_consistency_separated"])
             self.assertFalse(manifest["safety"]["production_routing_changed"])
             cost = json.loads((output / "cost_and_latency.json").read_text(encoding="utf-8"))
-            self.assertIn("fixture", cost)
-            self.assertIn("live", cost)
+            self.assertEqual(cost["schema_version"], "decision-cost-and-latency-v2")
+            self.assertIn("fixture", cost["this_run"])
+            self.assertIn("consistency", cost["this_run"])
+            self.assertIn("did not reclassify", cost["copied_artifacts"]["note"])
             self.assertEqual(
                 gold["live"]["unit_count"],
                 1,
@@ -106,6 +110,61 @@ class DecisionEvalRunTest(unittest.TestCase):
                 if line.strip()
             ]
             self.assertLessEqual(len(queue_lines), 8)
+
+    def test_cost_counts_consistency_calls_and_separates_copied_usage(self) -> None:
+        class TokenReportingFake(FakeDecisionModel):
+            def metadata(self):
+                return super().metadata().model_copy(update={"provider_name": "jev"})
+
+            def classify_batch(self, batch):
+                result = super().classify_batch(batch)
+                result.usage = {"input_tokens": 1000.0, "output_tokens": 100.0}
+                return result
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "run"
+            live_root = Path(tmp) / "live"
+            live_root.mkdir()
+            stored = ShadowDecisionClassifier(TokenReportingFake()).classify_assertions(
+                [
+                    AssertionDraft(
+                        chunk_order=9,
+                        assertion_order=1,
+                        assertion_type="forecast",
+                        text="Growth will slow next year.",
+                        normalized_text=normalize_text("Growth will slow next year."),
+                        summary_text="Growth will slow next year.",
+                    )
+                ],
+                document_key="doc_live",
+            )
+            write_shadow_artifact(stored, live_root, prefix="shadow_doc_live")
+            with patch.object(
+                decision_eval_run_module,
+                "build_decision_model",
+                lambda settings, provider=None: TokenReportingFake(),
+            ):
+                run_decision_eval(
+                    output_dir=output,
+                    provider="jev",
+                    live_artifact_root=live_root,
+                    repeatability_runs=2,
+                )
+            cost = json.loads((output / "cost_and_latency.json").read_text(encoding="utf-8"))
+
+        fixture = cost["usage"]["fixture"]
+        consistency = cost["usage"]["consistency"]
+        self.assertGreater(fixture["batches"], 0)
+        self.assertGreater(consistency["batches"], fixture["batches"])
+        self.assertEqual(consistency["input_tokens"], 1000.0 * consistency["batches"])
+        expected = (
+            cost["this_run"]["fixture"]["estimated_usd"]
+            + cost["this_run"]["consistency"]["estimated_usd"]
+        )
+        self.assertAlmostEqual(cost["estimated_usd"], expected)
+        # Copied artifact usage is reported but excluded from this run's spend.
+        self.assertGreater(cost["copied_artifacts"]["estimated_usd"], 0)
+        self.assertEqual(cost["usage"]["copied_live"]["input_tokens"], 1000.0)
 
     def test_fake_provider_cost_is_zero(self) -> None:
         cost = estimate_usage_cost({"input_tokens": 1000}, provider="fake")

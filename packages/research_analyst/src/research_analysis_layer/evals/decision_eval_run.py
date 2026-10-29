@@ -51,6 +51,9 @@ from research_analysis_layer.evals.decision_silver import (
     evaluate_silver_agreement,
 )
 from research_analysis_layer.models.decision_models import (
+    DecisionBatch,
+    DecisionBatchResult,
+    DecisionModelMetadata,
     ShadowClassificationArtifact,
     UnitClassificationRecord,
 )
@@ -101,6 +104,35 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
 def _copy_artifact(artifact: ShadowClassificationArtifact, dest_dir: Path, prefix: str) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     return write_shadow_artifact(artifact, dest_dir, prefix=prefix)
+
+
+COST_SCHEMA = "decision-cost-and-latency-v2"
+
+
+class _MeteredDecisionModel:
+    """Record usage of every batch this run sends, keyed by run phase.
+
+    Shadow artifacts only carry the usage of the corpus they classify, so the
+    consistency suite's calls were previously invisible in the cost report.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.phase = "fixture"
+        self.usage: dict[str, dict[str, float]] = {}
+
+    def metadata(self) -> DecisionModelMetadata:
+        return self._inner.metadata()
+
+    def classify_batch(self, batch: DecisionBatch) -> DecisionBatchResult:
+        result = self._inner.classify_batch(batch)
+        bucket = self.usage.setdefault(self.phase, {"batches": 0.0, "questions": 0.0})
+        bucket["batches"] += 1
+        bucket["questions"] += len(batch.questions)
+        for key, value in (result.usage or {}).items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                bucket[key] = bucket.get(key, 0.0) + float(value)
+        return result
 
 
 def build_summary(
@@ -170,7 +202,9 @@ def build_summary(
         [
             "## Cost and latency",
             "",
-            f"- Estimated USD: {cost.get('estimated_usd')}",
+            f"- Estimated USD spent by this run: {cost.get('estimated_usd')}",
+            "- Recorded usage of copied live artifacts (not spent by this run): "
+            f"{(cost.get('copied_artifacts') or {}).get('estimated_usd')}",
             f"- Pricing source: {cost.get('pricing_source')}",
             f"- Usage: `{json.dumps(cost.get('usage') or {}, sort_keys=True)}`",
             "",
@@ -236,7 +270,7 @@ def run_decision_eval(
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     settings = Settings.from_env()
-    model = build_decision_model(settings, provider=provider)
+    model = _MeteredDecisionModel(build_decision_model(settings, provider=provider))
     fixture_root = fixture_path or fixture_dir()
     units_payload = load_fixture_units(fixture_root / "units.json")
     assertions = fixture_assertions(fixture_root / "units.json")
@@ -308,6 +342,7 @@ def run_decision_eval(
 
     all_units: list[UnitClassificationRecord] = list(fixture_artifact.units) + live_units
     silver = evaluate_silver_agreement(all_units)
+    model.phase = "consistency"
     consistency = run_consistency_suite(
         model,
         fixture_drafts=assertions,
@@ -330,45 +365,58 @@ def run_decision_eval(
                 merged[key] = merged.get(key, 0.0) + float(value)
         return merged
 
+    def _estimate(usage: Mapping[str, float], provider_name: str) -> dict[str, Any]:
+        return estimate_usage_cost(
+            usage,
+            provider=provider_name,
+            input_usd_per_million=input_usd_per_million,
+            output_usd_per_million=output_usd_per_million,
+        )
+
+    run_provider = fixture_artifact.provider
+    this_run = {
+        phase: _estimate(model.usage.get(phase, {}), run_provider)
+        for phase in ("fixture", "consistency")
+    }
+    run_parts = [part.get("estimated_usd") for part in this_run.values()]
+    # Unknown usage in any phase makes the run total unknown, never understated.
+    run_usd = None if any(part is None for part in run_parts) else sum(run_parts)
+
     live_usage: dict[str, float] = {}
     for artifact in live_artifacts:
         for key, value in _usage_of(artifact).items():
             live_usage[key] = live_usage.get(key, 0.0) + value
-    live_provider = live_artifacts[0].provider if live_artifacts else fixture_artifact.provider
-    fixture_cost = estimate_usage_cost(
-        _usage_of(fixture_artifact),
-        provider=fixture_artifact.provider,
-        input_usd_per_million=input_usd_per_million,
-        output_usd_per_million=output_usd_per_million,
+    live_provider = live_artifacts[0].provider if live_artifacts else run_provider
+    copied = _estimate(live_usage, live_provider) if live_artifacts else {
+        "usage": {},
+        "estimated_usd": 0.0,
+        "note": "no live artifacts copied",
+    }
+    copied["note"] = (
+        "usage recorded when the copied live artifacts were produced; "
+        "this run did not reclassify them and spent nothing on them"
+        if live_artifacts
+        else copied["note"]
     )
-    live_cost = estimate_usage_cost(
-        live_usage,
-        provider=live_provider,
-        input_usd_per_million=input_usd_per_million,
-        output_usd_per_million=output_usd_per_million,
-    )
-    estimated_parts = [
-        part["estimated_usd"]
-        for part in (fixture_cost, live_cost)
-        if part.get("estimated_usd") is not None
-    ]
     latencies = [
         float(unit.latency_ms)
         for unit in all_units
         if unit.latency_ms is not None
     ]
     cost = {
-        "schema_version": "decision-cost-and-latency-v1",
-        "fixture": fixture_cost,
-        "live": live_cost,
-        "estimated_usd": sum(estimated_parts) if estimated_parts else None,
+        "schema_version": COST_SCHEMA,
+        "estimated_usd": run_usd,
+        "estimated_usd_scope": "this_run (fixture + consistency calls)",
+        "this_run": this_run,
+        "copied_artifacts": copied,
         "latency_ms_count": len(latencies),
         "latency_p50_ms": gold_report.latency_p50_ms,
         "latency_p95_ms": gold_report.latency_p95_ms,
-        "pricing_source": "per_corpus",
+        "pricing_source": this_run["fixture"].get("pricing_source"),
         "usage": {
-            "fixture": _usage_of(fixture_artifact),
-            "live": live_usage,
+            "fixture": model.usage.get("fixture", {}),
+            "consistency": model.usage.get("consistency", {}),
+            "copied_live": live_usage,
         },
     }
 
