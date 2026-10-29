@@ -165,6 +165,46 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max assertion units per decision batch",
     )
 
+    codex_export_parser = subparsers.add_parser(
+        "decision-codex-export",
+        help="Write a Codex assessment work packet from Jev shadow artifacts",
+    )
+    codex_export_parser.add_argument(
+        "--jev-artifact", type=Path, action="append", required=True
+    )
+    codex_export_parser.add_argument("--output", type=Path, required=True)
+    codex_export_parser.add_argument("--pass-id", required=True)
+    codex_export_parser.add_argument("--shuffle-seed", type=int, default=None)
+
+    codex_import_parser = subparsers.add_parser(
+        "decision-codex-import",
+        help="Import Codex assessments of Jev output into the quarantine file",
+    )
+    codex_import_parser.add_argument("--assessments", type=Path, required=True)
+    codex_import_parser.add_argument(
+        "--jev-artifact", type=Path, action="append", required=True
+    )
+    codex_import_parser.add_argument("--quarantine-dir", type=Path, required=True)
+
+    decision_eval_parser = subparsers.add_parser(
+        "decision-eval",
+        help="Write a versioned gold/silver/consistency decision-eval run directory",
+    )
+    decision_eval_parser.add_argument("--output", type=Path, required=True)
+    decision_eval_parser.add_argument(
+        "--provider",
+        choices=["fake", "jev"],
+        default="fake",
+    )
+    decision_eval_parser.add_argument("--fixture", type=Path, default=None)
+    decision_eval_parser.add_argument("--live-artifact-root", type=Path, default=None)
+    decision_eval_parser.add_argument("--previous", type=Path, default=None)
+    decision_eval_parser.add_argument("--batch-size", type=int, default=4)
+    decision_eval_parser.add_argument("--packet-size", type=int, default=20)
+    decision_eval_parser.add_argument("--repeatability-runs", type=int, default=3)
+    decision_eval_parser.add_argument("--input-usd-per-million", type=float, default=None)
+    decision_eval_parser.add_argument("--output-usd-per-million", type=float, default=None)
+
     return parser
 
 
@@ -434,6 +474,85 @@ def cmd_shadow_classify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_decision_eval(args: argparse.Namespace) -> int:
+    from research_analysis_layer.evals.decision_eval_run import run_decision_eval
+    from research_analysis_layer.services.decision_model_factory import (
+        DecisionModelConfigError,
+    )
+
+    if args.packet_size > 20:
+        print("Error: --packet-size must be <= 20", file=sys.stderr)
+        return 2
+    try:
+        output = run_decision_eval(
+            output_dir=args.output,
+            provider=args.provider,
+            fixture_path=args.fixture,
+            live_artifact_root=args.live_artifact_root,
+            previous_dir=args.previous,
+            batch_size=args.batch_size,
+            packet_size=args.packet_size,
+            repeatability_runs=args.repeatability_runs,
+            input_usd_per_million=args.input_usd_per_million,
+            output_usd_per_million=args.output_usd_per_million,
+            command_arguments=vars(args),
+        )
+    except (DecisionModelConfigError, OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Wrote decision eval run: {output}")
+    print(f"Summary: {output / 'SUMMARY.md'}")
+    return 0
+
+
+def cmd_decision_codex_export(args: argparse.Namespace) -> int:
+    from research_analysis_layer.evals.decision_codex_assessments import (
+        export_codex_packets,
+    )
+
+    try:
+        output = export_codex_packets(
+            args.jev_artifact,
+            output_dir=args.output,
+            pass_id=args.pass_id,
+            shuffle_seed=args.shuffle_seed,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(json.loads((output / "manifest.json").read_text()), indent=2))
+    return 0
+
+
+def cmd_decision_codex_import(args: argparse.Namespace) -> int:
+    from research_analysis_layer.evals.decision_artifacts import load_shadow_artifact
+    from research_analysis_layer.evals.decision_codex_assessments import (
+        CodexImportError,
+        import_codex_assessments,
+        load_codex_assessments,
+        summarize_codex_assessments,
+    )
+
+    records = [
+        json.loads(line)
+        for line in args.assessments.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    artifacts = [load_shadow_artifact(path) for path in args.jev_artifact]
+    try:
+        result = import_codex_assessments(
+            records, jev_artifacts=artifacts, quarantine_dir=args.quarantine_dir
+        )
+    except CodexImportError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    summary = summarize_codex_assessments(
+        load_codex_assessments(Path(result.output_path))
+    )
+    print(json.dumps({"import": result.model_dump(), "summary": summary}, indent=2))
+    return 1 if result.rejected else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -446,6 +565,12 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_rubric_report(args)
     if args.command == "shadow-classify":
         return cmd_shadow_classify(args)
+    if args.command == "decision-eval":
+        return cmd_decision_eval(args)
+    if args.command == "decision-codex-export":
+        return cmd_decision_codex_export(args)
+    if args.command == "decision-codex-import":
+        return cmd_decision_codex_import(args)
 
     settings = Settings()
 
