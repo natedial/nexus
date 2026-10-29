@@ -12,7 +12,7 @@ BatchStatus = Literal["complete", "partial", "failed"]
 CoverageStatus = Literal["full", "partial", "missing", "failed"]
 
 ARTIFACT_SCHEMA_VERSION = "decision-shadow-artifact-v2"
-QUESTION_SET_VERSION = "decision-question-set-v2"
+QUESTION_SET_VERSION = "decision-question-set-v3"
 
 STATEMENT_TYPE_OPTIONS: tuple[str, ...] = (
     "assertion",
