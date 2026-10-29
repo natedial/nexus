@@ -14,6 +14,7 @@ from research_analysis_layer.evals.decision_codex_assessments import (
     QUARANTINE_FILENAME,
     CodexAssessment,
     CodexImportError,
+    export_codex_packets,
     import_codex_assessments,
     load_codex_assessments,
     summarize_codex_assessments,
@@ -164,6 +165,95 @@ class CodexAssessmentTest(unittest.TestCase):
             )
             self.assertEqual(code, 0)
             self.assertTrue((tmp_path / "q" / QUARANTINE_FILENAME).exists())
+
+
+    def test_span_must_match_source_text(self) -> None:
+        bad = _record(self.artifact, assessment_id="span")
+        bad["axes"][0]["judgment"]["supporting_spans"] = [
+            {"start": 0, "end": 6, "text": "Prices"}
+        ]
+        good = _record(self.artifact, assessment_id="span_ok")
+        good["axes"][0]["judgment"]["supporting_spans"] = [
+            {"start": 0, "end": 6, "text": TEXT[:6]}
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = import_codex_assessments(
+                [bad, good], jev_artifacts=[self.artifact], quarantine_dir=Path(tmp)
+            )
+        self.assertEqual(result.accepted, 1)
+        self.assertIn("span", result.rejected[0]["reason"])
+
+
+class CodexExportTest(unittest.TestCase):
+    def test_export_template_round_trips_through_import(self) -> None:
+        artifact = _artifact()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            artifact_path = write_shadow_artifact(artifact, tmp_path / "art")
+            out = export_codex_packets(
+                [artifact_path], output_dir=tmp_path / "pass1", pass_id="pass1"
+            )
+            for name in ("ASSESSOR.md", "question_set.json", "packets.jsonl", "manifest.json"):
+                self.assertTrue((out / name).exists(), name)
+            manifest = json.loads((out / "manifest.json").read_text())
+            self.assertEqual(manifest["packet_count"], 1)
+            self.assertEqual(manifest["tier"], "quarantined")
+
+            packet = json.loads((out / "packets.jsonl").read_text().splitlines()[0])
+            self.assertEqual(packet["source_text"], TEXT)
+            self.assertIn("is_forecast", packet["jev"]["answers"])
+
+            # Simulate a Codex pass filling the prefilled template.
+            record = dict(packet["assessment_template"])
+            record["created_at"] = "2026-10-29T12:00:00Z"
+            record["reported_model"] = "codex-base"
+            record["axes"] = [
+                {
+                    "judgment": {
+                        "axis_id": "is_forecast",
+                        "state": "labeled",
+                        "value": True,
+                        "rationale": "Future outcome.",
+                    },
+                    "jev_agreement": "unclear",
+                }
+            ]
+            result = import_codex_assessments(
+                [record], jev_artifacts=[artifact], quarantine_dir=tmp_path / "q"
+            )
+            self.assertEqual(result.accepted, 1, result.rejected)
+            self.assertEqual(
+                load_codex_assessments(tmp_path / "q" / QUARANTINE_FILENAME)[0].assessment_id,
+                "pass1:doc_a:" + artifact.units[0].unit_id,
+            )
+
+    def test_export_refuses_reused_directory_and_bad_pass_id(self) -> None:
+        artifact = _artifact()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            artifact_path = write_shadow_artifact(artifact, tmp_path / "art")
+            export_codex_packets([artifact_path], output_dir=tmp_path / "p", pass_id="p1")
+            with self.assertRaises(ValueError):
+                export_codex_packets([artifact_path], output_dir=tmp_path / "p", pass_id="p2")
+            with self.assertRaises(ValueError):
+                export_codex_packets([artifact_path], output_dir=tmp_path / "x", pass_id="a:b")
+
+    def test_cli_export(self) -> None:
+        artifact = _artifact()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            artifact_path = write_shadow_artifact(artifact, tmp_path / "art")
+            code = eval_main(
+                [
+                    "decision-codex-export",
+                    "--jev-artifact", str(artifact_path),
+                    "--output", str(tmp_path / "pass"),
+                    "--pass-id", "pass1",
+                    "--shuffle-seed", "7",
+                ]
+            )
+            self.assertEqual(code, 0)
+            self.assertTrue((tmp_path / "pass" / "packets.jsonl").exists())
 
 
 if __name__ == "__main__":

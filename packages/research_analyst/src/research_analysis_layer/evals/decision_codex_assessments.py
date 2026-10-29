@@ -11,7 +11,9 @@ summarized as a single independent judgment per unit.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import random
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -23,10 +25,16 @@ from research_analysis_layer.evals.decision_agent_references import (
     AXIS_IDS,
     AxisJudgment,
 )
-from research_analysis_layer.evals.decision_reviews import sha256_text
-from research_analysis_layer.models.decision_models import ShadowClassificationArtifact
+from research_analysis_layer.evals.decision_question_set import snapshot_question_set
+from research_analysis_layer.evals.decision_reviews import sha256_bytes, sha256_text
+from research_analysis_layer.models.decision_models import (
+    ShadowClassificationArtifact,
+    UnitClassificationRecord,
+)
 
 CODEX_ASSESSMENT_SCHEMA_VERSION = "decision-codex-assessment-v1"
+CODEX_PACKET_SCHEMA_VERSION = "decision-codex-packet-v1"
+CODEX_EXPORT_MANIFEST_SCHEMA_VERSION = "decision-codex-export-v1"
 QUARANTINE_FILENAME = "codex_assessments.jsonl"
 CORRELATION_GROUP = "codex"
 # Directories holding human-reviewed records; quarantine output never goes there.
@@ -109,17 +117,28 @@ class CodexImportResult(StrictModel):
     output_path: str
 
 
-def _unit_identities(
+def _units_by_identity(
     artifacts: Iterable[ShadowClassificationArtifact],
-) -> dict[tuple[str, str], str]:
-    identities: dict[tuple[str, str], str] = {}
+) -> dict[tuple[str, str], UnitClassificationRecord]:
+    units: dict[tuple[str, str], UnitClassificationRecord] = {}
     for artifact in artifacts:
         for unit in artifact.units:
             document = unit.document_key or artifact.document_key
             if not document:
                 continue
-            identities[(document, unit.unit_id)] = sha256_text(unit.source_text)
-    return identities
+            units[(document, unit.unit_id)] = unit
+    return units
+
+
+def _span_error(record: CodexAssessment, source_text: str) -> str | None:
+    for axis in record.axes:
+        for span in axis.judgment.supporting_spans:
+            if source_text[span.start : span.end] != span.text:
+                return (
+                    f"supporting span {span.start}:{span.end} on "
+                    f"{axis.judgment.axis_id} does not match source text"
+                )
+    return None
 
 
 def _check_quarantine_dir(quarantine_dir: Path) -> None:
@@ -153,7 +172,7 @@ def import_codex_assessments(
     records. Existing lines are never rewritten.
     """
     _check_quarantine_dir(quarantine_dir)
-    identities = _unit_identities(jev_artifacts)
+    units = _units_by_identity(jev_artifacts)
     output_path = quarantine_dir / QUARANTINE_FILENAME
     seen = _existing_ids(output_path)
 
@@ -166,11 +185,14 @@ def import_codex_assessments(
         except ValueError as exc:
             rejected.append({"record": label, "reason": f"schema: {exc}"})
             continue
-        expected = identities.get((record.document_key, record.unit_id))
-        if expected is None:
+        unit = units.get((record.document_key, record.unit_id))
+        span_error = _span_error(record, unit.source_text) if unit else None
+        if unit is None:
             rejected.append({"record": label, "reason": "unit not in Jev artifacts"})
-        elif expected != record.source_text_sha256:
+        elif sha256_text(unit.source_text) != record.source_text_sha256:
             rejected.append({"record": label, "reason": "source text hash mismatch"})
+        elif span_error is not None:
+            rejected.append({"record": label, "reason": span_error})
         elif record.assessment_id in seen:
             rejected.append({"record": label, "reason": "duplicate assessment_id"})
         else:
@@ -186,6 +208,133 @@ def import_codex_assessments(
     return CodexImportResult(
         accepted=len(accepted), rejected=rejected, output_path=str(output_path)
     )
+
+
+def assessor_prompt_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[3]
+        / "prompts"
+        / "evals"
+        / "decision_codex"
+        / "assessor.md"
+    )
+
+
+def _jev_answers(unit: UnitClassificationRecord) -> dict[str, Any]:
+    answers: dict[str, Any] = {}
+    for result in unit.results:
+        distribution = result.distribution
+        answers[result.question_id] = {
+            "status": result.status,
+            "selected": distribution.selected if distribution else None,
+            "raw_probability": distribution.raw_probability if distribution else None,
+            "error": result.error,
+        }
+    return answers
+
+
+def export_codex_packets(
+    artifact_paths: Sequence[Path],
+    *,
+    output_dir: Path,
+    pass_id: str,
+    shuffle_seed: int | None = None,
+) -> Path:
+    """Write a work packet for one Codex pass over Jev-classified units.
+
+    The packet holds everything the assessor needs, with identity fields
+    prefilled so source hashes are never hand-typed. A distinct ``pass_id``
+    and ``shuffle_seed`` per pass varies order, but passes remain correlated.
+    """
+    if not pass_id.strip() or any(ch in pass_id for ch in ":/\\"):
+        raise ValueError("pass_id must be non-empty and contain no ':' or slashes")
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ValueError(f"{output_dir} is not empty; use a fresh directory per pass")
+
+    loaded: list[tuple[Path, ShadowClassificationArtifact]] = []
+    for path in artifact_paths:
+        loaded.append(
+            (path, ShadowClassificationArtifact.model_validate_json(path.read_text("utf-8")))
+        )
+    snapshots = {
+        artifact.question_set.content_hash: artifact.question_set
+        for _, artifact in loaded
+        if artifact.question_set is not None
+    }
+    if len(snapshots) > 1:
+        raise ValueError("artifacts use different question sets; export them separately")
+    question_set = (
+        next(iter(snapshots.values())) if snapshots else snapshot_question_set()
+    )
+
+    packets: list[dict[str, Any]] = []
+    for _, artifact in loaded:
+        for unit in artifact.units:
+            document = unit.document_key or artifact.document_key
+            if not document:
+                continue
+            source_hash = sha256_text(unit.source_text)
+            packets.append(
+                {
+                    "packet_schema": CODEX_PACKET_SCHEMA_VERSION,
+                    "pass_id": pass_id,
+                    "document_key": document,
+                    "unit_id": unit.unit_id,
+                    "assertion_type": unit.assertion_type,
+                    "source_text": unit.source_text,
+                    "source_text_sha256": source_hash,
+                    "jev": {
+                        "provider": unit.provider,
+                        "model_version": unit.model_version,
+                        "coverage_status": unit.coverage_status,
+                        "answers": _jev_answers(unit),
+                    },
+                    "assessment_template": {
+                        "assessment_id": f"{pass_id}:{document}:{unit.unit_id}",
+                        "pass_id": pass_id,
+                        "created_at": None,
+                        "document_key": document,
+                        "unit_id": unit.unit_id,
+                        "source_text_sha256": source_hash,
+                        "reported_model": None,
+                        "axes": [],
+                        "policy_questions": [],
+                    },
+                }
+            )
+    if shuffle_seed is not None:
+        random.Random(shuffle_seed).shuffle(packets)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    prompt_bytes = assessor_prompt_path().read_bytes()
+    (output_dir / "ASSESSOR.md").write_bytes(prompt_bytes)
+    (output_dir / "question_set.json").write_text(
+        json.dumps(question_set.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    with (output_dir / "packets.jsonl").open("w", encoding="utf-8") as handle:
+        for packet in packets:
+            handle.write(json.dumps(packet, sort_keys=True))
+            handle.write("\n")
+    manifest = {
+        "schema_version": CODEX_EXPORT_MANIFEST_SCHEMA_VERSION,
+        "pass_id": pass_id,
+        "shuffle_seed": shuffle_seed,
+        "packet_count": len(packets),
+        "assessor_prompt_sha256": hashlib.sha256(prompt_bytes).hexdigest(),
+        "question_set_version": question_set.version,
+        "question_set_hash": question_set.content_hash,
+        "jev_artifacts": [
+            {"path": str(path), "sha256": sha256_bytes(path.read_bytes())}
+            for path, _ in loaded
+        ],
+        "tier": "quarantined",
+        "note": "Assessments from this packet import only as quarantined, correlated evidence.",
+    }
+    (output_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    return output_dir
 
 
 def load_codex_assessments(path: Path) -> list[CodexAssessment]:

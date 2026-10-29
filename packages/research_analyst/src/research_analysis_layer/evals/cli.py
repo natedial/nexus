@@ -165,6 +165,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max assertion units per decision batch",
     )
 
+    codex_export_parser = subparsers.add_parser(
+        "decision-codex-export",
+        help="Write a Codex assessment work packet from Jev shadow artifacts",
+    )
+    codex_export_parser.add_argument(
+        "--jev-artifact", type=Path, action="append", required=True
+    )
+    codex_export_parser.add_argument("--output", type=Path, required=True)
+    codex_export_parser.add_argument("--pass-id", required=True)
+    codex_export_parser.add_argument("--shuffle-seed", type=int, default=None)
+
     codex_import_parser = subparsers.add_parser(
         "decision-codex-import",
         help="Import Codex assessments of Jev output into the quarantine file",
@@ -494,6 +505,25 @@ def cmd_decision_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_decision_codex_export(args: argparse.Namespace) -> int:
+    from research_analysis_layer.evals.decision_codex_assessments import (
+        export_codex_packets,
+    )
+
+    try:
+        output = export_codex_packets(
+            args.jev_artifact,
+            output_dir=args.output,
+            pass_id=args.pass_id,
+            shuffle_seed=args.shuffle_seed,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(json.loads((output / "manifest.json").read_text()), indent=2))
+    return 0
+
+
 def cmd_decision_codex_import(args: argparse.Namespace) -> int:
     from research_analysis_layer.evals.decision_artifacts import load_shadow_artifact
     from research_analysis_layer.evals.decision_codex_assessments import (
@@ -537,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_shadow_classify(args)
     if args.command == "decision-eval":
         return cmd_decision_eval(args)
+    if args.command == "decision-codex-export":
+        return cmd_decision_codex_export(args)
     if args.command == "decision-codex-import":
         return cmd_decision_codex_import(args)
 
