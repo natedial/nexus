@@ -1073,7 +1073,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
         synthesis_input = input_builder.calls[-1]
         forum_context = synthesis_input["forum_context"]
         self.assertEqual(
-            [argument.argument_id for argument in forum_context.arguments],
+            [argument["argument_id"] for argument in forum_context["arguments"]],
             ["arg-accepted"],
         )
 
