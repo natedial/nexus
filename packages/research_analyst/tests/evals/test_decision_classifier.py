@@ -239,7 +239,7 @@ class ShadowClassifierTest(unittest.TestCase):
             if q.question_id == "is_substantive_author_claim"
         )
         assert substantive.noul_criteria is not None
-        self.assertIn("counterpoint", substantive.noul_criteria["true"])
+        self.assertIn("some argue", substantive.noul_criteria["true"])
         self.assertIn("Reports evidence", substantive.noul_criteria["false"])
         for unit in artifact.units:
             self.assertEqual(unit.coverage_status, "full")

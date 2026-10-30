@@ -85,13 +85,16 @@ SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
     "is_substantive_author_claim": {
         "true": (
             "The author advances a proposition as true or likely, a recommendation, "
-            "or a genuine question; includes others' views the author raises as part "
-            "of the argument, such as a counterpoint the author then answers."
+            "or a genuine question. Also true when the unit presents a view "
+            "attributed to others as a position in the argument (\"some argue...\", "
+            "\"critics contend...\", \"the bull case is...\"), even if the author "
+            "disagrees with it."
         ),
         "false": (
             "Reports evidence (statistic, quote, citation, chart/figure reference, or "
-            "named data release) without an author proposition, or is background, "
-            "framing, methodology, or boilerplate."
+            "named data release) without an author proposition, including a quote or "
+            "attributed statement supplied as evidence; or is background, framing, "
+            "methodology, or boilerplate."
         ),
     },
 }
