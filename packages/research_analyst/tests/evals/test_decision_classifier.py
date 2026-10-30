@@ -226,6 +226,7 @@ class ShadowClassifierTest(unittest.TestCase):
         )
         self.assertEqual(choice.question_kind, "choice")
         self.assertTrue(choice.wording)
+        self.assertIn("hold, wait, or not act", choice.wording)
         self.assertEqual(choice.options, list(STATEMENT_TYPE_OPTIONS))
         evidence = next(
             q
