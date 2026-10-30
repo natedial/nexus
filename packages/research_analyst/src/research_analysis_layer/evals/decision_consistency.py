@@ -10,9 +10,12 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
-from research_analysis_layer.evals.decision_classifier import ShadowDecisionClassifier
+from research_analysis_layer.evals.decision_classifier import (
+    ShadowDecisionClassifier,
+    assertion_unit_id,
+)
 from research_analysis_layer.evals.decision_metrics import (
     choice_prediction,
     noul_prediction,
@@ -122,6 +125,7 @@ def _classify(
     *,
     batch_size: int,
     document_key: str,
+    section_context_by_unit: Mapping[str, str] | None = None,
 ) -> dict[str, UnitClassificationRecord]:
     classifier = ShadowDecisionClassifier(model, batch_size=batch_size)
     provenance = {
@@ -134,6 +138,7 @@ def _classify(
         drafts,
         document_key=document_key,
         provenance_by_unit=provenance,
+        section_context_by_unit=section_context_by_unit,
     )
     by_text: dict[str, UnitClassificationRecord] = {}
     for record in artifact.units:
@@ -291,6 +296,59 @@ def run_context_isolation(
                 family="context_isolation",
                 kind="invariance",
                 case_id=f"context-isolation-{index}",
+                base=base,
+                variant=variant,
+                stable_fields=("statement_type", "is_forecast", "is_trade_or_action"),
+            )
+        )
+    return results
+
+
+def run_context_channel_isolation(
+    model: DecisionModel,
+    *,
+    sentence: str = SEED_FORECAST,
+    assertion_type: str = "forecast",
+) -> list[ConsistencyCaseResult]:
+    """Same prefixes as context isolation, sent as section_context, not text.
+
+    This is the channel the shadow classifier uses for chunk titles. Each unit
+    runs in its own batch so batch shared_context carries only its own section.
+    """
+    prefixes = (
+        CONTAMINATED_PREFIX,
+        "## Positioning\n\n",
+        "Neighboring sentence about an unrelated trade. ",
+    )
+    base_draft = _draft("ctx-channel-base", sentence, assertion_type)
+    variant_drafts = [
+        _draft(f"ctx-channel-var-{index}", sentence, assertion_type)
+        for index in range(len(prefixes))
+    ]
+    sections = {
+        assertion_unit_id(draft): prefix.strip()
+        for draft, prefix in zip(variant_drafts, prefixes)
+    }
+    classified = _classify(
+        model,
+        [base_draft, *variant_drafts],
+        batch_size=1,
+        document_key="consistency-context-channel",
+        section_context_by_unit=sections,
+    )
+    base = classified.get(assertion_unit_id(base_draft))
+    if base is None:
+        return []
+    results: list[ConsistencyCaseResult] = []
+    for index, draft in enumerate(variant_drafts):
+        variant = classified.get(assertion_unit_id(draft))
+        if variant is None:
+            continue
+        results.append(
+            _compare_pair(
+                family="context_channel_isolation",
+                kind="invariance",
+                case_id=f"context-channel-isolation-{index}",
                 base=base,
                 variant=variant,
                 stable_fields=("statement_type", "is_forecast", "is_trade_or_action"),
@@ -590,6 +648,7 @@ def run_consistency_suite(
 ) -> ConsistencyReport:
     cases: list[ConsistencyCaseResult] = []
     cases.extend(run_context_isolation(model))
+    cases.extend(run_context_channel_isolation(model))
     cases.extend(run_negative_recommendation_equivalence(model))
     cases.extend(run_compound_decomposition(model))
     cases.extend(run_formatting_invariance(model))
