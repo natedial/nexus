@@ -18,6 +18,7 @@ from research_analysis_layer.evals.decision_baseline import (
 from research_analysis_layer.evals.decision_classifier import (
     ShadowDecisionClassifier,
     assertion_unit_id,
+    build_decision_unit,
 )
 from research_analysis_layer.evals.decision_fixture import (
     fixture_assertions,
@@ -239,6 +240,47 @@ class ShadowClassifierTest(unittest.TestCase):
             for result in unit.results:
                 assert result.distribution is not None
                 self.assertIsNone(result.distribution.calibrated_probability)
+
+    def test_extractor_title_prefix_moves_to_section_context(self) -> None:
+        from research_analysis_layer.models import AnalysisChunkDraft, EvidenceUnitDraft
+        from research_analysis_layer.services.assertion_extractor import AssertionExtractor
+
+        title = "The dollar outlook presents a tug-of-war between competing forces. On one hand, "
+        sentence = "On the other, fiscal deterioration and twin deficits pose headwinds."
+        chunk = AnalysisChunkDraft(
+            chunk_order=1,
+            chunk_type="retrieval_chunk",
+            title=title,
+            text=f"{title}rate differentials support USD. {sentence}",
+        )
+        evidence = [
+            EvidenceUnitDraft(
+                chunk_order=1,
+                evidence_order=1,
+                evidence_type="theme_context",
+                text=chunk.text,
+                normalized_text=normalize_text(chunk.text),
+                source_ref={"chunk_key": "chunk-1"},
+            )
+        ]
+        assertion = next(
+            a for a in AssertionExtractor().extract(chunk, evidence) if sentence in a.text
+        )
+        self.assertTrue(assertion.text.startswith(title.strip() + ": "))
+
+        unit = build_decision_unit(assertion, section_context=title)
+        self.assertEqual(unit.text, sentence)
+        self.assertEqual(unit.section_context, title)
+
+    def test_title_prefix_kept_without_matching_section_context(self) -> None:
+        assertion = _draft(1, 1, "forecast", "Outlook: Yields should fall.")
+        self.assertEqual(
+            build_decision_unit(assertion).text, "Outlook: Yields should fall."
+        )
+        self.assertEqual(
+            build_decision_unit(assertion, section_context="Rates").text,
+            "Outlook: Yields should fall.",
+        )
 
     def test_empty_input(self) -> None:
         artifact = ShadowDecisionClassifier(FakeDecisionModel()).classify_assertions([])

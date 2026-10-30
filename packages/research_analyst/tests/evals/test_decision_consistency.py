@@ -9,6 +9,7 @@ from research_analysis_layer.evals.decision_consistency import (
     SEED_FORECAST,
     run_batch_invariance,
     run_compound_decomposition,
+    run_context_channel_isolation,
     run_context_isolation,
     run_formatting_invariance,
     run_negative_recommendation_equivalence,
@@ -83,6 +84,30 @@ class ConsistencyFamilyTest(unittest.TestCase):
         cases = run_context_isolation(FakeDecisionModel())
         self.assertTrue(cases)
         self.assertFalse(any(case.failed for case in cases))
+
+    def test_context_channel_isolation_stable_when_context_stays_out_of_text(self) -> None:
+        # The responder only reads unit.text, so context sent via
+        # section_context must not move the label.
+        cases = run_context_channel_isolation(
+            FakeDecisionModel(responder=_recommend_sensitive)
+        )
+        self.assertEqual(len(cases), 3)
+        self.assertTrue(all(case.family == "context_channel_isolation" for case in cases))
+        self.assertFalse(any(case.failed for case in cases))
+
+    def test_context_channel_isolation_detects_model_reading_context(self) -> None:
+        def context_sensitive(batch, question, unit):
+            del batch
+            if question.question_kind != "choice":
+                return None
+            context = (unit.section_context or "").lower()
+            selected = "recommendation" if "recommend" in context else "assertion"
+            return _choice_result(question, unit, selected)
+
+        cases = run_context_channel_isolation(
+            FakeDecisionModel(responder=context_sensitive)
+        )
+        self.assertTrue(any(case.choice_label_flip for case in cases))
 
     def test_negative_recommendation_variants_are_invariant_for_sensitive_model(self) -> None:
         cases = run_negative_recommendation_equivalence(
