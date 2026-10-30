@@ -64,8 +64,9 @@ SUPPORT_WORDINGS: dict[str, str] = {
         "or premises to a conclusion?"
     ),
     "is_substantive_author_claim": (
-        "Is the target unit a substantive author claim rather than non-substantive "
-        "background or boilerplate?"
+        "Is the target unit the author's own substantive move (a claim, "
+        "recommendation, or question the author advances) rather than reported "
+        "evidence, background, or boilerplate?"
     ),
 }
 
@@ -79,6 +80,18 @@ SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
         "false": (
             "No checkable factual content; only interpretation, forecast, question, "
             "recommendation, or background."
+        ),
+    },
+    "is_substantive_author_claim": {
+        "true": (
+            "The author advances a proposition as true or likely, a recommendation, "
+            "or a genuine question; includes others' views the author raises as part "
+            "of the argument, such as a counterpoint the author then answers."
+        ),
+        "false": (
+            "Reports evidence (statistic, quote, citation, chart/figure reference, or "
+            "named data release) without an author proposition, or is background, "
+            "framing, methodology, or boilerplate."
         ),
     },
 }
