@@ -23,7 +23,9 @@ STATEMENT_TYPE_WORDING = (
     "assertion (author presents a proposition as true or likely), "
     "evidence_report (concrete datum, quote, chart/citation, or prior event), "
     "question (genuinely unresolved or interrogative), "
-    "recommendation (action, policy, position, or trade), "
+    "recommendation (action, policy, position, or trade, including advice to "
+    "hold, wait, or not act, however phrased, e.g. 'we see no reason to "
+    "reposition'), "
     "background_methodology (framing, definitions, method, or scene-setting), "
     "or other_or_unclear."
 )
