@@ -29,11 +29,21 @@ ordering manifest.
 
 ## Runner
 
-Apply parser schema migrations:
+Apply schema migrations (never prints the database URL):
 
 ```bash
 docker compose up -d postgres
+set -a && source .env && set +a
 ./migrations/apply.sh
+```
+
+To repair a live database that already has `pipeline_ops` / `jobs` /
+`incidents` but is missing `ingested_operations`, re-apply only the
+control-plane migration (idempotent `IF NOT EXISTS` / `ON CONFLICT DO NOTHING`):
+
+```bash
+set -a && source .env && set +a
+./migrations/apply.sh 005_pipeline_ops_control_plane.sql
 ```
 
 Uses `RESEARCH_PARSER_DATABASE_URL` or `NEXUS_DATABASE_URL` (default

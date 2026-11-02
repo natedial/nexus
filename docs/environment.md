@@ -133,7 +133,10 @@ python3 -m pip install -e packages/research_pipeline_ops
 Apply both `003_pipeline_ops_schema.sql` and
 `005_pipeline_ops_control_plane.sql` before enabling a job in the catalog. All
 seeded jobs are disabled by default so applying migrations alone cannot create
-overdue incidents or trigger remediation.
+overdue incidents or trigger remediation. If `jobs` / `incidents` exist but
+producers fail with missing `pipeline_ops.ingested_operations`, re-apply only
+`005_pipeline_ops_control_plane.sql` (idempotent). `nexus-ops doctor` now
+requires `ingested_operations_exists`.
 
 ## Adding a variable
 

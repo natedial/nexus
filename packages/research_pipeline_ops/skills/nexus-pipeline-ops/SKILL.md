@@ -24,9 +24,11 @@ Verify configuration and schema availability first:
 uv run --env-file .env --project packages/research_pipeline_ops nexus-ops doctor
 ```
 
-If `schema_exists`, `jobs_exists`, or `incidents_exists` is false, stop and
-report that migrations are required. Do not apply migrations or enable jobs
-unless the user separately requests deployment work.
+If `schema_exists`, `jobs_exists`, `ingested_operations_exists`, or
+`incidents_exists` is false, stop and report that migrations are required
+(typically re-apply `migrations/005_pipeline_ops_control_plane.sql`). Do not
+apply migrations or enable jobs unless the user separately requests deployment
+work.
 
 Refresh health and return the attention queue:
 
