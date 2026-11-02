@@ -73,6 +73,20 @@ SUPPORT_WORDINGS: dict[str, str] = {
 }
 
 # Optional Noul true/false criteria passed through Jev for sharper boundaries.
+SUBTYPE_NOUL_CRITERIA: dict[str, dict[str, str]] = {
+    "is_trade_or_action": {
+        "true": (
+            "The target unit's own words recommend, describe, or report a trade, "
+            "position, allocation, or concrete action."
+        ),
+        "false": (
+            "The target unit's own words contain no trade, position, or action. "
+            "Section headings or surrounding context about positioning or trades "
+            "help interpret the unit but do not by themselves make it one."
+        ),
+    },
+}
+
 SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
     "contains_verifiable_evidence": {
         "true": (
@@ -118,6 +132,7 @@ def question_templates() -> list[FrozenQuestionSpec]:
                 question_id=question_id,
                 question_kind="noul",
                 wording=SUBTYPE_WORDINGS[question_id],
+                noul_criteria=SUBTYPE_NOUL_CRITERIA.get(question_id),
             )
         )
     for question_id in SUPPORT_NOUL_IDS:

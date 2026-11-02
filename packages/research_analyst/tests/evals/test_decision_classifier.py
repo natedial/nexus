@@ -243,6 +243,12 @@ class ShadowClassifierTest(unittest.TestCase):
         assert substantive.noul_criteria is not None
         self.assertIn("some argue", substantive.noul_criteria["true"])
         self.assertIn("Reports evidence", substantive.noul_criteria["false"])
+        trade = next(
+            q for q in artifact.question_set.questions if q.question_id == "is_trade_or_action"
+        )
+        assert trade.noul_criteria is not None
+        self.assertIn("own words", trade.noul_criteria["true"])
+        self.assertIn("Section headings", trade.noul_criteria["false"])
         for unit in artifact.units:
             self.assertEqual(unit.coverage_status, "full")
             self.assertEqual(unit.provenance.get("assertion_key"), unit.unit_id)
