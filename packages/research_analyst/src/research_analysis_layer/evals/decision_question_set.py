@@ -23,7 +23,9 @@ STATEMENT_TYPE_WORDING = (
     "assertion (author presents a proposition as true or likely), "
     "evidence_report (concrete datum, quote, chart/citation, or prior event), "
     "question (genuinely unresolved or interrogative), "
-    "recommendation (action, policy, position, or trade), "
+    "recommendation (action, policy, position, or trade, including advice to "
+    "hold, wait, or not act, however phrased, e.g. 'we see no reason to "
+    "reposition'), "
     "background_methodology (framing, definitions, method, or scene-setting), "
     "or other_or_unclear."
 )
@@ -71,6 +73,20 @@ SUPPORT_WORDINGS: dict[str, str] = {
 }
 
 # Optional Noul true/false criteria passed through Jev for sharper boundaries.
+SUBTYPE_NOUL_CRITERIA: dict[str, dict[str, str]] = {
+    "is_trade_or_action": {
+        "true": (
+            "The target unit's own words recommend, describe, or report a trade, "
+            "position, allocation, or concrete action."
+        ),
+        "false": (
+            "The target unit's own words contain no trade, position, or action. "
+            "Section headings or surrounding context about positioning or trades "
+            "help interpret the unit but do not by themselves make it one."
+        ),
+    },
+}
+
 SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
     "contains_verifiable_evidence": {
         "true": (
@@ -85,13 +101,16 @@ SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
     "is_substantive_author_claim": {
         "true": (
             "The author advances a proposition as true or likely, a recommendation, "
-            "or a genuine question; includes others' views the author raises as part "
-            "of the argument, such as a counterpoint the author then answers."
+            "or a genuine question. Also true when the unit presents a view "
+            "attributed to others as a position in the argument (\"some argue...\", "
+            "\"critics contend...\", \"the bull case is...\"), even if the author "
+            "disagrees with it."
         ),
         "false": (
             "Reports evidence (statistic, quote, citation, chart/figure reference, or "
-            "named data release) without an author proposition, or is background, "
-            "framing, methodology, or boilerplate."
+            "named data release) without an author proposition, including a quote or "
+            "attributed statement supplied as evidence; or is background, framing, "
+            "methodology, or boilerplate."
         ),
     },
 }
@@ -113,6 +132,7 @@ def question_templates() -> list[FrozenQuestionSpec]:
                 question_id=question_id,
                 question_kind="noul",
                 wording=SUBTYPE_WORDINGS[question_id],
+                noul_criteria=SUBTYPE_NOUL_CRITERIA.get(question_id),
             )
         )
     for question_id in SUPPORT_NOUL_IDS:

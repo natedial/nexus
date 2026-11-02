@@ -52,17 +52,23 @@ def _full_text(content: str) -> str:
 def _paragraph_chunks(text: str) -> list[AnalysisChunkDraft]:
     parts = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     chunks: list[AnalysisChunkDraft] = []
-    for idx, part in enumerate(parts, start=1):
-        # Drop pure markdown heading-only crumbs.
-        body = re.sub(r"^#+\s*", "", part).strip()
+    heading = ""
+    for part in parts:
+        # Only a real markdown heading becomes the chunk title (and so the unit's
+        # section_context). A paragraph's own first line is not a heading; using
+        # it would feed the unit's text back in as "context".
+        first, _, rest = part.partition("\n")
+        if first.lstrip().startswith("#"):
+            heading = re.sub(r"^#+\s*", "", first.strip()).strip()[:80]
+            part = rest.strip()
+        body = part
         if len(body) < 40:
             continue
-        title = body.split("\n", 1)[0][:80]
         chunks.append(
             AnalysisChunkDraft(
                 chunk_order=len(chunks) + 1,
                 chunk_type="retrieval_chunk",
-                title=title,
+                title=heading,
                 text=body,
                 section_name=None,
             )
@@ -95,7 +101,8 @@ def _extract_assertions(text: str) -> tuple[list, dict[str, dict], dict[str, str
                 "chunk_key": f"chunk-{assertion.chunk_order}",
                 "doc_section_title": chunk.title,
             }
-            section_by_unit[unit_id] = chunk.title
+            if chunk.title:
+                section_by_unit[unit_id] = chunk.title
     return assertions, provenance, section_by_unit
 
 
