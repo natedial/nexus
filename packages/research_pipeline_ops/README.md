@@ -36,7 +36,17 @@ uv run --env-file .env --project packages/research_pipeline_ops nexus-ops retry 
 ```
 
 Apply the root migrations before enabling producers. All initial job catalog
-rows are disabled until their package adoption and canary are complete.
+rows are disabled until their package adoption and canary are complete. When
+`pipeline_ops` already exists but spool replay fails on missing
+`ingested_operations`, re-apply only the control-plane migration:
+
+```bash
+set -a && source .env && set +a
+./migrations/apply.sh 005_pipeline_ops_control_plane.sql
+```
+
+`nexus-ops doctor` requires `ingested_operations_exists` in addition to the
+schema, jobs, and incidents checks.
 
 ## Agent skill
 

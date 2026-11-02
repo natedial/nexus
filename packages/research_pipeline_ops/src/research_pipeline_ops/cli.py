@@ -86,7 +86,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "doctor":
             result = monitor.doctor()
             print(json.dumps(result, indent=2, sort_keys=True))
-            required_checks = ("schema_exists", "jobs_exists", "incidents_exists")
+            required_checks = (
+                "schema_exists",
+                "jobs_exists",
+                "ingested_operations_exists",
+                "incidents_exists",
+            )
             return 0 if all(result[key] for key in required_checks) else 1
         if args.command == "check":
             rows = monitor.check()

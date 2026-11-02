@@ -165,6 +165,8 @@ class PipelineOpsMonitor:
                 SELECT current_database() AS database_name,
                        to_regnamespace('pipeline_ops') IS NOT NULL AS schema_exists,
                        to_regclass('pipeline_ops.jobs') IS NOT NULL AS jobs_exists,
+                       to_regclass('pipeline_ops.ingested_operations') IS NOT NULL
+                           AS ingested_operations_exists,
                        to_regclass('pipeline_ops.incidents') IS NOT NULL AS incidents_exists
                 """
             ).fetchone()
