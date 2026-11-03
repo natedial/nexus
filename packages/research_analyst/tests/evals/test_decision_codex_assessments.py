@@ -14,6 +14,7 @@ from research_analysis_layer.evals.decision_codex_assessments import (
     QUARANTINE_FILENAME,
     CodexAssessment,
     CodexImportError,
+    compare_codex_to_jev,
     export_codex_packets,
     import_codex_assessments,
     load_codex_assessments,
@@ -24,26 +25,30 @@ from research_analysis_layer.models.assertion_models import AssertionDraft, norm
 from research_analysis_layer.services.fake_decision_model import FakeDecisionModel
 
 TEXT = "Growth will slow next year."
+OTHER_TEXTS = ("Rates will stay on hold.", "Spreads should widen into year end.")
 
 
-def _artifact():
+def _artifact(texts=(TEXT,)):
     return ShadowDecisionClassifier(FakeDecisionModel()).classify_assertions(
         [
             AssertionDraft(
                 chunk_order=1,
-                assertion_order=1,
+                assertion_order=order,
                 assertion_type="forecast",
-                text=TEXT,
-                normalized_text=normalize_text(TEXT),
-                summary_text=TEXT,
+                text=text,
+                normalized_text=normalize_text(text),
+                summary_text=text,
             )
+            for order, text in enumerate(texts, start=1)
         ],
         document_key="doc_a",
     )
 
 
-def _record(artifact, *, assessment_id="a1", pass_id="p1", value=True, **over):
-    unit = artifact.units[0]
+def _record(
+    artifact, *, assessment_id="a1", pass_id="p1", value=True, unit_index=0, **over
+):
+    unit = artifact.units[unit_index]
     record = {
         "assessment_id": assessment_id,
         "pass_id": pass_id,
@@ -60,7 +65,6 @@ def _record(artifact, *, assessment_id="a1", pass_id="p1", value=True, **over):
                     "value": value,
                     "rationale": "States a future outcome.",
                 },
-                "jev_agreement": "agrees",
             }
         ],
     }
@@ -161,10 +165,23 @@ class CodexAssessmentTest(unittest.TestCase):
                     "--assessments", str(assessments),
                     "--jev-artifact", str(artifact_path),
                     "--quarantine-dir", str(tmp_path / "q"),
+                    "--expected-model", "codex-base",
                 ]
             )
             self.assertEqual(code, 0)
             self.assertTrue((tmp_path / "q" / QUARANTINE_FILENAME).exists())
+
+            report_path = tmp_path / "compare.json"
+            code = eval_main(
+                [
+                    "decision-codex-compare",
+                    "--quarantine-dir", str(tmp_path / "q"),
+                    "--jev-artifact", str(artifact_path),
+                    "--output", str(report_path),
+                ]
+            )
+            self.assertEqual(code, 0)
+            self.assertIn("p1", json.loads(report_path.read_text())["passes"])
 
 
     def test_span_must_match_source_text(self) -> None:
@@ -182,6 +199,133 @@ class CodexAssessmentTest(unittest.TestCase):
             )
         self.assertEqual(result.accepted, 1)
         self.assertIn("span", result.rejected[0]["reason"])
+
+    def test_blind_records_cannot_carry_jev_agreement(self) -> None:
+        record = _record(self.artifact)
+        record["axes"][0]["jev_agreement"] = "agrees"
+        with self.assertRaises(ValueError):
+            CodexAssessment.model_validate(record)
+        with self.assertRaises(ValueError):
+            CodexAssessment.model_validate({**_record(self.artifact), "saw_jev_output": True})
+
+    def test_legacy_v1_records_load_but_are_not_imported(self) -> None:
+        legacy = _record(
+            self.artifact,
+            schema_version="decision-codex-assessment-v1",
+            saw_jev_output=True,
+        )
+        legacy["axes"][0]["jev_agreement"] = "agrees"
+        self.assertTrue(CodexAssessment.model_validate(legacy).saw_jev_output)
+        with self.assertRaises(ValueError):
+            CodexAssessment.model_validate({**legacy, "saw_jev_output": False})
+        with tempfile.TemporaryDirectory() as tmp:
+            result = import_codex_assessments(
+                [legacy], jev_artifacts=[self.artifact], quarantine_dir=Path(tmp)
+            )
+        self.assertEqual(result.accepted, 0)
+        self.assertIn("blind packet", result.rejected[0]["reason"])
+
+    def test_expected_model_mismatch_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = import_codex_assessments(
+                [
+                    _record(self.artifact, assessment_id="right", reported_model=" Codex-Base "),
+                    _record(self.artifact, assessment_id="wrong", reported_model="gpt-other"),
+                ],
+                jev_artifacts=[self.artifact],
+                quarantine_dir=Path(tmp),
+                expected_model="codex-base",
+            )
+        self.assertEqual(result.accepted, 1)
+        self.assertEqual(result.rejected[0]["record"], "wrong")
+        self.assertIn("expected", result.rejected[0]["reason"])
+
+    def test_import_flags_cannot_be_supplied(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = import_codex_assessments(
+                [_record(self.artifact, import_flags=[])],
+                jev_artifacts=[self.artifact],
+                quarantine_dir=Path(tmp),
+            )
+        self.assertEqual(result.accepted, 0)
+        self.assertIn("importer", result.rejected[0]["reason"])
+
+    def test_whole_text_spans_on_several_axes_are_flagged(self) -> None:
+        whole = {"start": 0, "end": len(TEXT), "text": TEXT}
+        record = _record(self.artifact, assessment_id="whole")
+        record["axes"] = [
+            {
+                "judgment": {
+                    "axis_id": axis_id,
+                    "state": "labeled",
+                    "value": value,
+                    "rationale": f"{axis_id} rationale.",
+                    "supporting_spans": [whole],
+                }
+            }
+            for axis_id, value in (("is_forecast", True), ("is_causal", False))
+        ]
+        single = _record(self.artifact, assessment_id="single")
+        single["axes"][0]["judgment"]["supporting_spans"] = [whole]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = import_codex_assessments(
+                [record, single], jev_artifacts=[self.artifact], quarantine_dir=Path(tmp)
+            )
+            stored = {
+                r.assessment_id: r.import_flags
+                for r in load_codex_assessments(Path(tmp) / QUARANTINE_FILENAME)
+            }
+        self.assertEqual(result.accepted, 2)
+        self.assertEqual(stored, {"whole": ["whole_text_span"], "single": []})
+        self.assertEqual(result.flagged, [{"record": "whole", "flags": ["whole_text_span"]}])
+
+    def test_same_rationale_across_units_is_flagged(self) -> None:
+        artifact = _artifact((TEXT, *OTHER_TEXTS))
+        records = [
+            _record(artifact, assessment_id=f"u{i}", unit_index=i) for i in range(3)
+        ]
+        records[2]["axes"][0]["judgment"]["rationale"] = "  states A future   OUTCOME. "
+        two_units = [
+            _record(artifact, assessment_id=f"v{i}", pass_id="p2", unit_index=i)
+            for i in range(2)
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            flagged = import_codex_assessments(
+                records, jev_artifacts=[artifact], quarantine_dir=Path(tmp) / "a"
+            ).flagged
+            unflagged = import_codex_assessments(
+                two_units, jev_artifacts=[artifact], quarantine_dir=Path(tmp) / "b"
+            ).flagged
+        self.assertEqual(
+            [item["flags"] for item in flagged], [["templated_rationale:is_forecast"]] * 3
+        )
+        self.assertEqual(unflagged, [])
+
+    def test_compare_counts_per_pass_and_lists_disagreements(self) -> None:
+        unit = self.artifact.units[0]
+        jev_forecast = next(r for r in unit.results if r.question_id == "is_forecast")
+        jev_value = jev_forecast.distribution.selected == "yes"
+        passes = [
+            CodexAssessment.model_validate(
+                _record(self.artifact, assessment_id=f"a{i}", pass_id=f"p{i}", value=value)
+            )
+            for i, value in enumerate((jev_value, not jev_value))
+        ]
+        legacy = CodexAssessment.model_validate(
+            _record(
+                self.artifact,
+                assessment_id="old",
+                schema_version="decision-codex-assessment-v1",
+                saw_jev_output=True,
+            )
+        )
+        report = compare_codex_to_jev([*passes, legacy], jev_artifacts=[self.artifact])
+        self.assertEqual(report["passes"]["p0"]["is_forecast"]["agrees"], 1)
+        self.assertEqual(report["passes"]["p1"]["is_forecast"]["disagrees"], 1)
+        self.assertEqual(report["skipped_legacy_v1"], 1)
+        self.assertEqual(len(report["disagreements"]), 1)
+        self.assertEqual(report["disagreements"][0]["jev_value"], jev_value)
+        self.assertEqual(report["tier"], "quarantined")
 
 
 class CodexExportTest(unittest.TestCase):
@@ -201,7 +345,10 @@ class CodexExportTest(unittest.TestCase):
 
             packet = json.loads((out / "packets.jsonl").read_text().splitlines()[0])
             self.assertEqual(packet["source_text"], TEXT)
-            self.assertIn("is_forecast", packet["jev"]["answers"])
+            self.assertNotIn("jev", packet)
+            self.assertNotIn("assertion_type", packet)
+            self.assertNotIn("answers", json.dumps(packet))
+            self.assertEqual(manifest["stage"], "blind")
 
             # Simulate a Codex pass filling the prefilled template.
             record = dict(packet["assessment_template"])
@@ -215,7 +362,6 @@ class CodexExportTest(unittest.TestCase):
                         "value": True,
                         "rationale": "Future outcome.",
                     },
-                    "jev_agreement": "unclear",
                 }
             ]
             result = import_codex_assessments(

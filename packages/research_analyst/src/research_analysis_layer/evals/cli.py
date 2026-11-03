@@ -185,6 +185,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--jev-artifact", type=Path, action="append", required=True
     )
     codex_import_parser.add_argument("--quarantine-dir", type=Path, required=True)
+    codex_import_parser.add_argument(
+        "--expected-model",
+        required=True,
+        help="Model the Codex pass was meant to run as; other reported_model values are rejected",
+    )
+
+    codex_compare_parser = subparsers.add_parser(
+        "decision-codex-compare",
+        help="Stage 2: compare blind Codex labels with Jev answers (deterministic)",
+    )
+    codex_compare_parser.add_argument("--quarantine-dir", type=Path, required=True)
+    codex_compare_parser.add_argument(
+        "--jev-artifact", type=Path, action="append", required=True
+    )
+    codex_compare_parser.add_argument("--output", type=Path, required=True)
 
     decision_eval_parser = subparsers.add_parser(
         "decision-eval",
@@ -541,7 +556,10 @@ def cmd_decision_codex_import(args: argparse.Namespace) -> int:
     artifacts = [load_shadow_artifact(path) for path in args.jev_artifact]
     try:
         result = import_codex_assessments(
-            records, jev_artifacts=artifacts, quarantine_dir=args.quarantine_dir
+            records,
+            jev_artifacts=artifacts,
+            quarantine_dir=args.quarantine_dir,
+            expected_model=args.expected_model,
         )
     except CodexImportError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -551,6 +569,34 @@ def cmd_decision_codex_import(args: argparse.Namespace) -> int:
     )
     print(json.dumps({"import": result.model_dump(), "summary": summary}, indent=2))
     return 1 if result.rejected else 0
+
+
+def cmd_decision_codex_compare(args: argparse.Namespace) -> int:
+    from research_analysis_layer.evals.decision_artifacts import load_shadow_artifact
+    from research_analysis_layer.evals.decision_codex_assessments import (
+        QUARANTINE_FILENAME,
+        compare_codex_to_jev,
+        load_codex_assessments,
+    )
+
+    assessments = load_codex_assessments(args.quarantine_dir / QUARANTINE_FILENAME)
+    artifacts = [load_shadow_artifact(path) for path in args.jev_artifact]
+    report = compare_codex_to_jev(assessments, jev_artifacts=artifacts)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "output": str(args.output),
+                "passes": report["passes"],
+                "disagreement_count": len(report["disagreements"]),
+                "skipped_legacy_v1": report["skipped_legacy_v1"],
+                "missing_units": len(report["missing_units"]),
+            },
+            indent=2,
+        )
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -571,6 +617,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_decision_codex_export(args)
     if args.command == "decision-codex-import":
         return cmd_decision_codex_import(args)
+    if args.command == "decision-codex-compare":
+        return cmd_decision_codex_compare(args)
 
     settings = Settings()
 
