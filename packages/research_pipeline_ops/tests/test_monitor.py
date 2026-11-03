@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, time
 
-from research_pipeline_ops.monitor import HealthCondition, evaluate_job
+from research_pipeline_ops.monitor import (
+    DEFAULT_STALE_HEARTBEAT_SECONDS,
+    HealthCondition,
+    evaluate_job,
+    stale_run_threshold_seconds,
+    stale_running_condition,
+)
 
 NOW = datetime(2026, 10, 20, 16, 0, tzinfo=UTC)
 
@@ -117,3 +123,57 @@ def test_incident_key_is_stable_for_same_condition() -> None:
     first = HealthCondition("job", "failed", "error", "one", "same", "run:1")
     second = HealthCondition("job", "failed", "error", "two", "same", "run:2")
     assert first.incident_key == second.incident_key
+
+
+def test_stale_run_threshold_floors_at_one_hour() -> None:
+    assert stale_run_threshold_seconds(job(stall_seconds=900, grace_seconds=300)) == (
+        DEFAULT_STALE_HEARTBEAT_SECONDS
+    )
+
+
+def test_stale_run_threshold_respects_larger_catalog_stall() -> None:
+    assert stale_run_threshold_seconds(job(stall_seconds=5400, grace_seconds=1800)) == 5400
+
+
+def test_stale_run_threshold_respects_larger_grace() -> None:
+    assert stale_run_threshold_seconds(job(stall_seconds=900, grace_seconds=7200)) == 7200
+
+
+def test_stale_running_condition_summarizes_orphan_count() -> None:
+    condition = stale_running_condition(
+        job(job_key="parser.poll"),
+        stale_count=3,
+        sample_run_key="run:orphan",
+        threshold_seconds=3600,
+    )
+    assert condition is not None
+    assert condition.kind == "stale_running"
+    assert condition.severity == "error"
+    assert condition.latest_run_key == "run:orphan"
+    assert "3 running runs" in condition.summary
+    assert condition.fingerprint == "stale_running"
+
+
+def test_stale_running_condition_skips_zero_count() -> None:
+    assert (
+        stale_running_condition(
+            job(),
+            stale_count=0,
+            sample_run_key=None,
+            threshold_seconds=3600,
+        )
+        is None
+    )
+
+
+def test_healthy_latest_run_does_not_imply_orphan_absence() -> None:
+    """Schedule freshness alone cannot clear orphan stale_running; check merges both."""
+    assert evaluate_job(job(), run(), now=NOW) == []
+    orphan = stale_running_condition(
+        job(),
+        stale_count=2,
+        sample_run_key="run:old",
+        threshold_seconds=3600,
+    )
+    assert orphan is not None
+    assert orphan.kind == "stale_running"

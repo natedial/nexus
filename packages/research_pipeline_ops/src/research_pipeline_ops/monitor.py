@@ -21,6 +21,10 @@ from research_pipeline_ops.client import sanitize_text, utc_now
 
 _LAUNCHD_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$")
 _INCIDENT_STATUSES = frozenset({"open", "claimed", "resolved", "suppressed"})
+# Floor for orphan / reap stale-running detection. Latest-run "stalled" incidents
+# still use catalog stall_seconds alone so short-interval jobs stay sensitive.
+DEFAULT_STALE_HEARTBEAT_SECONDS = 3600
+REAPED_ERROR_TEXT = "reaped: no heartbeat"
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,19 @@ def _parse_local_time(value: object) -> time | None:
     if isinstance(value, time):
         return value.replace(tzinfo=None)
     return time.fromisoformat(str(value))
+
+
+def stale_run_threshold_seconds(job: Mapping[str, Any]) -> int:
+    """Heartbeat age after which a ``running`` row is stale for orphan detection/reap.
+
+    Takes the larger of catalog ``stall_seconds``, ``grace_seconds``, and a 1h
+    default floor. Schedule interval is not added: a long interval must not
+    leave crash orphans invisible for a full cycle. Latest-run ``stalled``
+    evaluation continues to use ``stall_seconds`` alone.
+    """
+    stall = int(job.get("stall_seconds") or 0)
+    grace = int(job.get("grace_seconds") or 0)
+    return max(stall, grace, DEFAULT_STALE_HEARTBEAT_SECONDS)
 
 
 def _latest_scheduled_at(job: Mapping[str, Any], now: datetime) -> datetime | None:
@@ -149,6 +166,32 @@ def evaluate_job(
     return conditions
 
 
+def stale_running_condition(
+    job: Mapping[str, Any],
+    *,
+    stale_count: int,
+    sample_run_key: str | None,
+    threshold_seconds: int,
+) -> HealthCondition | None:
+    """Build an incident condition when one or more running runs lack a heartbeat."""
+    if stale_count <= 0:
+        return None
+    job_key = str(job["job_key"])
+    noun = "run" if stale_count == 1 else "runs"
+    summary = (
+        f"{job_key} has {stale_count} running {noun} with no heartbeat "
+        f"within {threshold_seconds}s"
+    )
+    return HealthCondition(
+        job_key,
+        "stale_running",
+        "error",
+        summary,
+        "stale_running",
+        sample_run_key,
+    )
+
+
 class PipelineOpsMonitor:
     """Materialize job health into a durable, leaseable incident queue."""
 
@@ -209,9 +252,11 @@ class PipelineOpsMonitor:
                 ORDER BY j.job_key
                 """
             ).fetchall()
+            stale_by_job = self._stale_running_summary(connection, current)
             observed_by_job: dict[str, set[str]] = {}
             for row in rows:
                 job = dict(row)
+                job_key = str(job["job_key"])
                 latest = None
                 if row["latest_run_key"] is not None:
                     latest = {
@@ -223,19 +268,96 @@ class PipelineOpsMonitor:
                         "error_text": row["latest_run_error_text"],
                     }
                 conditions = evaluate_job(job, latest, now=current)
-                observed_by_job[job["job_key"]] = {
+                stale = stale_by_job.get(job_key)
+                if stale is not None:
+                    orphan = stale_running_condition(
+                        job,
+                        stale_count=int(stale["stale_count"]),
+                        sample_run_key=stale.get("sample_run_key"),
+                        threshold_seconds=int(stale["threshold_seconds"]),
+                    )
+                    if orphan is not None:
+                        conditions.append(orphan)
+                observed_by_job[job_key] = {
                     condition.incident_key for condition in conditions
                 }
                 for condition in conditions:
                     self._upsert_incident(connection, condition, current)
                 self._resolve_absent_incidents(
                     connection,
-                    job_key=str(job["job_key"]),
-                    observed=observed_by_job[job["job_key"]],
+                    job_key=job_key,
+                    observed=observed_by_job[job_key],
                     resolved_at=current,
                 )
             self._release_expired_claims(connection, current)
         return self.list_incidents(status="open", include_claimed=True)
+
+    def list_stale_running(
+        self,
+        *,
+        job_key: str | None = None,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return per-job counts of running rows past the stale heartbeat threshold."""
+        current = _as_utc(now or utc_now())
+        with self._connect() as connection:
+            return self._list_stale_running_rows(connection, current, job_key=job_key)
+
+    def reap_stale(
+        self,
+        *,
+        apply: bool = False,
+        job_key: str | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Mark stale ``running`` rows failed. Dry-run unless ``apply`` is true.
+
+        Never updates rows whose ``coalesce(heartbeat_at, started_at)`` is still
+        within the per-job threshold. Terminal status is ``failed`` with
+        ``error_text`` set to :data:`REAPED_ERROR_TEXT` (no dedicated status in
+        the run-status check constraint).
+        """
+        current = _as_utc(now or utc_now())
+        with self._connect() as connection:
+            jobs = self._list_stale_running_rows(connection, current, job_key=job_key)
+            total = sum(int(item["stale_count"]) for item in jobs)
+            result: dict[str, Any] = {
+                "dry_run": not apply,
+                "default_threshold_seconds": DEFAULT_STALE_HEARTBEAT_SECONDS,
+                "jobs": jobs,
+                "total": total,
+                "reaped": 0,
+            }
+            if not apply or total == 0:
+                return result
+            reaped = 0
+            for item in jobs:
+                threshold = int(item["threshold_seconds"])
+                cutoff = current - timedelta(seconds=threshold)
+                updated = connection.execute(
+                    """
+                    UPDATE pipeline_ops.runs
+                    SET status = 'failed',
+                        error_text = %s,
+                        completed_at = %s,
+                        updated_at = %s,
+                        exit_code = COALESCE(exit_code, 1)
+                    WHERE job_key = %s
+                      AND status = 'running'
+                      AND coalesce(heartbeat_at, started_at) < %s
+                    """,
+                    (
+                        REAPED_ERROR_TEXT,
+                        current,
+                        current,
+                        item["job_key"],
+                        cutoff,
+                    ),
+                )
+                reaped += int(updated.rowcount)
+            result["reaped"] = reaped
+            result["dry_run"] = False
+            return result
 
     def list_incidents(
         self,
@@ -601,6 +723,62 @@ class PipelineOpsMonitor:
                 reason,
             ),
         )
+        return result
+
+    def _stale_running_summary(
+        self,
+        connection: psycopg.Connection[dict[str, Any]],
+        current: datetime,
+    ) -> dict[str, dict[str, Any]]:
+        rows = self._list_stale_running_rows(connection, current, job_key=None)
+        return {str(row["job_key"]): row for row in rows}
+
+    def _list_stale_running_rows(
+        self,
+        connection: psycopg.Connection[dict[str, Any]],
+        current: datetime,
+        *,
+        job_key: str | None,
+    ) -> list[dict[str, Any]]:
+        job_filter = "AND j.job_key = %s" if job_key is not None else ""
+        rows = connection.execute(
+            f"""
+            SELECT j.job_key,
+                   GREATEST(
+                       j.stall_seconds,
+                       j.grace_seconds,
+                       %s
+                   ) AS threshold_seconds,
+                   count(r.run_key)::int AS stale_count,
+                   min(r.run_key) AS sample_run_key,
+                   min(coalesce(r.heartbeat_at, r.started_at)) AS oldest_heartbeat_at
+            FROM pipeline_ops.jobs j
+            JOIN pipeline_ops.runs r ON r.job_key = j.job_key
+            WHERE j.enabled
+              {job_filter}
+              AND r.status = 'running'
+              AND coalesce(r.heartbeat_at, r.started_at) < %s::timestamptz
+                  - (
+                      GREATEST(j.stall_seconds, j.grace_seconds, %s)
+                      * interval '1 second'
+                    )
+            GROUP BY j.job_key, j.stall_seconds, j.grace_seconds
+            HAVING count(r.run_key) > 0
+            ORDER BY j.job_key
+            """,
+            (
+                DEFAULT_STALE_HEARTBEAT_SECONDS,
+                *([job_key] if job_key is not None else []),
+                current,
+                DEFAULT_STALE_HEARTBEAT_SECONDS,
+            ),
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            item = self._json_row(row)
+            item["threshold_seconds"] = int(item["threshold_seconds"])
+            item["stale_count"] = int(item["stale_count"])
+            result.append(item)
         return result
 
     def _connect(self) -> psycopg.Connection[dict[str, Any]]:
