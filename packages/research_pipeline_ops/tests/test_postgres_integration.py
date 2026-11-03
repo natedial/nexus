@@ -9,7 +9,7 @@ import psycopg
 import pytest
 
 from research_pipeline_ops.client import PipelineOpsClient
-from research_pipeline_ops.monitor import PipelineOpsMonitor
+from research_pipeline_ops.monitor import REAPED_ERROR_TEXT, PipelineOpsMonitor
 
 DATABASE_URL = os.getenv("NEXUS_OPS_TEST_DATABASE_URL")
 pytestmark = [
@@ -252,6 +252,107 @@ def test_retry_dry_run_uses_only_catalogued_launchd_label(tmp_path: Path) -> Non
         with psycopg.connect(DATABASE_URL) as connection:
             connection.execute("DELETE FROM pipeline_ops.incidents WHERE job_key = %s", (job_key,))
             connection.execute("DELETE FROM pipeline_ops.runs WHERE run_key = %s", (run_key,))
+            connection.execute("DELETE FROM pipeline_ops.jobs WHERE job_key = %s", (job_key,))
+
+
+def test_stale_orphans_behind_healthy_latest_are_flagged_and_reaped(tmp_path: Path) -> None:
+    assert DATABASE_URL is not None
+    suffix = uuid.uuid4().hex[:12]
+    job_key = f"test.stale.{suffix}"
+    monitor = PipelineOpsMonitor(DATABASE_URL)
+    with psycopg.connect(DATABASE_URL) as connection:
+        connection.execute(
+            """
+            INSERT INTO pipeline_ops.jobs (
+                job_key, repo_name, run_type, enabled, enabled_at,
+                schedule_type, schedule_interval_seconds, grace_seconds,
+                stall_seconds, retry_policy, playbook_key
+            ) VALUES (%s, 'tests', 'stale', true, now(),
+                'interval', 300, 300, 900, 'never', 'tests.stale')
+            """,
+            (job_key,),
+        )
+    client = PipelineOpsClient(
+        database_url=DATABASE_URL,
+        spool_db_path=tmp_path / "stale.db",
+        emitted_by="integration_tests",
+        mode="required",
+    )
+    stale_started = datetime.now(UTC) - timedelta(hours=3)
+    fresh_heartbeat = datetime.now(UTC) - timedelta(minutes=1)
+    orphan_a = client.start_run(
+        job_key=job_key,
+        trigger_source="pytest",
+        started_at=stale_started,
+        run_key=f"orphan-a:{suffix}",
+    )
+    orphan_b = client.start_run(
+        job_key=job_key,
+        trigger_source="pytest",
+        started_at=stale_started + timedelta(minutes=1),
+        run_key=f"orphan-b:{suffix}",
+    )
+    live = client.start_run(
+        job_key=job_key,
+        trigger_source="pytest",
+        started_at=fresh_heartbeat,
+        run_key=f"live:{suffix}",
+    )
+    healthy = client.start_run(
+        job_key=job_key,
+        trigger_source="pytest",
+        started_at=datetime.now(UTC) - timedelta(minutes=5),
+        run_key=f"healthy:{suffix}",
+    )
+    assert None not in {orphan_a, orphan_b, live, healthy}
+    client.finish_run(healthy, status="succeeded", exit_code=0)
+    with psycopg.connect(DATABASE_URL) as connection:
+        connection.execute(
+            """
+            UPDATE pipeline_ops.runs
+            SET heartbeat_at = %s, updated_at = %s
+            WHERE run_key = %s
+            """,
+            (fresh_heartbeat, fresh_heartbeat, live),
+        )
+    try:
+        incidents = monitor.check()
+        stale_incident = next(item for item in incidents if item["job_key"] == job_key)
+        assert stale_incident["kind"] == "stale_running"
+        assert "2 running runs" in stale_incident["summary"]
+
+        dry = monitor.reap_stale(apply=False, job_key=job_key)
+        assert dry["dry_run"] is True
+        assert dry["total"] == 2
+        assert dry["reaped"] == 0
+        assert dry["jobs"][0]["stale_count"] == 2
+        assert dry["jobs"][0]["threshold_seconds"] == 3600
+
+        applied = monitor.reap_stale(apply=True, job_key=job_key)
+        assert applied["dry_run"] is False
+        assert applied["reaped"] == 2
+        with psycopg.connect(DATABASE_URL) as connection:
+            status_rows = connection.execute(
+                """
+                SELECT run_key, status, error_text
+                FROM pipeline_ops.runs
+                WHERE run_key = ANY(%s)
+                """,
+                ([orphan_a, orphan_b, live, healthy],),
+            ).fetchall()
+        statuses = {row[0]: (row[1], row[2]) for row in status_rows}
+        assert statuses[orphan_a] == ("failed", REAPED_ERROR_TEXT)
+        assert statuses[orphan_b] == ("failed", REAPED_ERROR_TEXT)
+        assert statuses[live][0] == "running"
+        assert statuses[healthy][0] == "succeeded"
+        assert not any(item["job_key"] == job_key for item in monitor.check())
+    finally:
+        with psycopg.connect(DATABASE_URL) as connection:
+            connection.execute("DELETE FROM pipeline_ops.incidents WHERE job_key = %s", (job_key,))
+            connection.execute(
+                "DELETE FROM pipeline_ops.runs WHERE run_key = ANY(%s)",
+                ([orphan_a, orphan_b, live, healthy],),
+            )
             connection.execute("DELETE FROM pipeline_ops.jobs WHERE job_key = %s", (job_key,))
 
 
