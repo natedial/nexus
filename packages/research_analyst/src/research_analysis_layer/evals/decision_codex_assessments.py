@@ -1,12 +1,17 @@
 """Quarantine-only import of Codex assessments of Jev decision outputs.
 
 Assessments produced by an interactive Codex session outside the API-routed
-harness carry no verified call provenance, saw Jev's outputs, and share one
-model family across passes. They therefore get their own record type: it cannot
-be read as an ``AgentReference`` or ``AgentJudgment``, carries no approval
-trace, and its tier, independence, and promotion flags are fixed literals that
-validation refuses to change. Repeated passes are correlated evidence and are
-summarized as a single independent judgment per unit.
+harness carry no verified call provenance and share one model family across
+passes. They therefore get their own record type: it cannot be read as an
+``AgentReference`` or ``AgentJudgment``, carries no approval trace, and its
+tier, independence, and promotion flags are fixed literals that validation
+refuses to change. Repeated passes are correlated evidence and are summarized
+as a single independent judgment per unit.
+
+The workflow has two stages. Stage 1 exports blind packets (no Jev output) and
+Codex labels each unit from the text alone. Stage 2 compares those labels with
+Jev's answers deterministically, so Codex never anchors on Jev. v1 records,
+which saw Jev output, still load but are no longer imported.
 """
 
 from __future__ import annotations
@@ -14,12 +19,13 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from research_analysis_layer.evals.decision_agent_references import (
     AXIS_IDS,
@@ -32,13 +38,21 @@ from research_analysis_layer.models.decision_models import (
     UnitClassificationRecord,
 )
 
-CODEX_ASSESSMENT_SCHEMA_VERSION = "decision-codex-assessment-v1"
-CODEX_PACKET_SCHEMA_VERSION = "decision-codex-packet-v1"
-CODEX_EXPORT_MANIFEST_SCHEMA_VERSION = "decision-codex-export-v1"
+CODEX_ASSESSMENT_SCHEMA_VERSION = "decision-codex-assessment-v2"
+LEGACY_ASSESSMENT_SCHEMA_VERSION = "decision-codex-assessment-v1"
+CODEX_PACKET_SCHEMA_VERSION = "decision-codex-packet-v2"
+CODEX_EXPORT_MANIFEST_SCHEMA_VERSION = "decision-codex-export-v2"
+CODEX_COMPARISON_SCHEMA_VERSION = "decision-codex-comparison-v1"
 QUARANTINE_FILENAME = "codex_assessments.jsonl"
 CORRELATION_GROUP = "codex"
 # Directories holding human-reviewed records; quarantine output never goes there.
 _PROTECTED_MARKERS = ("reviews.jsonl",)
+# Review flags (never rejections). A span covering this share of the source on
+# two or more axes grounds nothing axis-specific; the same rationale on this
+# many units in one import reads as a template rather than a judgment.
+_WHOLE_TEXT_SPAN_SHARE = 0.9
+_WHOLE_TEXT_SPAN_MIN_AXES = 2
+_TEMPLATED_RATIONALE_MIN_UNITS = 3
 
 
 class StrictModel(BaseModel):
@@ -46,7 +60,11 @@ class StrictModel(BaseModel):
 
 
 class CodexAxisAssessment(StrictModel):
-    """Codex's sparse label for one axis plus its view of Jev's answer."""
+    """Codex's sparse label for one axis.
+
+    ``jev_agreement`` exists only on v1 records, which saw Jev output; blind v2
+    records leave it unset and agreement is computed in stage 2.
+    """
 
     judgment: AxisJudgment
     jev_agreement: Literal["agrees", "disagrees", "unclear"] | None = None
@@ -70,9 +88,9 @@ class PolicyQuestion(StrictModel):
 class CodexAssessment(StrictModel):
     """One Codex pass over one Jev-classified unit. Always quarantined."""
 
-    schema_version: Literal["decision-codex-assessment-v1"] = (
-        CODEX_ASSESSMENT_SCHEMA_VERSION
-    )
+    schema_version: Literal[
+        "decision-codex-assessment-v1", "decision-codex-assessment-v2"
+    ] = CODEX_ASSESSMENT_SCHEMA_VERSION
     assessment_id: str = Field(min_length=1)
     pass_id: str = Field(min_length=1)
     created_at: datetime
@@ -86,15 +104,30 @@ class CodexAssessment(StrictModel):
     axes: list[CodexAxisAssessment] = Field(min_length=1)
     policy_questions: list[PolicyQuestion] = Field(default_factory=list)
     notes: str | None = Field(default=None, max_length=2000)
+    # Set only by the importer; review prompts, never grounds for rejection.
+    import_flags: list[str] = Field(default_factory=list)
 
     # Fixed by construction; any other value fails validation.
     tier: Literal["quarantined"] = "quarantined"
     review_state: Literal["provisional"] = "provisional"
     correlation_group: Literal["codex"] = CORRELATION_GROUP
-    saw_jev_output: Literal[True] = True
+    # True only on legacy v1 records; blind v2 records must leave it False.
+    saw_jev_output: bool = False
     provenance_verified: Literal[False] = False
     independent: Literal[False] = False
     eligible_for_promotion: Literal[False] = False
+
+    @model_validator(mode="after")
+    def _stage_consistent(self) -> CodexAssessment:
+        if self.schema_version == LEGACY_ASSESSMENT_SCHEMA_VERSION:
+            if not self.saw_jev_output:
+                raise ValueError("v1 assessments saw Jev output")
+        else:
+            if self.saw_jev_output:
+                raise ValueError("blind v2 assessments cannot have seen Jev output")
+            if any(axis.jev_agreement is not None for axis in self.axes):
+                raise ValueError("blind v2 assessments cannot set jev_agreement")
+        return self
 
     @field_validator("axes")
     @classmethod
@@ -114,6 +147,7 @@ class CodexImportError(ValueError):
 class CodexImportResult(StrictModel):
     accepted: int
     rejected: list[dict[str, Any]]
+    flagged: list[dict[str, Any]] = Field(default_factory=list)
     output_path: str
 
 
@@ -141,6 +175,56 @@ def _span_error(record: CodexAssessment, source_text: str) -> str | None:
     return None
 
 
+def _whole_text_span_axes(record: CodexAssessment, source_text: str) -> list[str]:
+    if not source_text:
+        return []
+    threshold = _WHOLE_TEXT_SPAN_SHARE * len(source_text)
+    return sorted(
+        axis.judgment.axis_id
+        for axis in record.axes
+        if any(span.end - span.start >= threshold for span in axis.judgment.supporting_spans)
+    )
+
+
+def _normalized_rationale(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def _review_flags(
+    accepted: Sequence[tuple[CodexAssessment, str]],
+) -> dict[str, list[str]]:
+    """Flags per assessment_id for whole-text spans and templated rationales."""
+    flags: dict[str, list[str]] = defaultdict(list)
+    for record, source_text in accepted:
+        if len(_whole_text_span_axes(record, source_text)) >= _WHOLE_TEXT_SPAN_MIN_AXES:
+            flags[record.assessment_id].append("whole_text_span")
+
+    units_by_rationale: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
+    for record, _ in accepted:
+        for axis in record.axes:
+            key = (axis.judgment.axis_id, _normalized_rationale(axis.judgment.rationale))
+            units_by_rationale[key].add((record.document_key, record.unit_id))
+    templated = {
+        key for key, units in units_by_rationale.items()
+        if len(units) >= _TEMPLATED_RATIONALE_MIN_UNITS
+    }
+    for record, _ in accepted:
+        for axis_id in sorted(
+            {
+                axis.judgment.axis_id
+                for axis in record.axes
+                if (axis.judgment.axis_id, _normalized_rationale(axis.judgment.rationale))
+                in templated
+            }
+        ):
+            flags[record.assessment_id].append(f"templated_rationale:{axis_id}")
+    return dict(flags)
+
+
+def _normalized_model(name: str) -> str:
+    return name.strip().lower()
+
+
 def _check_quarantine_dir(quarantine_dir: Path) -> None:
     for marker in _PROTECTED_MARKERS:
         if (quarantine_dir / marker).exists():
@@ -165,21 +249,27 @@ def import_codex_assessments(
     *,
     jev_artifacts: Iterable[ShadowClassificationArtifact],
     quarantine_dir: Path,
+    expected_model: str | None = None,
 ) -> CodexImportResult:
-    """Validate and append assessments to the quarantine file.
+    """Validate and append blind assessments to the quarantine file.
 
     Per-record problems are reported in ``rejected`` and do not stop valid
-    records. Existing lines are never rewritten.
+    records. ``expected_model`` rejects records whose self-reported model is
+    not the one the pass was meant to run as. Accepted records may carry
+    ``import_flags`` for review. Existing lines are never rewritten.
     """
     _check_quarantine_dir(quarantine_dir)
     units = _units_by_identity(jev_artifacts)
     output_path = quarantine_dir / QUARANTINE_FILENAME
     seen = _existing_ids(output_path)
 
-    accepted: list[CodexAssessment] = []
+    accepted: list[tuple[CodexAssessment, str]] = []
     rejected: list[dict[str, Any]] = []
     for index, raw in enumerate(records):
         label = str(raw.get("assessment_id", f"record[{index}]"))
+        if "import_flags" in raw:
+            rejected.append({"record": label, "reason": "import_flags are set by the importer"})
+            continue
         try:
             record = CodexAssessment.model_validate(raw)
         except ValueError as exc:
@@ -187,7 +277,26 @@ def import_codex_assessments(
             continue
         unit = units.get((record.document_key, record.unit_id))
         span_error = _span_error(record, unit.source_text) if unit else None
-        if unit is None:
+        if record.schema_version == LEGACY_ASSESSMENT_SCHEMA_VERSION:
+            rejected.append(
+                {
+                    "record": label,
+                    "reason": "v1 assessments saw Jev output; export a blind packet",
+                }
+            )
+        elif expected_model is not None and _normalized_model(
+            record.reported_model
+        ) != _normalized_model(expected_model):
+            rejected.append(
+                {
+                    "record": label,
+                    "reason": (
+                        f"reported_model {record.reported_model!r} is not the "
+                        f"expected {expected_model!r}"
+                    ),
+                }
+            )
+        elif unit is None:
             rejected.append({"record": label, "reason": "unit not in Jev artifacts"})
         elif sha256_text(unit.source_text) != record.source_text_sha256:
             rejected.append({"record": label, "reason": "source text hash mismatch"})
@@ -197,16 +306,28 @@ def import_codex_assessments(
             rejected.append({"record": label, "reason": "duplicate assessment_id"})
         else:
             seen.add(record.assessment_id)
-            accepted.append(record)
+            accepted.append((record, unit.source_text))
 
-    if accepted:
+    flags = _review_flags(accepted)
+    flagged_records = [
+        record.model_copy(update={"import_flags": flags.get(record.assessment_id, [])})
+        for record, _ in accepted
+    ]
+    if flagged_records:
         quarantine_dir.mkdir(parents=True, exist_ok=True)
         with output_path.open("a", encoding="utf-8") as handle:
-            for record in accepted:
+            for record in flagged_records:
                 handle.write(json.dumps(record.model_dump(mode="json"), sort_keys=True))
                 handle.write("\n")
     return CodexImportResult(
-        accepted=len(accepted), rejected=rejected, output_path=str(output_path)
+        accepted=len(flagged_records),
+        rejected=rejected,
+        flagged=[
+            {"record": record.assessment_id, "flags": record.import_flags}
+            for record in flagged_records
+            if record.import_flags
+        ],
+        output_path=str(output_path),
     )
 
 
@@ -240,11 +361,13 @@ def export_codex_packets(
     pass_id: str,
     shuffle_seed: int | None = None,
 ) -> Path:
-    """Write a work packet for one Codex pass over Jev-classified units.
+    """Write a blind stage-1 work packet for one Codex pass.
 
-    The packet holds everything the assessor needs, with identity fields
-    prefilled so source hashes are never hand-typed. A distinct ``pass_id``
-    and ``shuffle_seed`` per pass varies order, but passes remain correlated.
+    Packets carry the source text and the frozen questions, with identity
+    fields prefilled so source hashes are never hand-typed. They omit Jev
+    output and the extractor's heuristic ``assertion_type``, either of which
+    would anchor the labels. A distinct ``pass_id`` and ``shuffle_seed`` per
+    pass varies order, but passes remain correlated.
     """
     if not pass_id.strip() or any(ch in pass_id for ch in ":/\\"):
         raise ValueError("pass_id must be non-empty and contain no ':' or slashes")
@@ -280,16 +403,10 @@ def export_codex_packets(
                     "pass_id": pass_id,
                     "document_key": document,
                     "unit_id": unit.unit_id,
-                    "assertion_type": unit.assertion_type,
                     "source_text": unit.source_text,
                     "source_text_sha256": source_hash,
-                    "jev": {
-                        "provider": unit.provider,
-                        "model_version": unit.model_version,
-                        "coverage_status": unit.coverage_status,
-                        "answers": _jev_answers(unit),
-                    },
                     "assessment_template": {
+                        "schema_version": CODEX_ASSESSMENT_SCHEMA_VERSION,
                         "assessment_id": f"{pass_id}:{document}:{unit.unit_id}",
                         "pass_id": pass_id,
                         "created_at": None,
@@ -318,6 +435,7 @@ def export_codex_packets(
             handle.write("\n")
     manifest = {
         "schema_version": CODEX_EXPORT_MANIFEST_SCHEMA_VERSION,
+        "stage": "blind",
         "pass_id": pass_id,
         "shuffle_seed": shuffle_seed,
         "packet_count": len(packets),
@@ -329,7 +447,10 @@ def export_codex_packets(
             for path, _ in loaded
         ],
         "tier": "quarantined",
-        "note": "Assessments from this packet import only as quarantined, correlated evidence.",
+        "note": (
+            "Blind packet: no Jev output. Assessments import only as quarantined, "
+            "correlated evidence; compare with Jev afterwards via decision-codex-compare."
+        ),
     }
     (output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
@@ -391,4 +512,94 @@ def summarize_codex_assessments(
             {"question": q, "axis_ids": sorted(axes)}
             for q, axes in sorted(questions.items())
         ],
+    }
+
+
+def _jev_axis_value(answer: Mapping[str, Any] | None, axis_id: str) -> Any:
+    """Jev's answer as an axis value, or None when it is not comparable."""
+    if not answer or answer.get("status") != "complete":
+        return None
+    selected = answer.get("selected")
+    if axis_id == "statement_type":
+        return selected
+    return {"yes": True, "no": False}.get(selected)
+
+
+def compare_codex_to_jev(
+    assessments: Sequence[CodexAssessment],
+    *,
+    jev_artifacts: Iterable[ShadowClassificationArtifact],
+) -> dict[str, Any]:
+    """Stage 2: compare blind Codex labels with Jev's answers, per pass.
+
+    Counts stay separate per ``pass_id`` because passes are correlated; adding
+    them up would overstate the evidence. Legacy v1 records are skipped since
+    they saw Jev output before labeling.
+    """
+    units = _units_by_identity(jev_artifacts)
+    passes: dict[str, dict[str, dict[str, int]]] = defaultdict(
+        lambda: defaultdict(
+            lambda: {"agrees": 0, "disagrees": 0, "unclear": 0, "codex_unlabeled": 0}
+        )
+    )
+    disagreements: list[dict[str, Any]] = []
+    skipped_legacy = 0
+    missing_units: set[tuple[str, str]] = set()
+    for item in assessments:
+        if item.saw_jev_output:
+            skipped_legacy += 1
+            continue
+        unit = units.get((item.document_key, item.unit_id))
+        if unit is None:
+            missing_units.add((item.document_key, item.unit_id))
+            continue
+        answers = _jev_answers(unit)
+        for axis in item.axes:
+            judgment = axis.judgment
+            counts = passes[item.pass_id][judgment.axis_id]
+            if judgment.state != "labeled":
+                counts["codex_unlabeled"] += 1
+                continue
+            answer = answers.get(judgment.axis_id)
+            jev_value = _jev_axis_value(answer, judgment.axis_id)
+            if jev_value is None:
+                counts["unclear"] += 1
+            elif jev_value == judgment.value:
+                counts["agrees"] += 1
+            else:
+                counts["disagrees"] += 1
+                disagreements.append(
+                    {
+                        "pass_id": item.pass_id,
+                        "document_key": item.document_key,
+                        "unit_id": item.unit_id,
+                        "axis_id": judgment.axis_id,
+                        "source_text": unit.source_text,
+                        "codex_value": judgment.value,
+                        "codex_rationale": judgment.rationale,
+                        "jev_value": jev_value,
+                        "jev_raw_probability": answer.get("raw_probability") if answer else None,
+                        "import_flags": item.import_flags,
+                    }
+                )
+    return {
+        "schema_version": CODEX_COMPARISON_SCHEMA_VERSION,
+        "tier": "quarantined",
+        "note": (
+            "Codex labeled blind; counts are per pass and passes are correlated. "
+            "Agreement is not confirmation and disagreement is not a Jev error."
+        ),
+        "skipped_legacy_v1": skipped_legacy,
+        "missing_units": [
+            {"document_key": doc, "unit_id": unit_id}
+            for doc, unit_id in sorted(missing_units)
+        ],
+        "passes": {
+            pass_id: {axis_id: dict(counts) for axis_id, counts in sorted(axes.items())}
+            for pass_id, axes in sorted(passes.items())
+        },
+        "disagreements": sorted(
+            disagreements,
+            key=lambda d: (d["pass_id"], d["axis_id"], d["document_key"], d["unit_id"]),
+        ),
     }
