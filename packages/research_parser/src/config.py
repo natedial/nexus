@@ -121,6 +121,15 @@ class Settings(BaseSettings):
         validation_alias=_env("RETRY_DELAY_SECONDS"),
         description="Initial retry delay",
     )
+    max_unfinished_attempts: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=_env("MAX_UNFINISHED_ATTEMPTS"),
+        description=(
+            "Abandon a file after this many starts that never finished "
+            "(process crashed or hung mid-parse) instead of retrying it forever"
+        ),
+    )
     stale_processing_timeout_minutes: int = Field(
         default=30,
         ge=5,

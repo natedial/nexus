@@ -58,6 +58,8 @@ class FileState:
     trades_ok: bool | None = None
     storage_ok: bool | None = None
     error_message: str | None = None
+    # Starts that never reached a terminal write (crash / hang mid-parse).
+    attempts: int = 0
 
 
 class StateStore:
@@ -85,9 +87,15 @@ class StateStore:
                     themes_ok INTEGER,
                     trades_ok INTEGER,
                     storage_ok INTEGER,
-                    error_message TEXT
+                    error_message TEXT,
+                    attempts INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(processed_files)")}
+            if "attempts" not in columns:
+                conn.execute(
+                    "ALTER TABLE processed_files ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
+                )
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_status ON processed_files(status)
             """)
@@ -185,6 +193,7 @@ class StateStore:
             trades_ok=bool(row["trades_ok"]) if row["trades_ok"] is not None else None,
             storage_ok=bool(row["storage_ok"]) if row["storage_ok"] is not None else None,
             error_message=row["error_message"],
+            attempts=row["attempts"] or 0,
         )
 
     def get_state(self, file_id: str) -> FileState | None:
@@ -262,11 +271,13 @@ class StateStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO processed_files (file_id, file_name, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO processed_files
+                    (file_id, file_name, status, created_at, updated_at, attempts)
+                VALUES (?, ?, ?, ?, ?, 1)
                 ON CONFLICT(file_id) DO UPDATE SET
                     status = excluded.status,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    attempts = processed_files.attempts + 1
                 """,
                 (file_id, file_name, ProcessingStatus.PENDING.value, now, now),
             )
@@ -338,7 +349,8 @@ class StateStore:
                     parse_ok = 1,
                     boilerplate_ok = 1,
                     storage_ok = 1,
-                    error_message = NULL
+                    error_message = NULL,
+                    attempts = 0
                 WHERE file_id = ?
                 """,
                 (ProcessingStatus.COMPLETED.value, now, file_id),
@@ -353,7 +365,7 @@ class StateStore:
             conn.execute(
                 """
                 UPDATE processed_files
-                SET status = ?, updated_at = ?, error_message = ?
+                SET status = ?, updated_at = ?, error_message = ?, attempts = 0
                 WHERE file_id = ?
                   AND status != ?
                   AND COALESCE(storage_ok, 0) != 1
@@ -376,7 +388,7 @@ class StateStore:
             conn.execute(
                 """
                 UPDATE processed_files
-                SET status = ?, updated_at = ?, error_message = ?
+                SET status = ?, updated_at = ?, error_message = ?, attempts = 0
                 WHERE file_id = ?
                   AND status != ?
                   AND COALESCE(storage_ok, 0) != 1

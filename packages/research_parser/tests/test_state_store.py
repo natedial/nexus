@@ -149,3 +149,64 @@ def test_get_stale_in_progress_returns_old_non_terminal_rows(tmp_path):
 
     assert stale_file_id in stale_ids
     assert fresh_file_id not in stale_ids
+
+
+def test_start_processing_counts_unfinished_attempts(tmp_path):
+    store = StateStore(tmp_path / "state.db")
+    file_id = "file-crash-loop"
+
+    store.start_processing(file_id, "doc.pdf")
+    store.start_processing(file_id, "doc.pdf")
+
+    state = store.get_state(file_id)
+    assert state is not None
+    assert state.attempts == 2
+
+
+def test_terminal_writes_reset_unfinished_attempts(tmp_path):
+    store = StateStore(tmp_path / "state.db")
+    for file_id, finish in (
+        ("file-completed", store.mark_completed),
+        ("file-partial", store.mark_partial),
+        ("file-failed", lambda fid: store.mark_failed(fid, "Parse failed: bad pdf")),
+    ):
+        store.start_processing(file_id, "doc.pdf")
+        store.start_processing(file_id, "doc.pdf")
+        finish(file_id)
+
+        state = store.get_state(file_id)
+        assert state is not None
+        assert state.attempts == 0, file_id
+
+
+def test_existing_db_without_attempts_column_is_migrated(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "state.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("""
+            CREATE TABLE processed_files (
+                file_id TEXT PRIMARY KEY,
+                file_name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                parse_ok INTEGER,
+                boilerplate_ok INTEGER,
+                metadata_ok INTEGER,
+                themes_ok INTEGER,
+                trades_ok INTEGER,
+                storage_ok INTEGER,
+                error_message TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO processed_files (file_id, file_name, status, created_at, updated_at)"
+            " VALUES ('legacy', 'doc.pdf', 'parsing', '2026-11-01T00:00:00', '2026-11-01T00:00:00')"
+        )
+
+    store = StateStore(db_path)
+
+    state = store.get_state("legacy")
+    assert state is not None
+    assert state.attempts == 0

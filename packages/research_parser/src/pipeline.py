@@ -206,6 +206,8 @@ class Pipeline:
         relay_artifact: RelayIntakeArtifact | None = None,
     ) -> bool:
         log = logger.bind(file_id=file_id, file_name=file_name, force=force)
+        if not force and self._abandon_if_crash_looping(file_id, file_name, log):
+            return False
         max_attempts = 2
         started = time.monotonic()
         final_error: str | None = None
@@ -268,6 +270,34 @@ class Pipeline:
                 error_text=final_error_type if final_error is not None else None,
             )
             self._heartbeat_ops()
+
+    def _abandon_if_crash_looping(self, file_id: str, file_name: str, log) -> bool:
+        """Fail a file whose earlier starts all died mid-parse.
+
+        Attempts only accumulate when the process crashes or hangs before any
+        terminal write, so a file that keeps killing the service stops being
+        retried first on every restart and starving the files behind it.
+        """
+        prior = self.state.get_state(file_id)
+        cap = self.settings.max_unfinished_attempts
+        if prior is None or prior.status == ProcessingStatus.COMPLETED or prior.attempts < cap:
+            return False
+        message = (
+            f"Abandoned after {prior.attempts} unfinished attempts "
+            "(process crashed or hung mid-parse; suspected memory exhaustion)"
+        )
+        log.error("Abandoning crash-looping file", attempts=prior.attempts, cap=cap)
+        self.state.mark_failed(file_id, message)
+        self.ops_failed_count = getattr(self, "ops_failed_count", 0) + 1
+        self._emit_document_event(
+            file_id=file_id,
+            file_name=file_name,
+            status="failed",
+            attempt=prior.attempts,
+            error_type="CrashLoopAbandoned",
+            error_text="CrashLoopAbandoned",
+        )
+        return True
 
     def _process_file_once(
         self,

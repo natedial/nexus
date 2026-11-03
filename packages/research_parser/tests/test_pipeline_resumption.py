@@ -52,6 +52,7 @@ def _build_pipeline(tmp_path, state: StateStore) -> Pipeline:
         poll_interval_minutes=5,
         stale_processing_timeout_minutes=30,
         docling_ocr_retry=True,
+        max_unfinished_attempts=3,
     )
     pipeline.state = state
     pipeline.drive = _FailingDrive()
@@ -248,3 +249,49 @@ def test_process_file_force_reparses_instead_of_resuming(tmp_path, monkeypatch):
     assert "NEW BODY FROM OCR" in stored.full_text
     assert stored_kwargs["artifact_context"].parse_backend == "docling-ocr"
     assert stored_kwargs["artifact_context"].ocr_retried is True
+
+
+class _RecordingDrive(_FailingDrive):
+    def __init__(self):
+        self.downloads = 0
+
+    def download_file(self, file_id: str, file_name: str):
+        self.downloads += 1
+        raise RuntimeError("drive unavailable")
+
+
+def test_process_file_abandons_file_after_repeated_unfinished_attempts(tmp_path):
+    file_id = "drive-poison-pill"
+    file_name = "2026-11-01_Barclays_Power_of_ballot.pdf"
+    state = StateStore(tmp_path / "state.db")
+    pipeline = _build_pipeline(tmp_path, state)
+    pipeline.drive = _RecordingDrive()
+
+    for _ in range(pipeline.settings.max_unfinished_attempts):
+        state.start_processing(file_id, file_name)  # each start died before finishing
+
+    assert pipeline.process_file(file_id, file_name) is False
+
+    final_state = state.get_state(file_id)
+    assert final_state is not None
+    assert final_state.status == ProcessingStatus.FAILED
+    assert "unfinished attempts" in (final_state.error_message or "")
+    assert state.is_processed(file_id)  # terminal: polling must not pick it up again
+    assert pipeline.drive.downloads == 0
+
+
+def test_process_file_still_runs_below_unfinished_attempt_cap(tmp_path):
+    file_id = "drive-one-crash"
+    file_name = "2026-11-01_Barclays_Power_of_ballot.pdf"
+    state = StateStore(tmp_path / "state.db")
+    pipeline = _build_pipeline(tmp_path, state)
+    pipeline.drive = _RecordingDrive()
+
+    state.start_processing(file_id, file_name)  # one earlier start died
+
+    assert pipeline.process_file(file_id, file_name) is False
+
+    assert pipeline.drive.downloads > 0
+    final_state = state.get_state(file_id)
+    assert final_state is not None
+    assert "unfinished attempts" not in (final_state.error_message or "")
