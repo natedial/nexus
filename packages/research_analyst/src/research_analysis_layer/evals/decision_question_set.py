@@ -38,7 +38,8 @@ SUBTYPE_WORDINGS: dict[str, str] = {
     "is_forecast": "Does the target unit make a forward-looking forecast or projection?",
     "is_causal": "Does the target unit assert a causal relationship?",
     "is_market_impact": (
-        "Does the target unit claim an impact on markets, prices, yields, or spreads?"
+        "Does the target unit claim that an identified driver affects markets, "
+        "prices, yields, or spreads?"
     ),
     "is_policy_claim": (
         "Does the target unit make a claim about policy, regulation, or central-bank action?"
@@ -74,6 +75,18 @@ SUPPORT_WORDINGS: dict[str, str] = {
 
 # Optional Noul true/false criteria passed through Jev for sharper boundaries.
 SUBTYPE_NOUL_CRITERIA: dict[str, dict[str, str]] = {
+    "is_market_impact": {
+        "true": (
+            "Asserts or projects that a named driver moves, has moved, or would "
+            "move a market price, yield, spread, or valuation, e.g. 'tariffs would "
+            "pressure equities' or 'lower policy rates should compress spreads'."
+        ),
+        "false": (
+            "Reports or forecasts a market variable or market mood without saying "
+            "what drives it, e.g. 'the curve steepened 35bp', 'yields should fall', "
+            "or 'markets appear unsettled'; or makes no claim about markets."
+        ),
+    },
     "is_trade_or_action": {
         "true": (
             "The target unit's own words recommend, describe, or report a trade, "
