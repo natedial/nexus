@@ -249,6 +249,12 @@ class ShadowClassifierTest(unittest.TestCase):
         assert trade.noul_criteria is not None
         self.assertIn("own words", trade.noul_criteria["true"])
         self.assertIn("Section headings", trade.noul_criteria["false"])
+        market = next(
+            q for q in artifact.question_set.questions if q.question_id == "is_market_impact"
+        )
+        assert market.noul_criteria is not None
+        self.assertIn("named driver", market.noul_criteria["true"])
+        self.assertIn("curve steepened", market.noul_criteria["false"])
         for unit in artifact.units:
             self.assertEqual(unit.coverage_status, "full")
             self.assertEqual(unit.provenance.get("assertion_key"), unit.unit_id)
