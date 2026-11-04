@@ -14,6 +14,7 @@ from research_analysis_layer.evals.decision_codex_assessments import (
     QUARANTINE_FILENAME,
     CodexAssessment,
     CodexImportError,
+    codex_run_log_model,
     compare_codex_to_jev,
     export_codex_packets,
     import_codex_assessments,
@@ -171,6 +172,25 @@ class CodexAssessmentTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue((tmp_path / "q" / QUARANTINE_FILENAME).exists())
 
+            log = tmp_path / "run.log"
+            log.write_text("--------\nmodel: codex-exact\n--------\n", encoding="utf-8")
+            assessments.write_text(
+                json.dumps(_record(self.artifact, assessment_id="logged")) + "\n",
+                encoding="utf-8",
+            )
+            args = [
+                "decision-codex-import",
+                "--assessments", str(assessments),
+                "--jev-artifact", str(artifact_path),
+                "--quarantine-dir", str(tmp_path / "q"),
+                "--codex-log", str(log),
+            ]
+            self.assertEqual(eval_main([*args, "--expected-model", "other"]), 1)
+            self.assertEqual(eval_main([*args, "--expected-model", "codex-exact"]), 0)
+            logged = load_codex_assessments(tmp_path / "q" / QUARANTINE_FILENAME)[-1]
+            self.assertEqual(logged.run_log_model, "codex-exact")
+            self.assertIn("reported_model_mismatch", logged.import_flags)
+
             report_path = tmp_path / "compare.json"
             code = eval_main(
                 [
@@ -300,6 +320,108 @@ class CodexAssessmentTest(unittest.TestCase):
             [item["flags"] for item in flagged], [["templated_rationale:is_forecast"]] * 3
         )
         self.assertEqual(unflagged, [])
+
+    def test_templated_frames_flagged_even_when_quoted_words_vary(self) -> None:
+        texts = (TEXT, *OTHER_TEXTS)
+        artifact = _artifact(texts)
+        records = []
+        for i, text in enumerate(texts):
+            word = text.split()[0]
+            record = _record(artifact, assessment_id=f"f{i}", unit_index=i)
+            record["axes"][0]["judgment"]["rationale"] = (
+                f"“{word}” supplies a forward-looking projection."
+            )
+            records.append(record)
+        plain = _record(artifact, assessment_id="plain", pass_id="p2", unit_index=0)
+        plain["axes"][0]["judgment"]["supporting_spans"] = [
+            {"start": 0, "end": 6, "text": TEXT[:6]}
+        ]
+        plain["axes"][0]["judgment"]["rationale"] = f"{TEXT[:6]} will slow: a projection."
+        with tempfile.TemporaryDirectory() as tmp:
+            flagged = import_codex_assessments(
+                records, jev_artifacts=[artifact], quarantine_dir=Path(tmp) / "a"
+            ).flagged
+            unflagged = import_codex_assessments(
+                [plain], jev_artifacts=[artifact], quarantine_dir=Path(tmp) / "b"
+            ).flagged
+        self.assertEqual(
+            [item["flags"] for item in flagged], [["templated_rationale:is_forecast"]] * 3
+        )
+        self.assertEqual(unflagged, [])
+
+    def test_one_span_cited_for_many_axes_is_flagged(self) -> None:
+        span = {"start": 0, "end": 6, "text": TEXT[:6]}
+        record = _record(self.artifact, assessment_id="reuse")
+        record["axes"] = [
+            {
+                "judgment": {
+                    "axis_id": axis_id,
+                    "state": "labeled",
+                    "value": False,
+                    "rationale": f"No {axis_id} here.",
+                    "supporting_spans": [span],
+                }
+            }
+            for axis_id in ("is_causal", "is_comparative", "is_policy_claim")
+        ]
+        two = _record(self.artifact, assessment_id="two")
+        two["axes"] = record["axes"][:2]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = import_codex_assessments(
+                [record, two], jev_artifacts=[self.artifact], quarantine_dir=Path(tmp)
+            )
+        self.assertEqual(result.flagged, [{"record": "reuse", "flags": ["reused_span"]}])
+
+    def test_run_log_model_replaces_self_report_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = import_codex_assessments(
+                [
+                    _record(self.artifact, assessment_id="family", reported_model="gpt-5"),
+                    _record(self.artifact, assessment_id="exact", reported_model="gpt-5.6-sol"),
+                ],
+                jev_artifacts=[self.artifact],
+                quarantine_dir=Path(tmp),
+                expected_model="gpt-5.6-sol",
+                run_log_model="gpt-5.6-sol",
+            )
+            stored = load_codex_assessments(Path(tmp) / QUARANTINE_FILENAME)
+            self.assertEqual(result.accepted, 2, result.rejected)
+            self.assertEqual(
+                result.flagged, [{"record": "family", "flags": ["reported_model_mismatch"]}]
+            )
+            self.assertEqual({r.run_log_model for r in stored}, {"gpt-5.6-sol"})
+            self.assertFalse(any(r.provenance_verified for r in stored))
+
+            with self.assertRaises(CodexImportError):
+                import_codex_assessments(
+                    [_record(self.artifact, assessment_id="other")],
+                    jev_artifacts=[self.artifact],
+                    quarantine_dir=Path(tmp),
+                    expected_model="gpt-5.6-sol",
+                    run_log_model="gpt-4o",
+                )
+            self.assertEqual(len(load_codex_assessments(Path(tmp) / QUARANTINE_FILENAME)), 2)
+
+            supplied = import_codex_assessments(
+                [_record(self.artifact, assessment_id="self", run_log_model="gpt-5.6-sol")],
+                jev_artifacts=[self.artifact],
+                quarantine_dir=Path(tmp),
+            )
+        self.assertEqual(supplied.accepted, 0)
+        self.assertIn("run_log_model", supplied.rejected[0]["reason"])
+
+    def test_codex_run_log_model_reads_header(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "run.log"
+            log.write_text(
+                "OpenAI Codex v0.165.0\n--------\nworkdir: /x\nmodel: gpt-5.6-sol\n"
+                "provider: openai\n--------\nuser\nmodel: injected\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(codex_run_log_model(log), "gpt-5.6-sol")
+            log.write_text("no header here\n", encoding="utf-8")
+            with self.assertRaises(CodexImportError):
+                codex_run_log_model(log)
 
     def test_compare_counts_per_pass_and_lists_disagreements(self) -> None:
         unit = self.artifact.units[0]

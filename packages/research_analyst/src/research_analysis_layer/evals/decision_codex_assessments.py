@@ -48,11 +48,18 @@ CORRELATION_GROUP = "codex"
 # Directories holding human-reviewed records; quarantine output never goes there.
 _PROTECTED_MARKERS = ("reviews.jsonl",)
 # Review flags (never rejections). A span covering this share of the source on
-# two or more axes grounds nothing axis-specific; the same rationale on this
-# many units in one import reads as a template rather than a judgment.
+# two or more axes grounds nothing axis-specific; one rationale frame (quoted
+# words removed) on this many units reads as a template rather than a judgment;
+# one span cited for this many axes of a unit is not axis-specific either.
 _WHOLE_TEXT_SPAN_SHARE = 0.9
 _WHOLE_TEXT_SPAN_MIN_AXES = 2
 _TEMPLATED_RATIONALE_MIN_UNITS = 3
+_REUSED_SPAN_MIN_AXES = 3
+# Quoted words inside a rationale; ’ alone is an apostrophe, not a quote.
+_QUOTED = re.compile(r"“[^”]*”|‘[^’]*’|\"[^\"]*\"")
+_FRAME_SLOT = "<q>"
+# Fields only the importer may set; a record that supplies them is refused.
+_IMPORTER_FIELDS = ("import_flags", "run_log_model")
 
 
 class StrictModel(BaseModel):
@@ -100,6 +107,9 @@ class CodexAssessment(StrictModel):
     source_text_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     # Self-reported and unverifiable; recorded for audit, never trusted.
     reported_model: str = Field(min_length=1)
+    # Set only by the importer from the Codex CLI run log header. Stronger than
+    # reported_model but still not API-verified, so provenance stays unverified.
+    run_log_model: str | None = None
     reported_session: str | None = None
     axes: list[CodexAxisAssessment] = Field(min_length=1)
     policy_questions: list[PolicyQuestion] = Field(default_factory=list)
@@ -186,36 +196,55 @@ def _whole_text_span_axes(record: CodexAssessment, source_text: str) -> list[str
     )
 
 
-def _normalized_rationale(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip().lower()
+def _rationale_frame(text: str, span_texts: Iterable[str]) -> str:
+    """The rationale with quoted words and cited span text replaced by a slot."""
+    frame = _QUOTED.sub(_FRAME_SLOT, text)
+    for span_text in sorted(set(span_texts), key=len, reverse=True):
+        if span_text.strip():
+            frame = frame.replace(span_text, _FRAME_SLOT)
+    return re.sub(r"\s+", " ", frame).strip().lower()
+
+
+def _axis_frame(axis: CodexAxisAssessment) -> tuple[str, str]:
+    judgment = axis.judgment
+    return (
+        judgment.axis_id,
+        _rationale_frame(
+            judgment.rationale, (span.text for span in judgment.supporting_spans)
+        ),
+    )
+
+
+def _reused_span(record: CodexAssessment) -> bool:
+    axes_by_span: dict[tuple[int, int], set[str]] = defaultdict(set)
+    for axis in record.axes:
+        for span in axis.judgment.supporting_spans:
+            axes_by_span[(span.start, span.end)].add(axis.judgment.axis_id)
+    return any(len(axes) >= _REUSED_SPAN_MIN_AXES for axes in axes_by_span.values())
 
 
 def _review_flags(
     accepted: Sequence[tuple[CodexAssessment, str]],
 ) -> dict[str, list[str]]:
-    """Flags per assessment_id for whole-text spans and templated rationales."""
+    """Flags per assessment_id for weak grounding and templated rationales."""
     flags: dict[str, list[str]] = defaultdict(list)
     for record, source_text in accepted:
         if len(_whole_text_span_axes(record, source_text)) >= _WHOLE_TEXT_SPAN_MIN_AXES:
             flags[record.assessment_id].append("whole_text_span")
+        if _reused_span(record):
+            flags[record.assessment_id].append("reused_span")
 
-    units_by_rationale: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
+    units_by_frame: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
     for record, _ in accepted:
         for axis in record.axes:
-            key = (axis.judgment.axis_id, _normalized_rationale(axis.judgment.rationale))
-            units_by_rationale[key].add((record.document_key, record.unit_id))
+            units_by_frame[_axis_frame(axis)].add((record.document_key, record.unit_id))
     templated = {
-        key for key, units in units_by_rationale.items()
+        key for key, units in units_by_frame.items()
         if len(units) >= _TEMPLATED_RATIONALE_MIN_UNITS
     }
     for record, _ in accepted:
         for axis_id in sorted(
-            {
-                axis.judgment.axis_id
-                for axis in record.axes
-                if (axis.judgment.axis_id, _normalized_rationale(axis.judgment.rationale))
-                in templated
-            }
+            {axis.judgment.axis_id for axis in record.axes if _axis_frame(axis) in templated}
         ):
             flags[record.assessment_id].append(f"templated_rationale:{axis_id}")
     return dict(flags)
@@ -223,6 +252,16 @@ def _review_flags(
 
 def _normalized_model(name: str) -> str:
     return name.strip().lower()
+
+
+def codex_run_log_model(path: Path) -> str:
+    """The model named in a ``codex exec`` run log header (``model: ...``)."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for line in lines[:40]:
+        match = re.match(r"^model:\s*(\S+)\s*$", line)
+        if match:
+            return match.group(1)
+    raise CodexImportError(f"{path} has no 'model:' line in its Codex run header")
 
 
 def _check_quarantine_dir(quarantine_dir: Path) -> None:
@@ -250,15 +289,29 @@ def import_codex_assessments(
     jev_artifacts: Iterable[ShadowClassificationArtifact],
     quarantine_dir: Path,
     expected_model: str | None = None,
+    run_log_model: str | None = None,
 ) -> CodexImportResult:
     """Validate and append blind assessments to the quarantine file.
 
     Per-record problems are reported in ``rejected`` and do not stop valid
-    records. ``expected_model`` rejects records whose self-reported model is
-    not the one the pass was meant to run as. Accepted records may carry
-    ``import_flags`` for review. Existing lines are never rewritten.
+    records. With ``run_log_model`` (from the Codex CLI run log) the model
+    check uses it: a mismatch with ``expected_model`` refuses the whole
+    import, and a differing self-reported model is only flagged, since models
+    often report their family rather than the exact snapshot. Without it,
+    ``expected_model`` rejects records whose self-reported model differs.
+    Accepted records may carry ``import_flags`` for review. Existing lines are
+    never rewritten.
     """
     _check_quarantine_dir(quarantine_dir)
+    if (
+        run_log_model is not None
+        and expected_model is not None
+        and _normalized_model(run_log_model) != _normalized_model(expected_model)
+    ):
+        raise CodexImportError(
+            f"Codex run log shows model {run_log_model!r}, not the expected "
+            f"{expected_model!r}; refusing the whole import"
+        )
     units = _units_by_identity(jev_artifacts)
     output_path = quarantine_dir / QUARANTINE_FILENAME
     seen = _existing_ids(output_path)
@@ -267,8 +320,11 @@ def import_codex_assessments(
     rejected: list[dict[str, Any]] = []
     for index, raw in enumerate(records):
         label = str(raw.get("assessment_id", f"record[{index}]"))
-        if "import_flags" in raw:
-            rejected.append({"record": label, "reason": "import_flags are set by the importer"})
+        supplied = [name for name in _IMPORTER_FIELDS if name in raw]
+        if supplied:
+            rejected.append(
+                {"record": label, "reason": f"{', '.join(supplied)} are set by the importer"}
+            )
             continue
         try:
             record = CodexAssessment.model_validate(raw)
@@ -284,9 +340,11 @@ def import_codex_assessments(
                     "reason": "v1 assessments saw Jev output; export a blind packet",
                 }
             )
-        elif expected_model is not None and _normalized_model(
-            record.reported_model
-        ) != _normalized_model(expected_model):
+        elif (
+            run_log_model is None
+            and expected_model is not None
+            and _normalized_model(record.reported_model) != _normalized_model(expected_model)
+        ):
             rejected.append(
                 {
                     "record": label,
@@ -309,8 +367,17 @@ def import_codex_assessments(
             accepted.append((record, unit.source_text))
 
     flags = _review_flags(accepted)
+    if run_log_model is not None:
+        for record, _ in accepted:
+            if _normalized_model(record.reported_model) != _normalized_model(run_log_model):
+                flags.setdefault(record.assessment_id, []).append("reported_model_mismatch")
     flagged_records = [
-        record.model_copy(update={"import_flags": flags.get(record.assessment_id, [])})
+        record.model_copy(
+            update={
+                "import_flags": flags.get(record.assessment_id, []),
+                "run_log_model": run_log_model,
+            }
+        )
         for record, _ in accepted
     ]
     if flagged_records:
