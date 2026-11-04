@@ -56,11 +56,13 @@ so instead of using them.
   - Use `state: "unresolved"` or `"abstained"` with `value: null` and a
     concrete `unresolved_reason` when the frozen questions do not settle it.
   - Spans are character offsets into `source_text`, and `text` must equal that
-    slice exactly. Cite the shortest words that decide this axis. Do not cite
-    the whole unit as the span for several axes; the importer flags that for
-    review.
-  - Write each rationale for this unit: name the words that decide the axis.
-    Reusing one stock sentence across units is flagged for review.
+    slice exactly. Cite the shortest words that decide this axis. Citing the
+    whole unit for several axes, or one span for three or more axes, is
+    flagged for review. For a `false` axis, cite the words that come closest
+    to triggering it, or no span at all.
+  - Write each rationale for this unit: say why those words do or do not meet
+    the criteria. A fill-in sentence frame reused across units with only the
+    quoted words swapped is flagged for review, the same as a copied sentence.
 - Do not add fields, including `jev_agreement` or `import_flags`. Do not
   change `tier`, `independent`, `eligible_for_promotion`, `saw_jev_output`,
   or any other fixed flag; leave them out and the importer fills the only

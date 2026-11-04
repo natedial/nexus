@@ -188,7 +188,16 @@ def build_parser() -> argparse.ArgumentParser:
     codex_import_parser.add_argument(
         "--expected-model",
         required=True,
-        help="Model the Codex pass was meant to run as; other reported_model values are rejected",
+        help="Model the Codex pass was meant to run as",
+    )
+    codex_import_parser.add_argument(
+        "--codex-log",
+        type=Path,
+        default=None,
+        help=(
+            "codex exec run log; its header model is checked against --expected-model "
+            "instead of the self-reported model, which is then only flagged"
+        ),
     )
 
     codex_compare_parser = subparsers.add_parser(
@@ -543,6 +552,7 @@ def cmd_decision_codex_import(args: argparse.Namespace) -> int:
     from research_analysis_layer.evals.decision_artifacts import load_shadow_artifact
     from research_analysis_layer.evals.decision_codex_assessments import (
         CodexImportError,
+        codex_run_log_model,
         import_codex_assessments,
         load_codex_assessments,
         summarize_codex_assessments,
@@ -555,11 +565,13 @@ def cmd_decision_codex_import(args: argparse.Namespace) -> int:
     ]
     artifacts = [load_shadow_artifact(path) for path in args.jev_artifact]
     try:
+        run_log_model = codex_run_log_model(args.codex_log) if args.codex_log else None
         result = import_codex_assessments(
             records,
             jev_artifacts=artifacts,
             quarantine_dir=args.quarantine_dir,
             expected_model=args.expected_model,
+            run_log_model=run_log_model,
         )
     except CodexImportError as exc:
         print(f"Error: {exc}", file=sys.stderr)
