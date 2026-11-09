@@ -24,13 +24,27 @@ NOUL_QUESTION_IDS: tuple[str, ...] = (*SUBTYPE_NOUL_IDS, *SUPPORT_NOUL_IDS)
 
 @dataclass(slots=True)
 class GoldUnitLabel:
-    """Hand-authored gold labels for one assertion unit."""
+    """Hand-authored gold labels for one assertion unit.
+
+    ``noul_labels`` may be sparse. Omitted keys are unreviewed, not false.
+    """
 
     unit_id: str
     statement_type: str
     noul_labels: dict[str, bool] = field(default_factory=dict)
+    document_id: str | None = None
     assertion_type: str | None = None
     notes: str | None = None
+    reviewed_text: str | None = None
+    stored_model_input: str | None = None
+
+    @property
+    def label_completeness(self) -> str:
+        return (
+            "complete"
+            if set(self.noul_labels) >= set(NOUL_QUESTION_IDS)
+            else "partial"
+        )
 
 
 @dataclass(slots=True)
@@ -45,6 +59,9 @@ class ClassificationMetricsReport:
     noul_precision: dict[str, float | None]
     noul_recall: dict[str, float | None]
     noul_support: dict[str, int]
+    noul_reviewed: dict[str, int]
+    complete_label_unit_count: int
+    partial_label_unit_count: int
     abstention_rate: float
     uncertain_rate: float
     coverage_full_rate: float
@@ -73,12 +90,28 @@ def evaluate_shadow_artifact(
     noul_threshold: float = 0.5,
 ) -> ClassificationMetricsReport:
     """Score an artifact against gold labels and deterministic baselines."""
-    gold_by_id = (
-        dict(gold_labels)
+    gold_list = (
+        list(gold_labels.values())
         if isinstance(gold_labels, Mapping)
-        else {label.unit_id: label for label in gold_labels}
+        else list(gold_labels)
     )
-    records = [unit for unit in artifact.units if unit.unit_id in gold_by_id]
+    gold_by_document_unit = {
+        (label.document_id, label.unit_id): label
+        for label in gold_list
+        if label.document_id
+    }
+    gold_by_unit = {
+        label.unit_id: label for label in gold_list if label.document_id is None
+    }
+
+    def _gold_for(record: UnitClassificationRecord) -> GoldUnitLabel | None:
+        if record.document_key:
+            keyed = gold_by_document_unit.get((record.document_key, record.unit_id))
+            if keyed is not None:
+                return keyed
+        return gold_by_unit.get(record.unit_id)
+
+    records = [unit for unit in artifact.units if _gold_for(unit) is not None]
 
     choice_pairs: list[tuple[str, str]] = []
     confusion: dict[str, Counter[str]] = defaultdict(Counter)
@@ -93,8 +126,15 @@ def evaluate_shadow_artifact(
     latencies: list[float] = []
     provenance_hits = 0
 
+    complete_label_unit_count = 0
+    partial_label_unit_count = 0
     for record in records:
-        gold = gold_by_id[record.unit_id]
+        gold = _gold_for(record)
+        assert gold is not None
+        if gold.label_completeness == "complete":
+            complete_label_unit_count += 1
+        else:
+            partial_label_unit_count += 1
         if record.provenance.get("assertion_key") or record.provenance.get("span_key"):
             provenance_hits += 1
         if record.latency_ms is not None:
@@ -160,7 +200,13 @@ def evaluate_shadow_artifact(
     notes = [
         "calibrated_probability is null in v1; raw_probability is scored as-is",
         "AUROC/AUPRC and Brier/ECE deferred until larger labeled splits exist",
+        "Noul metrics score only reviewed labels; omitted keys are unknown, not false",
     ]
+    if partial_label_unit_count:
+        notes.append(
+            f"{partial_label_unit_count} partial-label units excluded from "
+            "full-vector calculations; they remain in per-axis Noul support"
+        )
 
     return ClassificationMetricsReport(
         unit_count=len(records),
@@ -173,6 +219,12 @@ def evaluate_shadow_artifact(
         noul_precision=noul_precision,
         noul_recall=noul_recall,
         noul_support=dict(noul_support),
+        noul_reviewed={
+            question_id: int(noul_support[question_id])
+            for question_id in NOUL_QUESTION_IDS
+        },
+        complete_label_unit_count=complete_label_unit_count,
+        partial_label_unit_count=partial_label_unit_count,
         abstention_rate=(abstentions / result_count) if result_count else 0.0,
         uncertain_rate=(uncertains / result_count) if result_count else 0.0,
         coverage_full_rate=coverage_counts.get("full", 0) / unit_total,
@@ -183,10 +235,9 @@ def evaluate_shadow_artifact(
         provenance_coverage_rate=(provenance_hits / len(records)) if records else 0.0,
         latency_p50_ms=_percentile(latencies, 50),
         latency_p95_ms=_percentile(latencies, 95),
-        provider_cost={
-            "usage": dict(artifact.usage),
-            "note": "dollar cost deferred until provider pricing is wired in PR2",
-        },
+        provider_cost=estimate_usage_cost(
+            artifact.usage, provider=artifact.provider
+        ),
         baseline_choice_agreement=baseline_choice_agree,
         baseline_choice_compared=baseline_choice_n,
         baseline_subtype_agreement=baseline_subtype_agree,
@@ -194,6 +245,123 @@ def evaluate_shadow_artifact(
         baseline_limitations=baseline_limitations(),
         notes=notes,
     )
+
+
+def choice_prediction(
+    record: UnitClassificationRecord, *, noul_threshold: float = 0.5
+) -> tuple[str | None, float | None]:
+    """Return (selected statement type, raw probability) for a unit."""
+    result = next(
+        (item for item in record.results if item.question_id == STATEMENT_TYPE_QUESTION_ID),
+        None,
+    )
+    if result is None:
+        return None, None
+    return _selected_label(result, noul_threshold=noul_threshold), _raw_probability(result)
+
+
+def noul_prediction(
+    record: UnitClassificationRecord,
+    question_id: str,
+    *,
+    threshold: float = 0.5,
+) -> tuple[bool | None, float | None]:
+    """Return (yes/no/None, raw probability) for one binary question."""
+    result = next(
+        (item for item in record.results if item.question_id == question_id),
+        None,
+    )
+    if result is None:
+        return None, None
+    return _noul_positive(result, threshold=threshold), _raw_probability(result)
+
+
+def _raw_probability(result: Any) -> float | None:
+    if result.distribution is None:
+        return None
+    if result.distribution.raw_probability is not None:
+        return float(result.distribution.raw_probability)
+    if result.distribution.selected and result.distribution.probabilities:
+        selected = result.distribution.probabilities.get(result.distribution.selected)
+        if selected is not None:
+            return float(selected)
+    if result.distribution.probabilities:
+        return float(max(result.distribution.probabilities.values()))
+    return None
+
+
+# Provisional Jev rates inferred from the 2026-10-02 18-unit live eval note
+# (~28.7k input tokens ≈ $0.0012 => ~$0.0418 / million tokens).
+# Override per run; this is not an invoice.
+PROVISIONAL_JEV_INPUT_USD_PER_MILLION = 0.04181
+PROVISIONAL_JEV_OUTPUT_USD_PER_MILLION = 0.04181
+
+
+def estimate_usage_cost(
+    usage: Mapping[str, Any] | None,
+    *,
+    provider: str,
+    input_usd_per_million: float | None = None,
+    output_usd_per_million: float | None = None,
+) -> dict[str, Any]:
+    """Estimate dollar cost from token usage. Missing tokens stay null."""
+    payload = dict(usage or {})
+    if provider == "fake":
+        return {
+            "usage": payload,
+            "provider": provider,
+            "input_usd_per_million": 0.0,
+            "output_usd_per_million": 0.0,
+            "estimated_usd": 0.0,
+            "pricing_source": "fake_provider_zero",
+            "note": "fake provider has no billed usage",
+        }
+
+    input_rate = (
+        PROVISIONAL_JEV_INPUT_USD_PER_MILLION
+        if input_usd_per_million is None and provider == "jev"
+        else input_usd_per_million
+    )
+    output_rate = (
+        PROVISIONAL_JEV_OUTPUT_USD_PER_MILLION
+        if output_usd_per_million is None and provider == "jev"
+        else output_usd_per_million
+    )
+    input_tokens = _numeric_usage(payload, "input_tokens")
+    output_tokens = _numeric_usage(payload, "output_tokens")
+    estimated = None
+    if input_rate is not None or output_rate is not None:
+        estimated = 0.0
+        if input_tokens is not None and input_rate is not None:
+            estimated += input_tokens * input_rate / 1_000_000.0
+        if output_tokens is not None and output_rate is not None:
+            estimated += output_tokens * output_rate / 1_000_000.0
+        if input_tokens is None and output_tokens is None:
+            estimated = None
+    return {
+        "usage": payload,
+        "provider": provider,
+        "input_usd_per_million": input_rate,
+        "output_usd_per_million": output_rate,
+        "estimated_usd": estimated,
+        "pricing_source": (
+            "provisional_jev_2026-10-02_live_eval"
+            if provider == "jev" and input_usd_per_million is None
+            else "explicit_override"
+        ),
+        "note": (
+            "estimate only; not an invoice. Pass --input-usd-per-million to override."
+            if estimated is not None
+            else "dollar estimate unavailable because token usage was not recorded"
+        ),
+    }
+
+
+def _numeric_usage(usage: Mapping[str, Any], key: str) -> float | None:
+    value = usage.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
 
 
 def _selected_label(result: Any, *, noul_threshold: float) -> str | None:
@@ -328,10 +496,15 @@ def load_gold_labels(path: Any) -> list[GoldUnitLabel]:
                 unit_id=str(row["unit_id"]),
                 statement_type=str(row["statement_type"]),
                 noul_labels={
-                    str(k): bool(v) for k, v in (row.get("noul_labels") or {}).items()
+                    str(k): bool(v)
+                    for k, v in (row.get("noul_labels") or {}).items()
+                    if v is not None
                 },
+                document_id=None if row.get("document_id") is None else str(row["document_id"]),
                 assertion_type=row.get("assertion_type"),
                 notes=row.get("notes"),
+                reviewed_text=row.get("reviewed_text"),
+                stored_model_input=row.get("stored_model_input"),
             )
         )
     return labels

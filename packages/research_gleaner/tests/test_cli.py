@@ -1,9 +1,10 @@
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from research_gleaner.cli import _color_rules, _csv_env, _source_routes, build_parser, main
-from research_gleaner.models import CaptureIntent
+from research_gleaner.models import CaptureBatch, CaptureIntent
 
 
 class FakeOps:
@@ -160,3 +161,64 @@ def test_remarkable_routes_accept_recorded_color_names():
         "pink": CaptureIntent.RESEARCH,
         "gray": CaptureIntent.RELAY,
     }
+
+
+def _run_remarkable_with_batch(tmp_path, monkeypatch, failed_document_ids):
+    ops = FakeOps()
+    monkeypatch.setattr("research_gleaner.cli.load_environment", lambda: None)
+    monkeypatch.setattr(
+        "research_gleaner.cli.PipelineOpsClient.from_env",
+        lambda **_kwargs: ops,
+    )
+    monkeypatch.setattr("research_gleaner.cli.RemarkableLibrary", lambda: object())
+    monkeypatch.setattr(
+        "research_gleaner.cli.run_remarkable_capture",
+        lambda *_args, **_kwargs: CaptureBatch(
+            run_id="run-1",
+            source_kind="remarkable",
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+            captures=(),
+            new_capture_ids=(),
+            failed_document_ids=failed_document_ids,
+        ),
+    )
+    result = main(
+        [
+            "remarkable",
+            "--state-db",
+            str(tmp_path / "gleaner.db"),
+            "--lock-file",
+            str(tmp_path / "sweep.lock"),
+            "--out",
+            str(tmp_path / "captures.json"),
+        ]
+    )
+    return result, ops
+
+
+def test_remarkable_run_with_failed_documents_is_recorded_as_failed(
+    tmp_path, capsys, monkeypatch
+):
+    result, ops = _run_remarkable_with_batch(tmp_path, monkeypatch, ("doc-a", "doc-b"))
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "failed=2" in captured.out
+    assert "doc-a, doc-b" in captured.err
+    (_run_key, finish) = ops.finished[0]
+    assert finish["status"] == "failed"
+    assert finish["exit_code"] == 1
+    assert finish["stats"]["failed_document_count"] == 2
+    assert "doc-a, doc-b" in finish["error_text"]
+
+
+def test_remarkable_run_without_failures_is_recorded_as_succeeded(
+    tmp_path, capsys, monkeypatch
+):
+    result, ops = _run_remarkable_with_batch(tmp_path, monkeypatch, ())
+
+    assert result == 0
+    assert "failed=0" in capsys.readouterr().out
+    assert ops.finished[0][1]["status"] == "succeeded"
+    assert ops.finished[0][1]["exit_code"] == 0

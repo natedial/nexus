@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import threading
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -42,6 +44,107 @@ class JevTransport(Protocol):
 
     def post_systemone(self, request_body: dict[str, Any]) -> JevTransportResponse:
         """POST a System One evaluation request and return JSON."""
+
+
+class JevBudgetExhausted(JevTransportError):
+    """A frozen request or token cap would be exceeded; never retryable."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, retryable=False)
+
+
+class CappedJevTransport:
+    """Hard request/token ceiling around any ``JevTransport``.
+
+    Counts every attempt the adapter makes, retries included, because each one
+    is a billable HTTP call. Tokens are checked before a call against a
+    deliberately pessimistic size estimate and reconciled afterwards from
+    reported usage. A response without usable usage is charged at the
+    estimate, so unknown spend counts against the cap instead of being ignored.
+    """
+
+    # Pessimistic: real tokenizers average well above 3 characters per token.
+    _CHARS_PER_TOKEN = 3.0
+    # Allowance for the completion when the request carries no output cap.
+    _OUTPUT_ALLOWANCE_TOKENS = 512
+
+    def __init__(
+        self,
+        inner: JevTransport,
+        *,
+        max_requests: int,
+        max_total_tokens: int,
+    ) -> None:
+        if max_requests <= 0:
+            raise ValueError("max_requests must be positive")
+        if max_total_tokens <= 0:
+            raise ValueError("max_total_tokens must be positive")
+        self._inner = inner
+        self.max_requests = max_requests
+        self.max_total_tokens = max_total_tokens
+        self._lock = threading.Lock()
+        self.requests_made = 0
+        self.tokens_used = 0.0
+
+    def post_systemone(self, request_body: dict[str, Any]) -> JevTransportResponse:
+        estimate = self._estimate_tokens(request_body)
+        with self._lock:
+            if self.requests_made >= self.max_requests:
+                raise JevBudgetExhausted(
+                    f"Jev request cap reached ({self.max_requests})"
+                )
+            if self.tokens_used + estimate > self.max_total_tokens:
+                raise JevBudgetExhausted(
+                    "Jev token cap would be exceeded "
+                    f"(used {self.tokens_used:.0f} + est {estimate:.0f} "
+                    f"> {self.max_total_tokens})"
+                )
+            # Reserve before the call so a failed attempt still counts.
+            self.requests_made += 1
+            self.tokens_used += estimate
+        response = self._inner.post_systemone(request_body)
+        actual = self._reported_tokens(response.body)
+        if actual is not None:
+            with self._lock:
+                self.tokens_used += actual - estimate
+        return response
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "requests_made": self.requests_made,
+                "max_requests": self.max_requests,
+                "tokens_used": self.tokens_used,
+                "max_total_tokens": self.max_total_tokens,
+            }
+
+    @classmethod
+    def _estimate_tokens(cls, request_body: dict[str, Any]) -> float:
+        try:
+            size = len(json.dumps(request_body, default=str))
+        except (TypeError, ValueError):
+            size = len(str(request_body))
+        return size / cls._CHARS_PER_TOKEN + cls._OUTPUT_ALLOWANCE_TOKENS
+
+    @staticmethod
+    def _reported_tokens(body: dict[str, Any]) -> float | None:
+        usage = body.get("usage")
+        if not isinstance(usage, dict):
+            return None
+
+        def num(key: str) -> float | None:
+            value = usage.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return float(value)
+            return None
+
+        total = num("total_tokens")
+        if total is not None:
+            return total
+        parts = [num("input_tokens"), num("output_tokens")]
+        if all(part is not None for part in parts):
+            return float(sum(parts))  # type: ignore[arg-type]
+        return None
 
 
 class HttpJevTransport:

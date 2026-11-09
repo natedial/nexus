@@ -167,13 +167,21 @@ class OpenAICompatibleAgentLlmClient:
         use_max_completion_tokens: bool = False,
         max_output_tokens: int = 16384,
         reasoning_effort: str | None = None,
+        max_transport_retries: int = 2,
     ):
+        if max_transport_retries < 0:
+            raise ValueError("max_transport_retries must be >= 0")
         self.api_key = api_key
         self.base_url = (base_url or "https://api.openai.com").rstrip("/")
         self._tool_registry = tool_registry
         self._use_max_completion_tokens = use_max_completion_tokens
         self._max_output_tokens = max_output_tokens
         self._reasoning_effort = reasoning_effort
+        self._max_transport_retries = max_transport_retries
+        # Reference evaluation owns retries so every external attempt is
+        # counted against its frozen budget. Other callers keep the historical
+        # retry behavior through the default above.
+        self.reference_calls_are_single_attempt = max_transport_retries == 0
 
     def _build_request_body(
         self,
@@ -207,6 +215,11 @@ class OpenAICompatibleAgentLlmClient:
         if model.startswith("gpt-5"):
             return "low"
         return None
+
+    def reference_sampling_for_model(self, model: str) -> dict[str, Any]:
+        """Expose the effective per-call sampling controls for eval provenance."""
+        effort = self._reasoning_effort_for_model(model)
+        return {"reasoning_effort": effort} if effort else {}
 
     def generate_structured(
         self,
@@ -257,7 +270,7 @@ class OpenAICompatibleAgentLlmClient:
         tool_calls: list[ToolCallTrace] = []
         token_usage = TokenUsage()
         attempt = 0
-        max_attempts = 3
+        max_attempts = self._max_transport_retries + 1
 
         while attempt < max_attempts:
             attempt += 1
@@ -401,7 +414,7 @@ class OpenAICompatibleAgentLlmClient:
         self, request: urllib.request.Request, timeout_seconds: int
     ) -> dict[str, Any]:
         attempt = 0
-        max_retries = 3
+        max_retries = self._max_transport_retries + 1
         while attempt < max_retries:
             attempt += 1
             try:

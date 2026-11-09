@@ -1,6 +1,6 @@
 ---
 name: nexus-pipeline-ops
-description: Check and triage centralized Nexus batch-job health with nexus-ops. Use when an agent needs to inspect failures or stalled schedules, claim incidents, perform an explicitly authorized allowlisted retry, or record a verified resolution. Do not use for schema deployment, job configuration, or arbitrary process execution.
+description: Check and triage centralized Nexus batch-job health with nexus-ops. Use when an agent needs to inspect failures, stalled schedules, or stale running orphans, claim incidents, preview or apply reap-stale cleanup when authorized, perform an explicitly authorized allowlisted retry, or record a verified resolution. Do not use for schema deployment, job configuration, or arbitrary process execution.
 ---
 
 # Nexus Pipeline Ops
@@ -35,12 +35,38 @@ uv run --env-file .env --project packages/research_pipeline_ops nexus-ops check 
 ```
 
 `check` evaluates enabled job schedules, materializes current incidents, closes
-conditions that have recovered, and releases expired claims. If there are no
-items, report healthy state only when the task asks for status; recurring
-monitors should remain quiet when nothing changed.
+conditions that have recovered, and releases expired claims. It also opens
+`stale_running` when any `running` row for an enabled job has
+`coalesce(heartbeat_at, started_at)` older than
+`max(stall_seconds, grace_seconds, 3600)` — including orphans behind a newer
+successful run. Latest-run heartbeat failure still uses catalog `stall_seconds`
+alone as kind `stalled`. If there are no items, report healthy state only when
+the task asks for status; recurring monitors should remain quiet when nothing
+changed.
 
 Use `incidents --status open --json` when the task needs a read-only view without
 refreshing health.
+
+## Reap stale running rows
+
+Crash orphans can leave hundreds of `running` rows after a producer dies. Preview
+counts per job first (dry-run is the default; never print the database URL):
+
+```bash
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops reap-stale --json
+```
+
+Apply only when the user explicitly authorizes cleanup. Optional `--job JOB_KEY`
+limits the update. Matching rows become `failed` with
+`error_text = 'reaped: no heartbeat'`. Rows still inside the per-job heartbeat
+threshold are never updated.
+
+```bash
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops reap-stale --apply --json
+```
+
+After apply, re-run `check --json`. Recovered `stale_running` incidents should
+resolve automatically.
 
 ## Triage and remediate
 

@@ -40,6 +40,13 @@ def build_decision_unit(
 ) -> DecisionUnit:
     """Convert an AssertionDraft into a source-grounded DecisionUnit."""
     text = assertion.text or assertion.summary_text or ""
+    # AssertionExtractor stores "<chunk title>: <sentence>". When that title is
+    # passed as section_context, classify the bare sentence so context reaches
+    # the model only through its own field, never as part of the target text.
+    if section_context and section_context.strip():
+        prefix = f"{section_context.strip()}: "
+        if text.startswith(prefix) and len(text) > len(prefix):
+            text = text[len(prefix) :]
     if len(text) > max_text_chars:
         text = text[: max_text_chars - 1] + "…"
     prov: dict[str, Any] = {

@@ -131,6 +131,7 @@ class CaptureBatch:
     completed_at: datetime
     captures: tuple[CapturedExcerpt, ...]
     new_capture_ids: tuple[str, ...]
+    failed_document_ids: tuple[str, ...] = ()
     schema_version: int = CAPTURE_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -143,6 +144,8 @@ class CaptureBatch:
             "capture_count": len(self.captures),
             "new_capture_count": len(self.new_capture_ids),
             "new_capture_ids": list(self.new_capture_ids),
+            "failed_document_count": len(self.failed_document_ids),
+            "failed_document_ids": list(self.failed_document_ids),
             "captures": [capture.to_dict() for capture in self.captures],
         }
 

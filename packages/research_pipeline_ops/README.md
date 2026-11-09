@@ -33,7 +33,19 @@ uv run --env-file .env --project packages/research_pipeline_ops nexus-ops check 
 uv run --env-file .env --project packages/research_pipeline_ops nexus-ops incidents --status open --json
 uv run --env-file .env --project packages/research_pipeline_ops nexus-ops claim --actor codex-batch-monitor --limit 5 --json
 uv run --env-file .env --project packages/research_pipeline_ops nexus-ops retry --incident INCIDENT_KEY --dry-run
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops reap-stale --json
+uv run --env-file .env --project packages/research_pipeline_ops nexus-ops reap-stale --apply --json
 ```
+
+`check` evaluates schedule freshness for the latest non-skipped run **and** flags
+`stale_running` when any enabled job still has `running` rows whose
+`coalesce(heartbeat_at, started_at)` is older than
+`max(stall_seconds, grace_seconds, 3600)`. A successful newer run does not hide
+crash orphans.
+
+`reap-stale` is dry-run by default. Pass `--apply` to mark matching rows
+`failed` with `error_text = 'reaped: no heartbeat'`. Heartbeating runs are never
+touched. Optional `--job JOB_KEY` limits the scan.
 
 Apply the root migrations before enabling producers. All initial job catalog
 rows are disabled until their package adoption and canary are complete.

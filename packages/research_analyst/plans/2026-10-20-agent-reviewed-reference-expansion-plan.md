@@ -1,8 +1,77 @@
 # Agent-reviewed reference expansion with escalation-only human input
 
-Status: proposed implementation plan; no annotation jobs started
+Status: implementation in progress; Slices 1-2 complete, Slices 3-4 tooling complete
 Date: 2026-10-20 America/New_York
 Owner: research_analyst
+
+## Implementation progress
+
+- Slice 1 contracts are implemented in
+  `research_analysis_layer.evals.decision_agent_references`.
+- Agent-reference sources preserve exact text, hashes, offsets, lineage, split,
+  transformations, and immutable artifact pointers.
+- Sparse per-axis judgments, provisional/qualified admission, independent-call
+  evidence, model-family correlation, quarantine, and tier-preserving label
+  views are validated without changing the human-gold schema.
+- The escalation register emits at most three changed pending policy questions
+  and suppresses unchanged notifications.
+- Versioned annotator, independent-reviewer, and curator instructions live in
+  `prompts/evals/decision_references/`.
+- Slice 1 made no live model calls or annotation jobs.
+- Slice 2 adds a provider-neutral, checkpointed batch harness in
+  `research_analysis_layer.evals.decision_agent_reference_run`.
+- Blind annotator and reviewer requests cannot contain another judgment.
+  Disagreements permit one bounded comparison call but remain quarantined
+  unless the two first passes independently agree.
+- Run-wide request, token, elapsed-time, and dollar caps are frozen in the
+  manifest. Live configurations require a dollar cap; unknown cost stops a
+  capped run rather than being reported as zero.
+- New destinations must not exist, interrupted runs persist valid completed
+  calls, resumes verify the exact source inventory and configuration, and
+  finalized runs refuse mutation.
+- Scripted-provider tests cover isolation, bounded retries and schema repair,
+  budget stops, interruption recovery, global call identity, disagreement
+  quarantine, and immutable output directories.
+- Slice 3 tooling verifies source artifacts and approval traces before admitting
+  a human example to the qualification inventory. The checked-in inventory has
+  two verified, partially labeled examples; omitted human axes remain unknown.
+- Annotation providers receive opaque qualification source IDs and exact source
+  scope, but never human labels, review IDs, rationales, or approval evidence.
+- Qualification reports publish support, scored coverage, abstentions, errors,
+  positive/negative coverage, correlated-model counts, and a 95% Wilson upper
+  error bound independently for every axis.
+- Qualification rules must be frozen explicitly. Missing rules, insufficient
+  support, weak error bounds, or correlated families keep an axis provisional.
+  A report can promote only matching-configuration axes and cannot mutate its
+  input references.
+- Scripted blind-run tests include the known-wrong-agreement case and confirm
+  that agreement alone cannot qualify an axis. No live qualification calls have
+  started; selecting a real provider and frozen policy precedes the first run.
+- Slice 4 preparation adds a tool-free structured-model adapter that injects
+  trusted model, call, time, usage, and cost provenance outside model output.
+  It rejects unpinned resolved models and clients with hidden internal retries.
+- Pilot selection loads only explicitly supplied, content-addressed shadow
+  artifacts; excludes agreed human-review units; and deterministically covers
+  documents, assertion types, and recorded failure-mode strata. The two current
+  approved artifacts yield 24 eligible units after two qualification examples
+  are excluded.
+- The no-spend pilot check freezes exact sources, role models, pricing sources,
+  request/token/time/dollar caps, audit rate, and qualification state. It checks
+  the full annotation envelope before retries and writes an immutable preparation
+  bundle without constructing or invoking a network client.
+- No live pilot has started. Exact provider/model pins, a frozen qualification
+  policy, and an approved budget configuration are still required inputs rather
+  than values inferred by the tooling.
+- The live Jev path now requires hard request and total-token caps
+  (`RESEARCH_ANALYST_JEV_MAX_REQUESTS`, `RESEARCH_ANALYST_JEV_MAX_TOTAL_TOKENS`).
+  Every HTTP attempt counts, and unreported usage is charged at a pessimistic
+  estimate.
+- Codex assessments of Jev output made outside the harness have a separate,
+  quarantine-only path in `decision_codex_assessments`. `decision-codex-export`
+  writes per-pass packets; `decision-codex-import` validates identity and spans
+  and appends to `codex_assessments.jsonl`. Records are fixed as quarantined,
+  non-independent, and ineligible for promotion; repeated passes count as one
+  independent judgment.
 
 ## Outcome and precedence
 

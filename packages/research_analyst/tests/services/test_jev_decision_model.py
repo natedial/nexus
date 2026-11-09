@@ -24,7 +24,9 @@ from research_analysis_layer.services.decision_model_factory import (
 from research_analysis_layer.services.fake_decision_model import FakeDecisionModel
 from research_analysis_layer.services.jev_decision_model import JevDecisionModel
 from research_analysis_layer.services.jev_transport import (
+    CappedJevTransport,
     FakeJevTransport,
+    JevBudgetExhausted,
     JevTransportError,
 )
 
@@ -274,6 +276,36 @@ class DecisionModelFactoryTest(unittest.TestCase):
         with self.assertRaises(DecisionModelConfigError):
             build_decision_model(settings, provider="jev")
 
+    def test_jev_requires_hard_caps(self) -> None:
+        for caps in (
+            {},
+            {"jev_max_requests": 5},
+            {"jev_max_total_tokens": 1000},
+        ):
+            settings = self._settings(
+                decision_model_provider="jev",
+                jev_enabled=True,
+                jev_api_key="sk-test",
+                **caps,
+            )
+            with self.assertRaises(DecisionModelConfigError):
+                build_decision_model(settings, provider="jev")
+            errors = settings.validate()
+            self.assertTrue(any("hard cap" in err for err in errors))
+
+    def test_jev_with_caps_builds_capped_transport(self) -> None:
+        settings = self._settings(
+            decision_model_provider="jev",
+            jev_enabled=True,
+            jev_api_key="sk-test",
+            jev_max_requests=3,
+            jev_max_total_tokens=5000,
+        )
+        model = build_decision_model(settings, provider="jev")
+        self.assertIsInstance(model, JevDecisionModel)
+        self.assertIsInstance(model._transport, CappedJevTransport)
+        self.assertEqual(model._transport.max_requests, 3)
+
     def test_from_env_defaults_disabled(self) -> None:
         settings = self._settings()
         self.assertEqual(settings.decision_model_provider, "fake")
@@ -291,6 +323,78 @@ class DecisionModelFactoryTest(unittest.TestCase):
         self.assertTrue(any("JEV_API_KEY" in err for err in errors))
 
 
+class CappedTransportTests(unittest.TestCase):
+    _OK = {"model": "jev-1.13.0", "answers": {}, "usage": {"total_tokens": 100}}
+
+    def test_request_cap_blocks_without_calling_inner(self) -> None:
+        inner = FakeJevTransport(response_body=self._OK)
+        capped = CappedJevTransport(inner, max_requests=2, max_total_tokens=10**6)
+        capped.post_systemone({"a": 1})
+        capped.post_systemone({"a": 2})
+        with self.assertRaises(JevBudgetExhausted) as ctx:
+            capped.post_systemone({"a": 3})
+        self.assertFalse(ctx.exception.retryable)
+        self.assertEqual(len(inner.requests), 2)
+
+    def test_token_cap_uses_reported_usage(self) -> None:
+        inner = FakeJevTransport(response_body=self._OK)
+        capped = CappedJevTransport(inner, max_requests=100, max_total_tokens=1000)
+        capped.post_systemone({"a": 1})
+        # Estimate (~512) is replaced by reported usage (100).
+        self.assertAlmostEqual(capped.snapshot()["tokens_used"], 100.0)
+        # 5 calls at 100 reported tokens each leave 500; a 6th needs ~515 more.
+        for _ in range(4):
+            capped.post_systemone({"a": 1})
+        with self.assertRaises(JevBudgetExhausted):
+            capped.post_systemone({"a": 1})
+
+    def test_missing_usage_is_charged_at_estimate(self) -> None:
+        inner = FakeJevTransport(response_body={"model": "m", "answers": {}})
+        capped = CappedJevTransport(inner, max_requests=100, max_total_tokens=1200)
+        capped.post_systemone({"a": 1})
+        self.assertGreater(capped.snapshot()["tokens_used"], 500)
+        capped.post_systemone({"a": 1})
+        with self.assertRaises(JevBudgetExhausted):
+            capped.post_systemone({"a": 1})
+
+    def test_oversized_request_refused_before_call(self) -> None:
+        inner = FakeJevTransport(response_body=self._OK)
+        capped = CappedJevTransport(inner, max_requests=10, max_total_tokens=600)
+        with self.assertRaises(JevBudgetExhausted):
+            capped.post_systemone({"text": "x" * 10_000})
+        self.assertEqual(inner.requests, [])
+
+    def test_failed_attempts_still_count(self) -> None:
+        inner = FakeJevTransport(
+            errors=[JevTransportError("boom", retryable=True)] * 2,
+            response_body=self._OK,
+        )
+        capped = CappedJevTransport(inner, max_requests=2, max_total_tokens=10**6)
+        for _ in range(2):
+            with self.assertRaises(JevTransportError):
+                capped.post_systemone({"a": 1})
+        with self.assertRaises(JevBudgetExhausted):
+            capped.post_systemone({"a": 1})
+
+    def test_adapter_fails_batches_closed_when_cap_hit(self) -> None:
+        inner = FakeJevTransport(response_body=self._OK)
+        capped = CappedJevTransport(inner, max_requests=1, max_total_tokens=10**6)
+        model = JevDecisionModel(capped, max_retries=2, retry_backoff_seconds=0)
+        unit = _unit()
+        batch = DecisionBatch(
+            batch_id="b",
+            shared_context="",
+            units=[unit],
+            questions=build_questions_for_unit(unit)[:1],
+        )
+        model.classify_batch(batch)
+        second = model.classify_batch(batch)
+        self.assertEqual(second.status, "failed")
+        self.assertEqual(second.retry_count, 0)
+        self.assertIn("cap", second.provider_error or "")
+        self.assertEqual(len(inner.requests), 1)
+
+
 @pytest.mark.jev_live
 def test_live_jev_smoke_opt_in() -> None:
     """Live smoke test — skipped unless RESEARCH_ANALYST_JEV_LIVE=1 + creds."""
@@ -306,6 +410,8 @@ def test_live_jev_smoke_opt_in() -> None:
     if not settings.jev_enabled or not (settings.jev_api_key or "").strip():
         pytest.skip("Jev credentials not configured")
 
+    settings.jev_max_requests = settings.jev_max_requests or 2
+    settings.jev_max_total_tokens = settings.jev_max_total_tokens or 20_000
     model = build_decision_model(settings, provider="jev")
     unit = _unit(text="Core PCE printed 2.4% year over year.")
     # Keep the live call tiny: statement_type only.

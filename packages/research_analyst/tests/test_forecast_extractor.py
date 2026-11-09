@@ -17,28 +17,12 @@ from research_analysis_layer.models import (
 )
 from research_analysis_layer.services.forecast_extractor import ForecastExtractor
 
+from settings_factory import make_test_settings
+
 
 def make_settings(db_path: Path) -> Settings:
-    return Settings(
+    return make_test_settings(
         analysis_db_url=f"sqlite:///{db_path}",
-        parsed_db_url="https://example.supabase.co",
-        parsed_db_key="secret",
-        calendar_db_url="https://calendar.example.supabase.co",
-        calendar_db_key="calendar-secret",
-        calendar_match_source="economic_events",
-        calendar_source_name="economic_events",
-        state_db_path=Path("data/state.db"),
-        batch_size=25,
-        cron_mode_enabled=True,
-        analysis_version="bootstrap-v1",
-        chunker_version="deterministic-theme-v1",
-        assertion_extractor_version="deterministic-theme-v1",
-        resolver_version="bootstrap-v1",
-        request_timeout_seconds=30,
-        min_full_text_chars=500,
-        min_quality_score=0.6,
-        min_usable_theme_ratio=0.6,
-        backfill_require_warning_free=True,
     )
 
 

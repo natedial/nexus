@@ -23,7 +23,9 @@ STATEMENT_TYPE_WORDING = (
     "assertion (author presents a proposition as true or likely), "
     "evidence_report (concrete datum, quote, chart/citation, or prior event), "
     "question (genuinely unresolved or interrogative), "
-    "recommendation (action, policy, position, or trade), "
+    "recommendation (action, policy, position, or trade, including advice to "
+    "hold, wait, or not act, however phrased, e.g. 'we see no reason to "
+    "reposition'), "
     "background_methodology (framing, definitions, method, or scene-setting), "
     "or other_or_unclear."
 )
@@ -36,7 +38,8 @@ SUBTYPE_WORDINGS: dict[str, str] = {
     "is_forecast": "Does the target unit make a forward-looking forecast or projection?",
     "is_causal": "Does the target unit assert a causal relationship?",
     "is_market_impact": (
-        "Does the target unit claim an impact on markets, prices, yields, or spreads?"
+        "Does the target unit claim that an identified driver affects markets, "
+        "prices, yields, or spreads?"
     ),
     "is_policy_claim": (
         "Does the target unit make a claim about policy, regulation, or central-bank action?"
@@ -64,12 +67,39 @@ SUPPORT_WORDINGS: dict[str, str] = {
         "or premises to a conclusion?"
     ),
     "is_substantive_author_claim": (
-        "Is the target unit a substantive author claim rather than non-substantive "
-        "background or boilerplate?"
+        "Is the target unit the author's own substantive move (a claim, "
+        "recommendation, or question the author advances) rather than reported "
+        "evidence, background, or boilerplate?"
     ),
 }
 
 # Optional Noul true/false criteria passed through Jev for sharper boundaries.
+SUBTYPE_NOUL_CRITERIA: dict[str, dict[str, str]] = {
+    "is_market_impact": {
+        "true": (
+            "Asserts or projects that a named driver moves, has moved, or would "
+            "move a market price, yield, spread, or valuation, e.g. 'tariffs would "
+            "pressure equities' or 'lower policy rates should compress spreads'."
+        ),
+        "false": (
+            "Reports or forecasts a market variable or market mood without saying "
+            "what drives it, e.g. 'the curve steepened 35bp', 'yields should fall', "
+            "or 'markets appear unsettled'; or makes no claim about markets."
+        ),
+    },
+    "is_trade_or_action": {
+        "true": (
+            "The target unit's own words recommend, describe, or report a trade, "
+            "position, allocation, or concrete action."
+        ),
+        "false": (
+            "The target unit's own words contain no trade, position, or action. "
+            "Section headings or surrounding context about positioning or trades "
+            "help interpret the unit but do not by themselves make it one."
+        ),
+    },
+}
+
 SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
     "contains_verifiable_evidence": {
         "true": (
@@ -79,6 +109,21 @@ SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
         "false": (
             "No checkable factual content; only interpretation, forecast, question, "
             "recommendation, or background."
+        ),
+    },
+    "is_substantive_author_claim": {
+        "true": (
+            "The author advances a proposition as true or likely, a recommendation, "
+            "or a genuine question. Also true when the unit presents a view "
+            "attributed to others as a position in the argument (\"some argue...\", "
+            "\"critics contend...\", \"the bull case is...\"), even if the author "
+            "disagrees with it."
+        ),
+        "false": (
+            "Reports evidence (statistic, quote, citation, chart/figure reference, or "
+            "named data release) without an author proposition, including a quote or "
+            "attributed statement supplied as evidence; or is background, framing, "
+            "methodology, or boilerplate."
         ),
     },
 }
@@ -100,6 +145,7 @@ def question_templates() -> list[FrozenQuestionSpec]:
                 question_id=question_id,
                 question_kind="noul",
                 wording=SUBTYPE_WORDINGS[question_id],
+                noul_criteria=SUBTYPE_NOUL_CRITERIA.get(question_id),
             )
         )
     for question_id in SUPPORT_NOUL_IDS:

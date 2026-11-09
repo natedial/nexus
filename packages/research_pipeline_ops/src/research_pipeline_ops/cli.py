@@ -54,6 +54,21 @@ def build_parser() -> argparse.ArgumentParser:
     decline.add_argument("--incident", required=True)
     decline.add_argument("--actor", default="nexus-ops-cli")
     decline.add_argument("--reason", required=True)
+
+    reap = subparsers.add_parser(
+        "reap-stale",
+        help=(
+            "List or mark failed running runs with no heartbeat past the per-job "
+            "stale threshold (dry-run unless --apply)"
+        ),
+    )
+    reap.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually mark matching runs failed; default is dry-run",
+    )
+    reap.add_argument("--job", dest="job_key", default=None, help="Limit to one job_key")
+    reap.add_argument("--json", action="store_true")
     return parser
 
 
@@ -77,6 +92,26 @@ def _print_rows(rows: Sequence[dict[str, Any]], *, as_json: bool) -> None:
             f"{row.get('job_key', '-'):38} {row.get('kind', '-'):10} "
             f"{row.get('incident_key', '-')}"
         )
+
+
+def _print_reap_result(result: dict[str, Any], *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
+    mode = "dry-run" if result.get("dry_run") else "apply"
+    jobs = list(result.get("jobs") or [])
+    if not jobs:
+        print(f"reap-stale ({mode}): no stale running runs")
+        return
+    for item in jobs:
+        print(
+            f"{item.get('job_key', '-'):38} stale={item.get('stale_count', 0)} "
+            f"threshold_s={item.get('threshold_seconds', '-')}"
+        )
+    print(
+        f"reap-stale ({mode}): total={result.get('total', 0)} "
+        f"reaped={result.get('reaped', 0)}"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -103,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
                 lease_minutes=args.lease_minutes,
             )
             _print_rows(rows, as_json=args.json)
+            return 0
+        if args.command == "reap-stale":
+            result = monitor.reap_stale(apply=args.apply, job_key=args.job_key)
+            _print_reap_result(result, as_json=args.json)
             return 0
         if args.command == "retry":
             result = monitor.retry(

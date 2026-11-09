@@ -77,3 +77,43 @@ def test_pipeline_downloads_only_recent_unprocessed_revisions(tmp_path, monkeypa
     assert second.captures == ()
     assert store.processed_revision("remarkable", "recent") == "rev-1:extractor-v3"
     assert store.processed_revision("remarkable", "old") is None
+
+
+def test_pipeline_skips_failing_document_and_counts_it(tmp_path, monkeypatch):
+    now = datetime.now(UTC)
+    library = FakeLibrary([document("bad", "rev-1", now), document("good", "rev-1", now)])
+    store = CaptureStore(tmp_path / "gleaner.db")
+
+    def fake_extract(source, archive, *, routes=None):
+        if source.document_id == "bad":
+            raise TypeError("'NoneType' object is not iterable")
+        return [
+            CapturedExcerpt.create(
+                document=SourceDocumentRef(
+                    source_kind="remarkable",
+                    document_id=source.document_id,
+                    uri="remarkable:///Research/Document",
+                    title=source.title,
+                ),
+                locator=SourceLocator(page_number=1, annotation_id="annotation-1"),
+                text="Useful evidence",
+                context_text="Useful evidence",
+                source_style="pink",
+            )
+        ]
+
+    monkeypatch.setattr("research_gleaner.pipeline.extract_document", fake_extract)
+
+    batch = run_remarkable_capture(
+        library,
+        store,
+        tmp_path / "captures.json",
+        modified_since=now - timedelta(hours=24),
+    )
+
+    assert batch.failed_document_ids == ("bad",)
+    assert batch.to_dict()["failed_document_count"] == 1
+    assert len(batch.captures) == 1
+    assert store.processed_revision("remarkable", "good") == "rev-1:extractor-v3"
+    # The failed revision stays unprocessed so a fixed extractor retries it.
+    assert store.processed_revision("remarkable", "bad") is None
