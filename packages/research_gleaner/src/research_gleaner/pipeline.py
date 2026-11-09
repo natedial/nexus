@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,8 @@ from research_gleaner.remarkable.extractor import (
     extract_document,
 )
 from research_gleaner.store import CaptureStore
+
+logger = logging.getLogger(__name__)
 
 
 def run_notion_capture(
@@ -59,6 +62,7 @@ def run_remarkable_capture(
     started_at = datetime.now(UTC)
     captures = []
     new_ids = []
+    failed_ids = []
     for document in library.list_documents():
         uri = _remarkable_uri(document.path)
         processed_revision = _remarkable_processed_revision(document.revision)
@@ -91,11 +95,23 @@ def run_remarkable_capture(
             )
             continue
 
-        document_captures = extract_document(
-            document,
-            library.download(document),
-            routes=routes,
-        )
+        try:
+            document_captures = extract_document(
+                document,
+                library.download(document),
+                routes=routes,
+            )
+        except Exception as exc:  # one bad document must not abort the sweep
+            # Leave the revision unprocessed so a fixed extractor retries it.
+            logger.warning(
+                "remarkable extract failed for document_id=%s title=%r: %s: %s",
+                document.document_id,
+                document.title,
+                type(exc).__name__,
+                exc,
+            )
+            failed_ids.append(document.document_id)
+            continue
         new_ids.extend(store.register_many(document_captures))
         store.reconcile_document(
             "remarkable",
@@ -123,6 +139,7 @@ def run_remarkable_capture(
         completed_at=datetime.now(UTC),
         captures=tuple(captures),
         new_capture_ids=tuple(new_ids),
+        failed_document_ids=tuple(failed_ids),
     )
     write_capture_batch(batch, output_path)
     return batch

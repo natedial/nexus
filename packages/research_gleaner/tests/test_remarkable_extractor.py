@@ -3,14 +3,18 @@ import json
 import zipfile
 from datetime import UTC, datetime
 
+import pytest
+
 from research_gleaner.models import CaptureIntent
 from research_gleaner.remarkable.client import RemarkableDocument
 from research_gleaner.remarkable.extractor import (
     REMARKABLE_HIGHLIGHT_RGBA,
     HighlightFragment,
+    UnresolvablePageOrderError,
     _page_order,
     _source_style,
     extract_document,
+    extract_fragments,
     merge_fragments,
 )
 
@@ -125,3 +129,48 @@ def test_current_remarkable_highlight_palette_has_distinct_source_styles():
     }
 
     assert resolved == {"yellow", "blue", "pink", "orange", "green"}
+
+
+def _archive(files):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as target:
+        for name, data in files.items():
+            target.writestr(name, data)
+    return buffer.getvalue()
+
+
+def test_page_order_tolerates_null_pages_and_missing_cpages():
+    # rmapi-uploaded PDFs can write "pages": null with no cPages block.
+    data = _archive({"doc.content": json.dumps({"fileType": "pdf", "pages": None})})
+
+    with zipfile.ZipFile(io.BytesIO(data)) as source:
+        assert _page_order(source) == []
+
+
+def test_page_order_tolerates_null_cpages_and_null_cpages_pages():
+    null_cpages = _archive({"doc.content": json.dumps({"cPages": None, "pages": ["a"]})})
+    null_inner = _archive(
+        {"doc.content": json.dumps({"cPages": {"pages": None}, "pages": ["page-a"]})}
+    )
+
+    with zipfile.ZipFile(io.BytesIO(null_cpages)) as source:
+        assert _page_order(source) == ["a"]
+    with zipfile.ZipFile(io.BytesIO(null_inner)) as source:
+        assert _page_order(source) == ["page-a"]
+
+
+def test_extract_fragments_rejects_rm_pages_without_resolvable_order():
+    # Never report "no highlights" for a document whose page order is unknown:
+    # that would mark the revision processed and drop its highlights for good.
+    data = _archive(
+        {"doc.content": json.dumps({"pages": None}), "doc/page-a.rm": b"not-a-real-rm"}
+    )
+
+    with pytest.raises(UnresolvablePageOrderError):
+        extract_fragments(data)
+
+
+def test_extract_fragments_allows_documents_without_any_rm_pages():
+    data = _archive({"doc.content": json.dumps({"pages": None})})
+
+    assert extract_fragments(data) == []

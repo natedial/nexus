@@ -108,9 +108,19 @@ def extract_document(
     return captures
 
 
+class UnresolvablePageOrderError(ValueError):
+    """The archive has handwriting pages but no page list to number them by."""
+
+
 def extract_fragments(archive: bytes) -> list[HighlightFragment]:
     with zipfile.ZipFile(io.BytesIO(archive)) as source:
         page_order = _page_order(source)
+        if not page_order and any(name.endswith(".rm") for name in source.namelist()):
+            # Returning [] here would let the pipeline mark the revision
+            # processed and permanently drop its highlights.
+            raise UnresolvablePageOrderError(
+                "document has .rm pages but no resolvable page order in .content"
+            )
         page_numbers = {page_id: index + 1 for index, page_id in enumerate(page_order)}
         fragments = []
         for name in source.namelist():
@@ -186,11 +196,16 @@ def _page_order(source: zipfile.ZipFile) -> list[str]:
         if not name.endswith(".content"):
             continue
         payload = json.loads(source.read(name))
-        pages = payload.get("cPages", {}).get("pages", [])
-        page_order = [str(page["id"]) for page in pages if page.get("id")]
+        # Keys can be present with a null value (rmapi-uploaded documents write
+        # "pages": null), so `.get(key, default)` is not enough.
+        c_pages = payload.get("cPages") or {}
+        pages = (c_pages.get("pages") or []) if isinstance(c_pages, dict) else []
+        page_order = [
+            str(page["id"]) for page in pages if isinstance(page, dict) and page.get("id")
+        ]
         if page_order:
             return page_order
-        legacy_pages = payload.get("pages", [])
+        legacy_pages = payload.get("pages") or []
         page_order = [
             str(page.get("id") if isinstance(page, dict) else page)
             for page in legacy_pages
