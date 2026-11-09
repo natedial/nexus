@@ -307,18 +307,26 @@ def _run_remarkable(args: argparse.Namespace) -> int:
         raise
     print(
         f"captured={len(batch.captures)} new={len(batch.new_capture_ids)} "
+        f"failed={len(batch.failed_document_ids)} "
         f"output={output_path.expanduser()}"
     )
-    _finish_ops_run(
-        ops,
-        run_key,
-        status="succeeded",
-        stats={
-            "capture_count": len(batch.captures),
-            "new_capture_count": len(batch.new_capture_ids),
-        },
-        exit_code=0,
-    )
+    stats = {
+        "capture_count": len(batch.captures),
+        "new_capture_count": len(batch.new_capture_ids),
+        "failed_document_count": len(batch.failed_document_ids),
+    }
+    if batch.failed_document_ids:
+        # Other documents were ingested, but a failed one must not be silent:
+        # fail the run so the ops incident fires.
+        message = f"{len(batch.failed_document_ids)} document(s) failed extraction: " + ", ".join(
+            batch.failed_document_ids
+        )
+        print(f"error: {message}", file=sys.stderr)
+        _finish_ops_run(
+            ops, run_key, status="failed", stats=stats, error_text=message, exit_code=1
+        )
+        return 1
+    _finish_ops_run(ops, run_key, status="succeeded", stats=stats, exit_code=0)
     return 0
 
 
