@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import MethodType, SimpleNamespace
 
+import structlog
+
 from src.parser.backend import BlockType, ConfidenceResult, TextBlock, TextParseResult
 from src.parser.routing import ParsedDocument
 from src.pipeline import Pipeline, build_source_document
@@ -53,6 +55,8 @@ def _build_pipeline(tmp_path, state: StateStore) -> Pipeline:
         stale_processing_timeout_minutes=30,
         docling_ocr_retry=True,
         max_unfinished_attempts=3,
+        ocr_worker_memory_limit_mb=None,
+        ocr_worker_timeout_seconds=900,
     )
     pipeline.state = state
     pipeline.drive = _FailingDrive()
@@ -295,3 +299,27 @@ def test_process_file_still_runs_below_unfinished_attempt_cap(tmp_path):
     final_state = state.get_state(file_id)
     assert final_state is not None
     assert "unfinished attempts" not in (final_state.error_message or "")
+
+
+def test_ocr_backend_runs_in_an_isolated_child_not_in_the_service_process(tmp_path, monkeypatch):
+    from src.parser.isolated_ocr import IsolatedOcrBackend
+
+    state = StateStore(tmp_path / "state.db")
+    pipeline = _build_pipeline(tmp_path, state)
+    pipeline.settings.ocr_worker_memory_limit_mb = 1536
+
+    def _no_in_process_converter(self):
+        raise AssertionError("OCR models must not be loaded in the service process")
+
+    monkeypatch.setattr(
+        "src.parser.docling_backend.DoclingBackend._get_converter", _no_in_process_converter
+    )
+
+    log = structlog.get_logger()
+
+    backend = pipeline._ocr_backend(log)
+
+    assert isinstance(backend, IsolatedOcrBackend)
+    assert backend._memory_limit_mb == 1536
+    assert backend._timeout_seconds == 900
+    assert pipeline._ocr_backend(log) is backend  # built once, reused

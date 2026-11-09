@@ -21,6 +21,7 @@ from .backend import (
 )
 from .boilerplate import strip_boilerplate
 from .docling_backend import DoclingBackend, blocks_from_docling_document
+from .isolated_ocr import IsolatedOcrBackend
 from .mineru_backend import MinerUBackend
 from .routing import ParsedDocument, parse_with_fallback, parse_with_optional_ocr
 
@@ -29,6 +30,7 @@ __all__ = [
     "ConfidenceResult",
     "DoclingBackend",
     "FigureRecord",
+    "IsolatedOcrBackend",
     "MinerUBackend",
     "ParsedDocument",
     "ParserBackend",

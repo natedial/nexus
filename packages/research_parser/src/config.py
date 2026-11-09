@@ -110,6 +110,23 @@ class Settings(BaseSettings):
         description="Retry Docling with OCR when the digital parse looks thin or gappy",
     )
 
+    ocr_worker_memory_limit_mb: int | None = Field(
+        default=None,
+        ge=256,
+        validation_alias=_env("OCR_WORKER_MEMORY_LIMIT_MB"),
+        description=(
+            "Stop the OCR worker process above this much memory. Default: what is left "
+            "of the container's memory limit after the service's own footprint"
+        ),
+    )
+    ocr_worker_timeout_seconds: int = Field(
+        default=1500,
+        ge=60,
+        le=7200,
+        validation_alias=_env("OCR_WORKER_TIMEOUT_SECONDS"),
+        description="Stop an OCR worker process that runs longer than this",
+    )
+
     # Retry settings
     max_retries: int = Field(
         default=3,

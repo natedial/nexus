@@ -33,7 +33,7 @@ Theme and trade extraction belongs in a separate service. This repo owns parse +
 The pipeline (`src/pipeline.py`) orchestrates this flow:
 
 1. **Drive Watcher** → polls Google Drive folder for new PDFs
-2. **Parser backends** → Docling digital text first (`do_ocr=False`). If the digital pass is gappy (missing PDF pages, thin text-per-page, stub figure captions, or `FALLBACK`), retry Docling with OCR (`RapidOcrOptions(force_full_page_ocr=False, backend="torch")`). Keep OCR only if it gains ≥15% text or +0.05 confidence. Optional MinerU CLI last if still `FALLBACK`. Set `RESEARCH_PARSER_DOCLING_OCR_RETRY=false` to disable the OCR branch.
+2. **Parser backends** → Docling digital text first (`do_ocr=False`). If the digital pass is gappy (missing PDF pages, thin text-per-page, stub figure captions, or `FALLBACK`), retry Docling with OCR (`RapidOcrOptions(force_full_page_ocr=False, backend="torch")`). Keep OCR only if it gains ≥15% text or +0.05 confidence. Optional MinerU CLI last if still `FALLBACK`. Set `RESEARCH_PARSER_DOCLING_OCR_RETRY=false` to disable the OCR branch. The OCR pass runs in a spawned child process (`src/parser/isolated_ocr.py`) that the parent kills when it exceeds `RESEARCH_PARSER_OCR_WORKER_TIMEOUT_SECONDS` or its memory budget (default: the container's memory limit minus the service's own footprint; override with `RESEARCH_PARSER_OCR_WORKER_MEMORY_LIMIT_MB`). A killed worker only costs the OCR upgrade: the digital parse is kept.
 3. **Deterministic clean** → filename identity (`YYYY-MM-DD_GS_...`) + boilerplate rules (refuses cuts that remove more than `max_strip_fraction` unless confidence is high)
 4. **Source artifacts** → `document.md`, `blocks.jsonl`, `figures.jsonl`, `clean_text.md`
 5. **Supabase storage** → upsert `parsed_research` plus `research_document_artifacts`, `research_spans`, and `research_retrieval_chunks`
@@ -47,6 +47,7 @@ Span writes fail closed: a memory-table failure fails the storage step.
 - Partial parse artifacts can resume without re-downloading when `parse_ok` and `clean_text.md` exist. `scripts/test_full_pipeline.py --force` skips that resume and re-parses.
 - State DB tracks parse / boilerplate / storage success
 - Parse-only upserts do not wipe downstream `research_themes` or index columns
+- Crash-loop guard: `processed_files.attempts` counts starts that never reached a terminal write (process crashed or hung mid-parse) and resets on `mark_completed` / `mark_partial` / `mark_failed`. After `RESEARCH_PARSER_MAX_UNFINISHED_ATTEMPTS` (default 3) unfinished starts the file is marked failed instead of being retried first on every restart. To reprocess it later, reset its row (`status='pending'`, `attempts=0`).
 
 ### State Management
 

@@ -13,6 +13,7 @@ dependencies = [
     "apscheduler>=3.10.0",
     "structlog>=24.4.0",
     "tenacity>=9.0.0",
+    "psutil>=5.9.0",
     "pyyaml>=6.0.0",
     "research-pipeline-ops>=0.1.0",
 ]

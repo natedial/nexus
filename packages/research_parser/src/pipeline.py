@@ -16,6 +16,7 @@ from src.intake.relay_adapter import RelayIntakeAdapter
 from src.intake.relay_contract import RelayIntakeArtifact
 from src.parser import (
     DoclingBackend,
+    IsolatedOcrBackend,
     MinerUBackend,
     blocks_to_markdown,
     filter_blocks_present_in_text,
@@ -432,15 +433,14 @@ class Pipeline:
             return None
         if self.docling_ocr_backend is not None:
             return self.docling_ocr_backend
-        backend = DoclingBackend(do_ocr=True)
-        try:
-            backend._get_converter()
-        except Exception as exc:
-            log.warning("Docling OCR backend unavailable", error=str(exc))
-            return None
-        self.docling_ocr_backend = backend
-        log.info("Docling OCR backend ready")
-        return backend
+        # OCR runs in a child process so a memory blow-up on one PDF stops the
+        # child (falling back to the digital parse) instead of the whole service.
+        self.docling_ocr_backend = IsolatedOcrBackend(
+            memory_limit_mb=self.settings.ocr_worker_memory_limit_mb,
+            timeout_seconds=self.settings.ocr_worker_timeout_seconds,
+        )
+        log.info("Docling OCR backend ready (isolated worker)")
+        return self.docling_ocr_backend
 
     def _write_parse_artifact(self, artifact_dir: Path, *, parsed, log) -> None:
         payload = {
