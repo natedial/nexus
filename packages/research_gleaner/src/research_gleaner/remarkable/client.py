@@ -23,7 +23,17 @@ class RemarkableLibrary:
             raise RuntimeError(
                 "remarkable-mcp is required; install the research-gleaner package dependencies"
             ) from exc
-        self.client = get_rmapi()
+        try:
+            self.client = get_rmapi()
+        except ValueError as exc:
+            if "Token starts with" not in str(exc):
+                raise
+            # remarkable-mcp echoes the first 20 characters of the token file in
+            # this message. Do not let them reach stderr or the ops incident text.
+            raise ValueError(
+                "reMarkable token is not in a supported format (expected JSON or a "
+                "bare JWT); check REMARKABLE_TOKEN or ~/.rmapi"
+            ) from None
 
     def list_documents(self) -> list[RemarkableDocument]:
         from remarkable_mcp.api import get_item_path, get_items_by_id
