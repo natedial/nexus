@@ -210,6 +210,57 @@ def build_parser() -> argparse.ArgumentParser:
     )
     codex_compare_parser.add_argument("--output", type=Path, required=True)
 
+    real_units_parser = subparsers.add_parser(
+        "decision-real-units-export",
+        help=(
+            "Read real-document assertions (read-only), strip storage prefixes, "
+            "exclude boilerplate, and classify the kept units with Jev"
+        ),
+    )
+    real_units_parser.add_argument(
+        "--research-id", type=int, action="append", required=True
+    )
+    real_units_parser.add_argument("--output", type=Path, required=True)
+    real_units_parser.add_argument(
+        "--provider", choices=["fake", "jev"], default="fake",
+        help="fake (default, no spend) or jev",
+    )
+    real_units_parser.add_argument("--batch-size", type=int, default=4)
+
+    pilot_parser = subparsers.add_parser(
+        "decision-agent-pilot",
+        help="Prepare (no spend), run, or report a real-document agent-reference pilot",
+    )
+    pilot_sub = pilot_parser.add_subparsers(dest="pilot_action", required=True)
+    pilot_prepare = pilot_sub.add_parser("prepare", help="Freeze selection, models, caps")
+    pilot_prepare.add_argument("--export-dir", type=Path, required=True)
+    pilot_prepare.add_argument("--output", type=Path, required=True)
+    pilot_prepare.add_argument("--pilot-id", required=True)
+    pilot_prepare.add_argument("--seed", required=True)
+    pilot_prepare.add_argument("--max-units", type=int, default=50)
+    pilot_prepare.add_argument("--max-usd", type=float, required=True)
+    pilot_prepare.add_argument(
+        "--models", type=Path, default=None,
+        help="Model catalog JSON (default: evals/decision_pilot/models.json)",
+    )
+    pilot_prepare.add_argument(
+        "--role", action="append", default=[],
+        help="Override a role's model: role=provider:model (repeatable)",
+    )
+    pilot_run = pilot_sub.add_parser("run", help="Run the frozen pilot (spends money)")
+    pilot_run.add_argument("--preparation", type=Path, required=True)
+    pilot_run.add_argument("--output", type=Path, required=True)
+    pilot_run.add_argument("--smoke", type=int, default=None, help="Run only the first N units")
+    pilot_run.add_argument("--smoke-max-usd", type=float, default=0.50)
+    pilot_run.add_argument("--resume", action="store_true")
+    pilot_run.add_argument(
+        "--confirm-spend", action="store_true",
+        help="Required: acknowledges this command calls paid model APIs",
+    )
+    pilot_report = pilot_sub.add_parser("report", help="Compare references with Jev")
+    pilot_report.add_argument("--run-dir", type=Path, required=True)
+    pilot_report.add_argument("--export-dir", type=Path, required=True)
+
     decision_eval_parser = subparsers.add_parser(
         "decision-eval",
         help="Write a versioned gold/silver/consistency decision-eval run directory",
@@ -611,6 +662,108 @@ def cmd_decision_codex_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_decision_real_units_export(args: argparse.Namespace) -> int:
+    import psycopg
+
+    from research_analysis_layer.evals.decision_classifier import ShadowDecisionClassifier
+    from research_analysis_layer.evals.decision_real_units import export_real_units
+    from research_analysis_layer.services.decision_model_factory import (
+        DecisionModelConfigError,
+        build_decision_model,
+    )
+
+    settings = Settings.from_env()
+    try:
+        model = build_decision_model(settings, provider=args.provider)
+    except DecisionModelConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    classifier = ShadowDecisionClassifier(model, batch_size=args.batch_size)
+    with psycopg.connect(settings.analysis_db_url) as connection:
+        connection.read_only = True
+        manifest = export_real_units(
+            connection=connection,
+            research_ids=args.research_id,
+            output_dir=args.output,
+            classifier=classifier,
+        )
+    print(
+        json.dumps(
+            {
+                key: manifest[key]
+                for key in (
+                    "assertion_rows",
+                    "kept_units",
+                    "excluded_units",
+                    "excluded_by_reason",
+                )
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def cmd_decision_agent_pilot(args: argparse.Namespace) -> int:
+    from research_analysis_layer.evals.decision_agent_models import (
+        load_model_catalog,
+        parse_role_overrides,
+    )
+    from research_analysis_layer.evals.decision_agent_pilot_run import (
+        build_jev_comparison,
+        prepare_real_pilot,
+        run_prepared_pilot,
+    )
+
+    if args.pilot_action == "prepare":
+        result = prepare_real_pilot(
+            export_dir=args.export_dir,
+            output_dir=args.output,
+            pilot_id=args.pilot_id,
+            seed=args.seed,
+            max_units=args.max_units,
+            catalog=load_model_catalog(args.models),
+            role_overrides=parse_role_overrides(args.role),
+            max_usd=args.max_usd,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["dry_run"]["ready_for_live_execution"] else 1
+    if args.pilot_action == "run":
+        if not args.confirm_spend:
+            print("Error: pass --confirm-spend to call paid model APIs", file=sys.stderr)
+            return 1
+        Settings.from_env()  # loads package and repo-root .env files
+        run_dir = run_prepared_pilot(
+            preparation_dir=args.preparation,
+            run_dir=args.output,
+            smoke_units=args.smoke,
+            smoke_max_usd=args.smoke_max_usd,
+            resume=args.resume,
+        )
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        print(
+            json.dumps(
+                {
+                    "status": manifest.get("status"),
+                    "stop_reason": manifest.get("stop_reason"),
+                    "completed": len(manifest.get("completed_source_ids") or []),
+                    "failed": len(manifest.get("failed_source_ids") or []),
+                    "usage": manifest.get("usage"),
+                },
+                indent=2,
+            )
+        )
+        return 0 if manifest.get("status") == "complete" else 1
+    report = build_jev_comparison(run_dir=args.run_dir, export_dir=args.export_dir)
+    print(
+        json.dumps(
+            {axis: stats["outcome"] for axis, stats in report["per_axis"].items()},
+            indent=2,
+        )
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -631,6 +784,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_decision_codex_import(args)
     if args.command == "decision-codex-compare":
         return cmd_decision_codex_compare(args)
+    if args.command == "decision-real-units-export":
+        return cmd_decision_real_units_export(args)
+    if args.command == "decision-agent-pilot":
+        return cmd_decision_agent_pilot(args)
 
     settings = Settings()
 

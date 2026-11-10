@@ -168,9 +168,13 @@ class OpenAICompatibleAgentLlmClient:
         max_output_tokens: int = 16384,
         reasoning_effort: str | None = None,
         max_transport_retries: int = 2,
+        report_response_model: bool = False,
     ):
         if max_transport_retries < 0:
             raise ValueError("max_transport_retries must be >= 0")
+        # Reference evals pin models, so they need the model the API actually
+        # served rather than the one requested.
+        self._report_response_model = report_response_model
         self.api_key = api_key
         self.base_url = (base_url or "https://api.openai.com").rstrip("/")
         self._tool_registry = tool_registry
@@ -293,7 +297,9 @@ class OpenAICompatibleAgentLlmClient:
             try:
                 response_data = self._make_request(request, timeout_seconds)
             except urllib.error.HTTPError as e:
-                if e.code == 429:
+                # Single-attempt reference clients surface rate limits so the
+                # eval harness can count and bound every retry itself.
+                if e.code == 429 and not self.reference_calls_are_single_attempt:
                     wait_time = min(2**attempt, 30)
                     logger.warning(
                         "Rate limited, waiting %ds (attempt %d)", wait_time, attempt
@@ -330,7 +336,11 @@ class OpenAICompatibleAgentLlmClient:
                     parsed_output=parsed,
                     tool_calls=tool_calls,
                     token_usage=token_usage,
-                    model_used=model,
+                    model_used=(
+                        str(response_data.get("model") or model)
+                        if self._report_response_model
+                        else model
+                    ),
                     stop_reason=finish_reason,
                     attempt_count=attempt,
                 )

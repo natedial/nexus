@@ -22,6 +22,7 @@ from research_analysis_layer.evals.decision_agent_reference_run import (
 from research_analysis_layer.evals.decision_agent_references import (
     AXIS_IDS,
     AgentReferenceSource,
+    SourceTransformation,
 )
 from research_analysis_layer.evals.decision_artifacts import load_shadow_artifact
 from research_analysis_layer.evals.decision_reviews import (
@@ -167,8 +168,13 @@ def load_pilot_candidates(
     artifact_paths: Sequence[Path],
     excluded_unit_keys: set[tuple[str, str]] | None = None,
     document_types: Mapping[str, str] | None = None,
+    transformations: Sequence[SourceTransformation] = (),
 ) -> tuple[list[PilotCandidate], int]:
-    """Build exact-scope candidates from explicitly approved shadow artifacts."""
+    """Build exact-scope candidates from explicitly approved shadow artifacts.
+
+    ``transformations`` records preparation already applied to every unit's
+    text before Jev saw it (for example a stripped storage prefix).
+    """
 
     excluded = excluded_unit_keys or set()
     document_types = document_types or {}
@@ -224,6 +230,7 @@ def load_pilot_candidates(
                 target_end=len(text),
                 surrounding_context=section_title or None,
                 stored_model_input=text,
+                transformations=list(transformations),
                 source_artifact=SourceArtifactReference(
                     path=relative_path,
                     sha256=artifact_hash,

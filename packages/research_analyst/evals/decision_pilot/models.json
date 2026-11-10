@@ -1,0 +1,63 @@
+{
+  "schema_version": "decision-agent-model-catalog-v1",
+  "roles": {
+    "annotator": "anthropic:claude-sonnet-5-5",
+    "reviewer": "openai:gpt-5.6-terra"
+  },
+  "models": {
+    "anthropic:claude-sonnet-5-5": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "model_family": "anthropic-claude",
+      "input_usd_per_million": 2.0,
+      "output_usd_per_million": 10.0,
+      "pricing_source": "Claude API reference model table, cached 2026-10-06",
+      "sampling": {"effort": "medium"}
+    },
+    "anthropic:claude-opus-5-5": {
+      "provider": "anthropic",
+      "model": "claude-opus-5-5",
+      "model_family": "anthropic-claude",
+      "input_usd_per_million": 4.0,
+      "output_usd_per_million": 20.0,
+      "pricing_source": "Claude API reference model table, cached 2026-10-06",
+      "sampling": {"effort": "medium"}
+    },
+    "anthropic:claude-haiku-5-5": {
+      "provider": "anthropic",
+      "model": "claude-haiku-5-5",
+      "model_family": "anthropic-claude",
+      "input_usd_per_million": 0.1,
+      "output_usd_per_million": 0.5,
+      "pricing_source": "Claude API reference model table, cached 2026-10-06 (prompts up to 100K tokens)",
+      "sampling": {"effort": "medium"}
+    },
+    "openai:gpt-5.6-terra": {
+      "provider": "openai",
+      "model": "gpt-5.6-terra",
+      "model_family": "openai-gpt",
+      "input_usd_per_million": 2.0,
+      "output_usd_per_million": 12.0,
+      "pricing_source": "developers.openai.com/api/docs/pricing, checked 2026-11-09",
+      "sampling": {"reasoning_effort": "medium"}
+    },
+    "openai:gpt-5.6-sol": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "model_family": "openai-gpt",
+      "input_usd_per_million": 4.0,
+      "output_usd_per_million": 20.0,
+      "pricing_source": "developers.openai.com/api/docs/pricing, checked 2026-11-09 (promotional rate)",
+      "sampling": {"reasoning_effort": "medium"}
+    },
+    "openai:gpt-5.6-luna": {
+      "provider": "openai",
+      "model": "gpt-5.6-luna",
+      "model_family": "openai-gpt",
+      "input_usd_per_million": 0.2,
+      "output_usd_per_million": 1.2,
+      "pricing_source": "developers.openai.com/api/docs/pricing, checked 2026-11-09",
+      "sampling": {"reasoning_effort": "medium"}
+    }
+  }
+}
