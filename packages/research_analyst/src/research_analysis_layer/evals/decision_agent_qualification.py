@@ -24,6 +24,7 @@ from research_analysis_layer.evals.decision_agent_reference_run import (
 )
 from research_analysis_layer.evals.decision_agent_references import (
     AXIS_IDS,
+    ROLE_PROMPT_VERSION,
     AgentReferenceRecord,
     AgentReferenceSource,
     SourceTransformation,
@@ -338,7 +339,7 @@ def harness_configuration_fingerprint(config: HarnessConfig) -> str:
                 identity.model,
                 identity.model_family,
                 identity.resolved_version,
-                "decision-reference-role-v1",
+                ROLE_PROMPT_VERSION,
                 role_prompt_sha256(role),
                 config.taxonomy_version,
                 config.taxonomy_sha256,

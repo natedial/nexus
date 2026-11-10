@@ -153,9 +153,12 @@ class CapturingClient:
         )
 
 
-def _provider(client: CapturingClient) -> StructuredJudgmentProvider:
+def _provider(
+    client: CapturingClient, *, require_all_axes: bool = False
+) -> StructuredJudgmentProvider:
     return StructuredJudgmentProvider(
         client=client,
+        require_all_axes=require_all_axes,
         role_models={role: _identity(role) for role in ("annotator", "reviewer", "adjudicator")},
         pricing_by_role={
             role: TokenPricing(
@@ -218,6 +221,7 @@ def test_unknown_pricing_stays_unknown_not_zero() -> None:
     provider = StructuredJudgmentProvider(
         client=client,
         role_models={"annotator": _identity("annotator")},
+        require_all_axes=False,
     )
     judgment = provider.generate(_request())
     assert isinstance(judgment, AgentJudgment)
@@ -255,3 +259,121 @@ def test_openai_client_can_be_configured_for_harness_owned_retries() -> None:
     assert provider.client.reference_sampling_for_model("gpt-5-test") == {
         "reasoning_effort": "high"
     }
+
+
+# --- quotes, completeness, and per-role routing ------------------------------
+
+from research_analysis_layer.evals.decision_agent_references import AXIS_IDS
+
+
+def _full_axes(*, quote: str = "will slow", drop: str | None = None) -> list[dict]:
+    axes = []
+    for axis_id in AXIS_IDS:
+        if axis_id == drop:
+            continue
+        value = "assertion" if axis_id == "statement_type" else axis_id == "is_forecast"
+        axes.append(
+            {
+                "axis_id": axis_id,
+                "state": "labeled",
+                "value": value,
+                "rationale": f"Rationale for {axis_id}.",
+                "quotes": [quote],
+            }
+        )
+    return axes
+
+
+class ScriptedClient(CapturingClient):
+    def __init__(self, axes: list[dict], *, model_used: str | None = None) -> None:
+        super().__init__(model_used=model_used)
+        self.axes = axes
+
+    def generate_with_tools(self, **kwargs):
+        self.calls.append(kwargs)
+        payload = {"axes": self.axes}
+        return AgentCallResult(
+            raw_text=json.dumps(payload),
+            parsed_output=payload,
+            token_usage=TokenUsage(input_tokens=100, output_tokens=50),
+            model_used=self.model_used or kwargs["model"],
+            stop_reason="stop",
+        )
+
+
+def test_quotes_become_computed_spans() -> None:
+    judgment = _provider(ScriptedClient(_full_axes()), require_all_axes=True).generate(
+        _request()
+    )
+    axis = next(item for item in judgment.axes if item.axis_id == "is_forecast")
+    assert [(span.start, span.end, span.text) for span in axis.supporting_spans] == [
+        (7, 16, "will slow")
+    ]
+    judgment.validate_spans(_source())
+
+
+def test_model_is_shown_quotes_schema_without_offsets() -> None:
+    client = ScriptedClient(_full_axes())
+    _provider(client, require_all_axes=True).generate(_request())
+    payload = json.loads(client.calls[0]["messages"][0]["content"])
+    properties = set(payload["axis_judgment_schema"]["properties"])
+    assert "quotes" in properties
+    assert not properties & {"supporting_spans", "start", "end"}
+    assert payload["axis_ids"] == list(AXIS_IDS)
+
+
+def test_quote_not_in_text_is_repairable() -> None:
+    client = ScriptedClient(_full_axes(quote="will slow sharply"))
+    with pytest.raises(InvalidJudgmentResponse, match="not an exact substring"):
+        _provider(client, require_all_axes=True).generate(_request())
+
+
+def test_missing_axis_is_repairable_and_names_the_axis() -> None:
+    client = ScriptedClient(_full_axes(drop="is_causal"))
+    with pytest.raises(InvalidJudgmentResponse, match="is_causal") as raised:
+        _provider(client, require_all_axes=True).generate(_request())
+    assert raised.value.usage.input_tokens == 100
+
+
+def test_false_label_without_quotes_is_repairable() -> None:
+    axes = _full_axes()
+    axes[2]["quotes"] = []
+    with pytest.raises(InvalidJudgmentResponse, match="without quotes"):
+        _provider(ScriptedClient(axes), require_all_axes=True).generate(_request())
+
+
+def test_unresolved_axis_counts_as_answered() -> None:
+    axes = _full_axes()
+    axes[3] = {
+        "axis_id": axes[3]["axis_id"],
+        "state": "unresolved",
+        "value": None,
+        "rationale": "The taxonomy does not settle this.",
+        "quotes": [],
+        "unresolved_reason": "criteria ambiguous for this sentence",
+    }
+    judgment = _provider(ScriptedClient(axes), require_all_axes=True).generate(_request())
+    assert len(judgment.axes) == len(AXIS_IDS)
+
+
+def test_roles_route_to_their_own_clients() -> None:
+    annotator_client = ScriptedClient(_full_axes())
+    reviewer_client = ScriptedClient(_full_axes())
+    provider = StructuredJudgmentProvider(
+        clients_by_role={"annotator": annotator_client, "reviewer": reviewer_client},
+        role_models={role: _identity(role) for role in ("annotator", "reviewer")},
+    )
+    provider.generate(_request("annotator"))
+    provider.generate(_request("reviewer"))
+    assert len(annotator_client.calls) == 1
+    assert len(reviewer_client.calls) == 1
+    assert annotator_client.calls[0]["model"] == _identity("annotator").model
+    assert reviewer_client.calls[0]["model"] == _identity("reviewer").model
+
+
+def test_every_role_needs_a_client() -> None:
+    with pytest.raises(ValueError, match="no client configured"):
+        StructuredJudgmentProvider(
+            clients_by_role={"annotator": CapturingClient()},
+            role_models={role: _identity(role) for role in ("annotator", "reviewer")},
+        )

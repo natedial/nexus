@@ -24,7 +24,7 @@ from research_analysis_layer.evals.decision_reviews import (
 AGENT_REFERENCE_SCHEMA_VERSION = "decision-agent-reference-v1"
 AGENT_JUDGMENT_SCHEMA_VERSION = "decision-agent-judgment-v1"
 POLICY_ESCALATION_SCHEMA_VERSION = "decision-policy-escalation-v1"
-ROLE_PROMPT_VERSION = "decision-reference-role-v1"
+ROLE_PROMPT_VERSION = "decision-reference-role-v2"
 
 StatementType = Literal[
     "assertion",

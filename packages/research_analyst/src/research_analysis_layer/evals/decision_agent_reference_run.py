@@ -60,6 +60,10 @@ class HarnessConfig(StrictModel):
     max_transport_retries: int = Field(default=2, ge=0, le=2)
     max_schema_repairs: int = Field(default=1, ge=0, le=1)
     adjudicate_disagreements: bool = True
+    # When true, a source whose responses stay invalid after the repair
+    # allowance is recorded in failed_sources.jsonl and the batch moves on.
+    # Budget, contract, and transport failures still stop the batch.
+    continue_on_invalid_source: bool = False
 
     @model_validator(mode="after")
     def _validate_config(self) -> HarnessConfig:
@@ -225,24 +229,48 @@ class ReferenceBatchHarness:
         self._elapsed_base = usage.elapsed_seconds
         judgments = self._load_judgments(output_dir)
         completed_source_ids = self._completed_source_ids(output_dir)
+        failed_source_ids = set(manifest.get("failed_source_ids") or [])
 
         try:
             for source in sources:
-                if source.source_id in completed_source_ids:
+                if (
+                    source.source_id in completed_source_ids
+                    or source.source_id in failed_source_ids
+                ):
                     continue
-                for role in ("annotator", "reviewer"):
-                    key = (source.source_id, role)
-                    if key in judgments:
-                        continue
-                    judgment = self._obtain_judgment(
-                        output_dir=output_dir,
-                        source=source,
-                        role=role,
-                        config=config,
-                        usage=usage,
-                        manifest=manifest,
+                try:
+                    for role in ("annotator", "reviewer"):
+                        key = (source.source_id, role)
+                        if key in judgments:
+                            continue
+                        judgment = self._obtain_judgment(
+                            output_dir=output_dir,
+                            source=source,
+                            role=role,
+                            config=config,
+                            usage=usage,
+                            manifest=manifest,
+                        )
+                        judgments[key] = judgment
+                except (InvalidJudgmentResponse, ValidationError, ValueError) as exc:
+                    if isinstance(exc, ProviderContractError) or not (
+                        config.continue_on_invalid_source
+                    ):
+                        raise
+                    _append_json(
+                        output_dir / "failed_sources.jsonl",
+                        {
+                            "source_id": source.source_id,
+                            "document_id": source.document_id,
+                            "unit_id": source.unit_id,
+                            "role": role,
+                            "reason": f"{type(exc).__name__}: {exc}",
+                        },
                     )
-                    judgments[key] = judgment
+                    failed_source_ids.add(source.source_id)
+                    manifest["failed_source_ids"] = sorted(failed_source_ids)
+                    self._checkpoint(output_dir, manifest, usage)
+                    continue
 
                 first_passes = [
                     judgments[(source.source_id, "annotator")],
@@ -331,6 +359,7 @@ class ReferenceBatchHarness:
             "adjudications.jsonl",
             "references.jsonl",
             "quarantine.jsonl",
+            "failed_sources.jsonl",
         ):
             (output_dir / name).write_text("", encoding="utf-8")
         (output_dir / "escalations.json").write_text("[]\n", encoding="utf-8")
@@ -345,6 +374,7 @@ class ReferenceBatchHarness:
             "source_inventory_sha256": _source_inventory_hash(sources),
             "source_count": len(sources),
             "completed_source_ids": [],
+            "failed_source_ids": [],
             "usage": UsageState().model_dump(mode="json"),
             "artifact_sha256": {},
         }
@@ -634,6 +664,7 @@ class ReferenceBatchHarness:
             "",
             f"- Status: **{manifest.get('status')}**",
             f"- Sources completed: {completed}/{len(sources)}",
+            f"- Sources failed after repair: {len(manifest.get('failed_source_ids') or [])}",
             f"- Stop reason: {manifest.get('stop_reason') or 'none'}",
             f"- Requests used: {usage.requests}",
             f"- Estimated USD: {usage.estimated_usd}",
