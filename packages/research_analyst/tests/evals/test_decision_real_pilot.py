@@ -169,6 +169,7 @@ def _export(tmp_path: Path) -> Path:
     )
     assert manifest["kept_units"] == 2 * len(SUBSTANTIVE)
     assert manifest["database_access"] == "read_only"
+    assert ["exhibit_caption", r"(?:^|\n)\s*exhibit \d+:"] in manifest["layout_rules"]
     return export_dir
 
 
@@ -294,14 +295,15 @@ def test_invalid_unit_is_recorded_and_the_run_continues(tmp_path: Path) -> None:
     class SometimesBroken(AgreeingClient):
         def generate_with_tools(self, **kwargs):
             payload = json.loads(kwargs["messages"][0]["content"])
-            if payload["source"]["target_text"] == first_text:
+            if payload["source"]["source_id"] == broken_id:
                 self.calls += 1
                 return AgentCallResult(raw_text="no json", parsed_output=None,
                     token_usage=TokenUsage(input_tokens=10, output_tokens=5),
                     model_used=kwargs["model"], stop_reason="end_turn")
             return super().generate_with_tools(**kwargs)
 
-    first_text = json.loads((prep / "sources.jsonl").read_text().splitlines()[0])["target_text"]
+    # Match by source_id: the fake export repeats sentences across documents.
+    broken_id = json.loads((prep / "sources.jsonl").read_text().splitlines()[0])["source_id"]
     run_dir = run_prepared_pilot(
         preparation_dir=prep, run_dir=tmp_path / "run",
         client_factory=lambda resolved: {

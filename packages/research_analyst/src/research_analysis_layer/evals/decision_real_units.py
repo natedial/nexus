@@ -347,6 +347,7 @@ def export_real_units(
         "research_ids": list(research_ids),
         "exclusion_rules_version": EXCLUSION_RULES_VERSION,
         "exclusion_rules": [list(rule) for rule in BOILERPLATE_RULES],
+        "layout_rules": [list(rule) for rule in LAYOUT_RULES],
         "min_unit_chars": MIN_UNIT_CHARS,
         "max_unit_chars": MAX_UNIT_CHARS,
         "transformations": [PREFIX_TRANSFORMATION.model_dump(mode="json")],
