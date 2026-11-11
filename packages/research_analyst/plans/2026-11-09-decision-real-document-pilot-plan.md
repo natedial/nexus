@@ -239,3 +239,31 @@ reaccelerates, lower policy rates should compress credit spreads" changes to
 no reasoning bridge, since it names a driver without a mechanism. Both human
 reviewed labels still hold. Pilot 1 stays as the v5 record; pilot 2 reruns
 Jev and the reference models on the v3 units under the same $5 total cap.
+
+## Pilot 2 results
+
+Pilot 2 (`real-pilot-20261111-v2`, question set v6, exclusion rules v3) ran
+on 2026-11-11: 42 units, 84 calls, 0 failures, $1.44. Total spend for the
+$5 stage is about $3.25 including the smoke run and three Jev exports.
+
+- The reworded questions converged. `is_trade_or_action` splits fell from 12
+  to 1, with Jev agreeing on 41 of 41 admitted labels.
+  `contains_reasoning_bridge` splits fell from 16 to 5, but only 1 admitted
+  label is true. The tighter rule makes bridges rare, so this set cannot test
+  Jev on them ("needs human labels").
+- The reference models were stable on the unchanged questions: across the
+  units both pilots admitted, they changed 1 label in about 140.
+- Jev over-calls three questions. All of its disagreements on
+  `is_market_impact` (7), `is_risk_or_scenario` (7), and `is_comparative` (4)
+  are Jev yes against a reference no. Each is "needs human labels" under the
+  rules, mainly because Jev's agreement fell between the bands.
+- `is_observation` still sits at 84% agreement, with no consistent
+  direction.
+- Jev is not fully stable between exports. On the 10 questions v6 did not
+  change, 30 of 420 answers moved: 23 to or from abstaining and 7 flipped,
+  nearly all with probabilities near 0.5. Small changes between runs are
+  partly noise at the decision threshold.
+
+The three policy escalations allowed by this plan are used. Next steps are
+outside the $5 stage: human labels for the over-called questions, then Jev
+criteria changes tested against both pilot reference sets.
