@@ -30,7 +30,7 @@ from research_analysis_layer.evals.decision_reviews import sha256_text
 from research_analysis_layer.models.assertion_models import AssertionDraft, normalize_text
 
 EXPORT_SCHEMA = "decision-real-units-export-v1"
-EXCLUSION_RULES_VERSION = "decision-real-units-exclusions-v2"
+EXCLUSION_RULES_VERSION = "decision-real-units-exclusions-v3"
 HASH_PREFIX = re.compile(r"^[0-9a-f]{64}: ")
 MIN_UNIT_CHARS = 40
 MAX_UNIT_CHARS = 1_200
@@ -60,6 +60,20 @@ BOILERPLATE_RULES: tuple[tuple[str, str], ...] = (
 )
 _COMPILED_RULES = tuple(
     (rule_id, re.compile(pattern, re.IGNORECASE)) for rule_id, pattern in BOILERPLATE_RULES
+)
+
+# Page-layout text that is not an author statement: figure title blocks,
+# exhibit captions, and source or note lines. Kept apart from the boilerplate
+# rules so they never start or extend a trailing-disclosures cut. A heading
+# glued to a real sentence ("Key Takeaways\n\nBasis notional has fallen...")
+# is deliberately not matched.
+LAYOUT_RULES: tuple[tuple[str, str], ...] = (
+    ("figure_title_block", r"^figure\b"),
+    ("exhibit_caption", r"(?:^|\n)\s*exhibit \d+:"),
+    ("source_note", r"\bsource: |^note: "),
+)
+_COMPILED_LAYOUT_RULES = tuple(
+    (rule_id, re.compile(pattern, re.IGNORECASE)) for rule_id, pattern in LAYOUT_RULES
 )
 
 PREFIX_TRANSFORMATION = SourceTransformation(
@@ -144,7 +158,7 @@ def fetch_assertion_rows(
     ]
 
 
-def exclusion_reason(text: str) -> str | None:
+def exclusion_reason(text: str, *, include_layout: bool = True) -> str | None:
     if len(text) < MIN_UNIT_CHARS:
         return f"too_short(<{MIN_UNIT_CHARS} chars)"
     if len(text) > MAX_UNIT_CHARS:
@@ -152,6 +166,10 @@ def exclusion_reason(text: str) -> str | None:
     for rule_id, pattern in _COMPILED_RULES:
         if pattern.search(text):
             return f"boilerplate:{rule_id}"
+    if include_layout:
+        for rule_id, pattern in _COMPILED_LAYOUT_RULES:
+            if pattern.search(text):
+                return f"layout:{rule_id}"
     return None
 
 
@@ -164,13 +182,14 @@ def trailing_section_starts(
     count). The earliest candidate is accepted only when at least
     ``TRAILING_EXCLUDED_SHARE`` of the units from that chunk to the end are
     excluded by the per-unit rules, so one stray mention mid-report cannot cut
-    real content.
+    real content. Layout rules are ignored here, so captions inside a report
+    never pull the cut earlier.
     """
 
     by_document: dict[int, list[tuple[int, str | None]]] = {}
     for row, text in zip(rows, texts):
         by_document.setdefault(row.research_id, []).append(
-            (row.chunk_order, exclusion_reason(text))
+            (row.chunk_order, exclusion_reason(text, include_layout=False))
         )
     starts: dict[int, int] = {}
     for research_id, units in by_document.items():

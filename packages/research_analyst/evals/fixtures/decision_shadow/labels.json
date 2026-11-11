@@ -260,10 +260,10 @@
       "is_comparative": false,
       "is_trade_or_action": false,
       "contains_verifiable_evidence": false,
-      "contains_reasoning_bridge": true,
+      "contains_reasoning_bridge": false,
       "is_substantive_author_claim": true
     },
-    "notes": "qualified market-impact claim"
+    "notes": "qualified market-impact claim; v6: driver named without mechanism, so no reasoning bridge"
   },
   {
     "unit_id": "chunk-8:assertion-1",

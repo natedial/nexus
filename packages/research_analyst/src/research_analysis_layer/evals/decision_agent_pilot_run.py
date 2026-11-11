@@ -420,7 +420,7 @@ def build_jev_comparison(
         "caveats": [
             "Agreement between two models is evidence, not truth; shared blind spots remain.",
             "All labels are provisional agent references, never human gold.",
-            "Claude and GPT both influenced the v3-v5 question wording.",
+            "Claude and GPT both influenced the v3-v6 question wording.",
         ],
     }
     (run_dir / "jev_comparison.json").write_text(

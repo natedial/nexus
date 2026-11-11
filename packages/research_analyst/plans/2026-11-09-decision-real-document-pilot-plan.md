@@ -1,7 +1,7 @@
 # Decision real-document pilot plan
 
-Status: approved 2026-11-09. Code is implemented; no model has been called on
-the selected units yet.
+Status: approved 2026-11-09. Pilot 1 (v5) ran 2026-11-10; pilot 2 (v6) is
+next. See "Pilot 1 results and decisions" at the end.
 
 Parent plan: [`2026-10-20-agent-reviewed-reference-expansion-plan.md`](2026-10-20-agent-reviewed-reference-expansion-plan.md), Slice 4 pilot.
 
@@ -207,3 +207,35 @@ question and do not certify anything.
 3. Smoke run of 2 units, then report the real per-call cost. About $0.15.
 4. Full run sized from the smoke cost. About $3–4.
 5. Report, plus up to 3 policy escalations.
+
+## Pilot 1 results and decisions
+
+Pilot 1 (`real-pilot-20261109-v1`, question set v5, exclusion rules v2) ran
+on 2026-11-10: 50 units, 100 calls, 0 failures, $1.68 (about $0.017 per
+call). The smoke run and Jev add about $0.12.
+
+- 11 of 12 questions came out "looks sound so far" and `is_observation` came
+  out "needs human labels" (Jev agrees on 86%).
+- `contains_reasoning_bridge` (16 of 50 split) and `is_trade_or_action`
+  (12 of 50) passed the rules but split far more than the other questions.
+  Nearly every split was GPT yes, Claude no, which points to wording rather
+  than hard cases.
+- 10 of the 50 units were page layout (figure title blocks, exhibit captions,
+  source notes) that exclusion rules v2 missed. 5 of the 29 Jev
+  disagreements were on them.
+
+Policy decisions (2026-11-11, by Nate):
+
+1. `is_trade_or_action` means a recommendation only. Describing positioning
+   or flows without recommending them is false.
+2. `contains_reasoning_bridge` agrees with Claude's reading. A single
+   cause-and-effect clause counts only when it spells out the specific
+   mechanism, not when it just names a driver.
+3. Captions, title blocks, and source notes are not units.
+
+These become question set `decision-question-set-v6` and exclusion rules
+`decision-real-units-exclusions-v3`. The fixture label for "Unless inflation
+reaccelerates, lower policy rates should compress credit spreads" changes to
+no reasoning bridge, since it names a driver without a mechanism. Both human
+reviewed labels still hold. Pilot 1 stays as the v5 record; pilot 2 reruns
+Jev and the reference models on the v3 units under the same $5 total cap.
