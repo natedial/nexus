@@ -255,6 +255,18 @@ class ShadowClassifierTest(unittest.TestCase):
         assert market.noul_criteria is not None
         self.assertIn("named driver", market.noul_criteria["true"])
         self.assertIn("curve steepened", market.noul_criteria["false"])
+        self.assertIn("recommend", trade.wording)
+        self.assertIn("without recommending", trade.noul_criteria["false"])
+        self.assertIn("dealers have increased", trade.noul_criteria["false"])
+        bridge = next(
+            q
+            for q in artifact.question_set.questions
+            if q.question_id == "contains_reasoning_bridge"
+        )
+        assert bridge.noul_criteria is not None
+        self.assertIn("specific mechanism", bridge.wording)
+        self.assertIn("regulation Y", bridge.noul_criteria["true"])
+        self.assertIn("only names a driver", bridge.noul_criteria["false"])
         for unit in artifact.units:
             self.assertEqual(unit.coverage_status, "full")
             self.assertEqual(unit.provenance.get("assertion_key"), unit.unit_id)

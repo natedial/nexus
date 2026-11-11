@@ -86,6 +86,51 @@ def test_stray_boilerplate_mid_report_does_not_cut_the_rest() -> None:
     assert [item["reason"] for item in excluded] == ["boilerplate:past_performance"]
 
 
+LAYOUT = [
+    "Figure\n\nGlobal Markets Daily: Re-Assessing the Value of Duration\n\nGlobal bond yields have risen sharply.",
+    "Exhibit 7: Similar to during the Tech Bubble, the proportion of stocks with a negative beta has increased",
+    "Interpolated SOFR rates 15bp used for repo rate Source: Morgan Stanley Research, Bloomberg.",
+    "Note: ESTR implied rate refers to the implied rate in short-term interest rate futures.",
+]
+KEPT_DESPITE_LAYOUT_WORDS = [
+    "On the ratings side, the shift away from AA exposure continued (Exhibit 20).",
+    "Key Takeaways\n\nBasis notional has fallen to $1.2tn from $1.5tn, but risk is unchanged.",
+    "Our main source of concern is the supply calendar into year end.",
+]
+
+
+def test_layout_fragments_are_excluded_but_inline_references_are_kept() -> None:
+    rows = [
+        RealAssertionRow(i + 1, 7, "h", 1, i + 1, "x", PREFIX + text)
+        for i, text in enumerate(LAYOUT + KEPT_DESPITE_LAYOUT_WORDS)
+    ]
+    kept, excluded = prepare_units(rows)
+    assert [unit.text for unit in kept] == KEPT_DESPITE_LAYOUT_WORDS
+    assert [item["reason"] for item in excluded] == [
+        "layout:figure_title_block",
+        "layout:exhibit_caption",
+        "layout:source_note",
+        "layout:source_note",
+    ]
+
+
+def test_captions_late_in_a_report_do_not_start_a_trailing_cut() -> None:
+    rows = [
+        *[
+            RealAssertionRow(i + 1, 7, "h", 1 + i, 1, "x", PREFIX + text)
+            for i, text in enumerate(SUBSTANTIVE[:2])
+        ],
+        *[
+            RealAssertionRow(10 + i, 7, "h", 3, i, "x", PREFIX + text)
+            for i, text in enumerate(LAYOUT)
+        ],
+        RealAssertionRow(20, 7, "h", 4, 1, "x", PREFIX + SUBSTANTIVE[2]),
+    ]
+    kept, excluded = prepare_units(rows)
+    assert [unit.text for unit in kept] == SUBSTANTIVE[:3]
+    assert all(item["reason"].startswith("layout:") for item in excluded)
+
+
 class FakeConnection:
     def __init__(self, rows: list[RealAssertionRow]) -> None:
         self.rows = rows
@@ -124,6 +169,7 @@ def _export(tmp_path: Path) -> Path:
     )
     assert manifest["kept_units"] == 2 * len(SUBSTANTIVE)
     assert manifest["database_access"] == "read_only"
+    assert ["exhibit_caption", r"(?:^|\n)\s*exhibit \d+:"] in manifest["layout_rules"]
     return export_dir
 
 
@@ -249,14 +295,15 @@ def test_invalid_unit_is_recorded_and_the_run_continues(tmp_path: Path) -> None:
     class SometimesBroken(AgreeingClient):
         def generate_with_tools(self, **kwargs):
             payload = json.loads(kwargs["messages"][0]["content"])
-            if payload["source"]["target_text"] == first_text:
+            if payload["source"]["source_id"] == broken_id:
                 self.calls += 1
                 return AgentCallResult(raw_text="no json", parsed_output=None,
                     token_usage=TokenUsage(input_tokens=10, output_tokens=5),
                     model_used=kwargs["model"], stop_reason="end_turn")
             return super().generate_with_tools(**kwargs)
 
-    first_text = json.loads((prep / "sources.jsonl").read_text().splitlines()[0])["target_text"]
+    # Match by source_id: the fake export repeats sentences across documents.
+    broken_id = json.loads((prep / "sources.jsonl").read_text().splitlines()[0])["source_id"]
     run_dir = run_prepared_pilot(
         preparation_dir=prep, run_dir=tmp_path / "run",
         client_factory=lambda resolved: {

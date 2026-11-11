@@ -51,7 +51,9 @@ SUBTYPE_WORDINGS: dict[str, str] = {
         "Does the target unit make an explicit comparison across entities, periods, or views?"
     ),
     "is_trade_or_action": (
-        "Does the target unit recommend or describe a trade, positioning, or concrete action?"
+        "Does the target unit recommend a trade, position, allocation, or concrete "
+        "action? Describing positioning or flows without recommending them does "
+        "not count."
     ),
 }
 
@@ -64,7 +66,8 @@ SUPPORT_WORDINGS: dict[str, str] = {
     ),
     "contains_reasoning_bridge": (
         "Does the target unit contain an explicit reasoning bridge linking evidence "
-        "or premises to a conclusion?"
+        "or premises to a conclusion? A single cause-and-effect clause counts only "
+        "when it spells out the specific mechanism, not just names a driver."
     ),
     "is_substantive_author_claim": (
         "Is the target unit the author's own substantive move (a claim, "
@@ -89,18 +92,40 @@ SUBTYPE_NOUL_CRITERIA: dict[str, dict[str, str]] = {
     },
     "is_trade_or_action": {
         "true": (
-            "The target unit's own words recommend, describe, or report a trade, "
-            "position, allocation, or concrete action."
+            "The target unit's own words recommend a trade, position, allocation, "
+            "or concrete action, including reaffirming a recommendation or advising "
+            "to hold, wait, or not act, e.g. 'we remain underweight credit' or "
+            "'we see no reason to reposition'."
         ),
         "false": (
-            "The target unit's own words contain no trade, position, or action. "
-            "Section headings or surrounding context about positioning or trades "
-            "help interpret the unit but do not by themselves make it one."
+            "The target unit's own words recommend no trade, position, or action. "
+            "Describing positioning, flows, or trades without recommending them is "
+            "false, e.g. 'dealers have increased their basis exposure' or "
+            "'holdings of linkers fell 13%'. Section headings or surrounding context "
+            "about positioning or trades help interpret the unit but do not by "
+            "themselves make it one."
         ),
     },
 }
 
 SUPPORT_NOUL_CRITERIA: dict[str, dict[str, str]] = {
+    "contains_reasoning_bridge": {
+        "true": (
+            "Explicitly links stated evidence or premises to a conclusion, through "
+            "an inferential connective ('therefore', 'which means') or a chain of "
+            "steps, e.g. 'sticky services inflation will delay cuts and therefore "
+            "keep the long end under pressure'. A single cause-and-effect clause "
+            "counts only when it spells out the specific mechanism, e.g. 'X, driven "
+            "by the calendar-based adoption by bank portfolios of regulation Y and "
+            "its requirement for reserves to hit Z% of daily traded volumes'."
+        ),
+        "false": (
+            "No explicit link from premises to a conclusion; or a single "
+            "cause-and-effect clause that only names a driver, e.g. 'driven by "
+            "weaker demand', 'due to AI funding needs', or 'lower policy rates "
+            "should compress spreads'. Plain causation is covered by is_causal."
+        ),
+    },
     "contains_verifiable_evidence": {
         "true": (
             "Contains checkable factual content: statistic/figure, quote, citation, "
