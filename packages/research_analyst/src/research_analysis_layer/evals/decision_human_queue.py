@@ -116,6 +116,61 @@ def load_answers(
     return latest, rejected
 
 
+STATEMENT_TYPE_MEANINGS = {
+    "assertion": "the author presents a proposition as true or likely",
+    "evidence_report": "a concrete datum, quote, chart or citation, or a prior event",
+    "question": "a genuinely unresolved or interrogative point",
+    "recommendation": (
+        "an action, policy, position or trade, including advice to hold, wait "
+        "or not act"
+    ),
+    "background_methodology": "framing, definitions, method or scene-setting",
+    "other_or_unclear": "none of these, or cannot tell",
+}
+STATEMENT_TYPE_AGENT_NOTE = (
+    "statement_type is multiple choice: read the options with their meanings "
+    "and record the chosen option id (for example 'assertion') as the answer. "
+    "If they cannot decide, record other_or_unclear with their reason as the note."
+)
+
+
+def add_statement_type_questions(queue: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a copy of the queue with a statement-type question on every item.
+
+    Review records need a human statement type. The question goes last, so
+    answered yes/no questions keep their place, and adding it twice is a no-op.
+    """
+    from research_analysis_layer.evals.decision_question_set import (
+        question_templates,
+    )
+
+    template = next(t for t in question_templates() if t.question_id == "statement_type")
+    if tuple(template.options) != STATEMENT_TYPES:
+        raise ValueError("statement-type options changed; update STATEMENT_TYPE_MEANINGS")
+    question = {
+        "question_id": "statement_type",
+        "ask": "Which best describes this sentence? Choose one.",
+        "options": [
+            {"answer": option, "means": STATEMENT_TYPE_MEANINGS[option]}
+            for option in STATEMENT_TYPES
+        ],
+        "allowed_answers": list(STATEMENT_TYPES),
+        "exact_wording": template.wording,
+    }
+    updated = json.loads(json.dumps(queue))
+    for item in updated["items"]:
+        if not any(q["question_id"] == "statement_type" for q in item["questions"]):
+            item["questions"].append(dict(question))
+    instructions = updated.setdefault("instructions_for_agent", [])
+    if STATEMENT_TYPE_AGENT_NOTE not in instructions:
+        instructions.append(STATEMENT_TYPE_AGENT_NOTE)
+    updated["counts"] = {
+        "items": len(updated["items"]),
+        "questions": sum(len(item["questions"]) for item in updated["items"]),
+    }
+    return updated
+
+
 def _model_answers(run_dir: Path, export_dir: Path) -> dict[str, dict[str, Any]]:
     """Per source_id: admitted/quarantined reference axes, blind passes, Jev."""
     jev = _jev_values(_artifact_paths(export_dir))
@@ -469,6 +524,7 @@ def _relative_under(path: Path, root: Path) -> str:
 __all__: Sequence[str] = (
     "load_answers",
     "load_queue",
+    "add_statement_type_questions",
     "score_human_queue",
     "write_human_review_records",
 )

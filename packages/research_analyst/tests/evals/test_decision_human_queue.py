@@ -18,6 +18,7 @@ from research_analysis_layer.evals.decision_agent_references import (
 )
 from research_analysis_layer.evals.decision_human_queue import (
     STATEMENT_TYPES,
+    add_statement_type_questions,
     score_human_queue,
     write_human_review_records,
 )
@@ -194,3 +195,21 @@ def test_only_items_with_a_human_statement_type_become_review_records(tmp_path: 
     approval = (root / result["approval_path"]).read_text()
     assert "## hq-002 / statement_type" in approval
     assert "changed my mind" in approval
+
+
+def test_statement_type_question_is_added_once_and_last() -> None:
+    queue = {
+        "items": [{"item_id": "hq-001", "questions": [_question("is_comparative")]}],
+        "instructions_for_agent": ["Go in order."],
+    }
+    once = add_statement_type_questions(queue)
+    twice = add_statement_type_questions(once)
+
+    assert twice == once
+    assert queue["items"][0]["questions"] == [_question("is_comparative")]
+    questions = once["items"][0]["questions"]
+    assert [q["question_id"] for q in questions] == ["is_comparative", "statement_type"]
+    assert questions[1]["allowed_answers"] == list(STATEMENT_TYPES)
+    assert [o["answer"] for o in questions[1]["options"]] == list(STATEMENT_TYPES)
+    assert once["counts"] == {"items": 1, "questions": 2}
+    assert len(once["instructions_for_agent"]) == 2
