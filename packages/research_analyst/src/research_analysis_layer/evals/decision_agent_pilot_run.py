@@ -464,3 +464,82 @@ __all__ = [
     "prepare_real_pilot",
     "run_prepared_pilot",
 ]
+
+
+def compare_jev_exports(
+    *, before_dir: Path, after_dir: Path, band_margin: float = 0.07
+) -> dict[str, Any]:
+    """How far Jev's answers moved between two exports of the same units.
+
+    Run it on two exports with the same question set to measure repeat noise,
+    or across a wording change to see what moved. Units whose batch changed
+    are counted separately, because Jev answers a whole batch at once and
+    neighbouring units can shift each other's answers.
+    """
+
+    def load(export_dir: Path) -> tuple[dict, dict, set]:
+        batches: dict[tuple[str, str], tuple[str, ...]] = {}
+        versions: set[tuple[str, str | None, str]] = set()
+        for path in _artifact_paths(export_dir):
+            artifact = load_shadow_artifact(path)
+            versions.add(
+                (
+                    artifact.question_set_version,
+                    artifact.question_set.content_hash if artifact.question_set else None,
+                    artifact.model_version,
+                )
+            )
+            for batch in artifact.batch_results:
+                members = tuple(sorted({r.target_unit_id for r in batch.results}))
+                for unit_id in members:
+                    batches[(artifact.document_key or "", unit_id)] = members
+        return _jev_values(_artifact_paths(export_dir)), batches, versions
+
+    before, before_batches, before_versions = load(before_dir)
+    after, after_batches, after_versions = load(after_dir)
+    shared = sorted(set(before) & set(after))
+    per_axis: dict[str, dict[str, Any]] = {}
+    for axis_id in AXIS_IDS:
+        moves: list[float] = []
+        changes: list[dict[str, Any]] = []
+        same_batch_changes = 0
+        for key in shared:
+            old, new = before[key][axis_id], after[key][axis_id]
+            if old["probability"] is not None and new["probability"] is not None:
+                moves.append(abs(old["probability"] - new["probability"]))
+            if old["value"] != new["value"]:
+                same_batch = before_batches.get(key) == after_batches.get(key)
+                same_batch_changes += same_batch
+                changes.append(
+                    {
+                        "document_id": key[0],
+                        "unit_id": key[1],
+                        "before": old,
+                        "after": new,
+                        "same_batch": same_batch,
+                    }
+                )
+        moves.sort()
+        per_axis[axis_id] = {
+            "compared": len(shared),
+            "value_changes": len(changes),
+            "value_changes_same_batch": same_batch_changes,
+            "yes_no_reversals": sum(
+                {c["before"]["value"], c["after"]["value"]} == {True, False}
+                for c in changes
+            ),
+            "mean_probability_move": sum(moves) / len(moves) if moves else None,
+            "p95_probability_move": moves[int(len(moves) * 0.95)] if moves else None,
+            "max_probability_move": moves[-1] if moves else None,
+            "changes": changes,
+        }
+    return {
+        "before": {"export_dir": str(before_dir), "versions": sorted(map(list, before_versions))},
+        "after": {"export_dir": str(after_dir), "versions": sorted(map(list, after_versions))},
+        "same_question_set": before_versions == after_versions,
+        "shared_units": len(shared),
+        "units_in_same_batch": sum(
+            before_batches.get(key) == after_batches.get(key) for key in shared
+        ),
+        "per_axis": per_axis,
+    }

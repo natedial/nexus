@@ -13,6 +13,7 @@ from research_analysis_layer.evals.decision_agent_models import (
 )
 from research_analysis_layer.evals.decision_agent_pilot_run import (
     build_jev_comparison,
+    compare_jev_exports,
     prepare_real_pilot,
     run_prepared_pilot,
 )
@@ -316,3 +317,25 @@ def test_invalid_unit_is_recorded_and_the_run_continues(tmp_path: Path) -> None:
     assert len(manifest["completed_source_ids"]) == 2
     failed = (run_dir / "failed_sources.jsonl").read_text().splitlines()
     assert "InvalidJudgmentResponse" in failed[0]
+
+
+def test_jev_drift_counts_value_changes_and_reversals(tmp_path: Path) -> None:
+    before = _export(tmp_path / "a")
+    after = _export(tmp_path / "b")
+
+    steady = compare_jev_exports(before_dir=before, after_dir=after)
+    assert steady["same_question_set"] is True
+    assert steady["shared_units"] == steady["units_in_same_batch"] == 2 * len(SUBSTANTIVE)
+    assert all(stats["value_changes"] == 0 for stats in steady["per_axis"].values())
+
+    # Flip one unit's is_causal answer from yes to no in the second export.
+    path = sorted((after / "artifacts").glob("*.json"))[0]
+    artifact = json.loads(path.read_text())
+    result = next(r for r in artifact["units"][0]["results"] if r["question_id"] == "is_causal")
+    old = result["distribution"]["selected"]
+    result["distribution"]["selected"] = "no" if old == "yes" else "yes"
+    path.write_text(json.dumps(artifact))
+
+    drift = compare_jev_exports(before_dir=before, after_dir=after)["per_axis"]["is_causal"]
+    assert drift["value_changes"] == drift["yes_no_reversals"] == 1
+    assert drift["value_changes_same_batch"] == 1

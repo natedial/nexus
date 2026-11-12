@@ -261,6 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
     pilot_report = pilot_sub.add_parser("report", help="Compare references with Jev")
     pilot_report.add_argument("--run-dir", type=Path, required=True)
     pilot_report.add_argument("--export-dir", type=Path, required=True)
+    jev_drift = pilot_sub.add_parser(
+        "jev-drift", help="Compare Jev answers between two exports of the same units (no spend)"
+    )
+    jev_drift.add_argument("--before", type=Path, required=True)
+    jev_drift.add_argument("--after", type=Path, required=True)
+    jev_drift.add_argument("--output", type=Path, required=True)
     human_score = pilot_sub.add_parser(
         "human-score", help="Score Jev and reference models against human queue answers"
     )
@@ -776,6 +782,30 @@ def cmd_decision_agent_pilot(args: argparse.Namespace) -> int:
             )
         )
         return 0 if manifest.get("status") == "complete" else 1
+    if args.pilot_action == "jev-drift":
+        from research_analysis_layer.evals.decision_agent_pilot_run import (
+            compare_jev_exports,
+        )
+
+        drift = compare_jev_exports(before_dir=args.before, after_dir=args.after)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(drift, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(
+            json.dumps(
+                {
+                    "same_question_set": drift["same_question_set"],
+                    "shared_units": drift["shared_units"],
+                    "units_in_same_batch": drift["units_in_same_batch"],
+                    "value_changes": {
+                        axis: stats["value_changes"]
+                        for axis, stats in drift["per_axis"].items()
+                        if stats["value_changes"]
+                    },
+                },
+                indent=2,
+            )
+        )
+        return 0
     if args.pilot_action in {"human-score", "human-reviews"}:
         from research_analysis_layer.evals.decision_human_queue import (
             score_human_queue,
