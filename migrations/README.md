@@ -46,3 +46,4 @@ Uses `RESEARCH_PARSER_DATABASE_URL` or `NEXUS_DATABASE_URL` (default
 | `003_pipeline_ops_schema.sql` | **Applied in Phase 4** — pipeline operations event schema and projections |
 | `004_supply_events.sql` | **Applied in Phase 4** — supply calendar events |
 | `005_pipeline_ops_control_plane.sql` | Central batch job catalog, incidents, and remediation audit |
+| `006_pipeline_ops_stale_running_kind.sql` | Allows the `stale_running` incident kind (widens `chk_pipeline_ops_incident_kind`) |
