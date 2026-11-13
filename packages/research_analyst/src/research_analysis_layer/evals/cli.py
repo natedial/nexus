@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 from research_analysis_layer.config import Settings
@@ -260,6 +261,33 @@ def build_parser() -> argparse.ArgumentParser:
     pilot_report = pilot_sub.add_parser("report", help="Compare references with Jev")
     pilot_report.add_argument("--run-dir", type=Path, required=True)
     pilot_report.add_argument("--export-dir", type=Path, required=True)
+    jev_drift = pilot_sub.add_parser(
+        "jev-drift", help="Compare Jev answers between two exports of the same units (no spend)"
+    )
+    jev_drift.add_argument("--before", type=Path, required=True)
+    jev_drift.add_argument("--after", type=Path, required=True)
+    jev_drift.add_argument("--output", type=Path, required=True)
+    human_score = pilot_sub.add_parser(
+        "human-score", help="Score Jev and reference models against human queue answers"
+    )
+    human_score.add_argument("--queue", type=Path, required=True)
+    human_score.add_argument("--answers", type=Path, default=None,
+                             help="Default: answers.jsonl next to the queue")
+    human_score.add_argument("--run-dir", type=Path, required=True)
+    human_score.add_argument("--export-dir", type=Path, required=True)
+    human_score.add_argument("--output", type=Path, default=None,
+                             help="Default: <run-dir>/human_scores (keep it away from the queue agent)")
+    human_reviews = pilot_sub.add_parser(
+        "human-reviews", help="Write agreed review records from human queue answers"
+    )
+    human_reviews.add_argument("--queue", type=Path, required=True)
+    human_reviews.add_argument("--answers", type=Path, default=None)
+    human_reviews.add_argument("--export-dir", type=Path, required=True)
+    human_reviews.add_argument("--artifact-root", type=Path, required=True,
+                               help="Common parent of the export and the queue folder")
+    human_reviews.add_argument("--output", type=Path, required=True)
+    human_reviews.add_argument("--reviewer", required=True)
+    human_reviews.add_argument("--review-date", type=date.fromisoformat, required=True)
 
     decision_eval_parser = subparsers.add_parser(
         "decision-eval",
@@ -754,6 +782,58 @@ def cmd_decision_agent_pilot(args: argparse.Namespace) -> int:
             )
         )
         return 0 if manifest.get("status") == "complete" else 1
+    if args.pilot_action == "jev-drift":
+        from research_analysis_layer.evals.decision_agent_pilot_run import (
+            compare_jev_exports,
+        )
+
+        drift = compare_jev_exports(before_dir=args.before, after_dir=args.after)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(drift, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(
+            json.dumps(
+                {
+                    "same_question_set": drift["same_question_set"],
+                    "shared_units": drift["shared_units"],
+                    "units_in_same_batch": drift["units_in_same_batch"],
+                    "value_changes": {
+                        axis: stats["value_changes"]
+                        for axis, stats in drift["per_axis"].items()
+                        if stats["value_changes"]
+                    },
+                },
+                indent=2,
+            )
+        )
+        return 0
+    if args.pilot_action in {"human-score", "human-reviews"}:
+        from research_analysis_layer.evals.decision_human_queue import (
+            score_human_queue,
+            write_human_review_records,
+        )
+
+        answers = args.answers or args.queue.parent / "answers.jsonl"
+        if args.pilot_action == "human-score":
+            report = score_human_queue(
+                queue_path=args.queue,
+                answers_path=answers,
+                run_dir=args.run_dir,
+                export_dir=args.export_dir,
+                output_dir=args.output or args.run_dir / "human_scores",
+            )
+            print(json.dumps(report["progress"]))
+            return 0
+        result = write_human_review_records(
+            queue_path=args.queue,
+            answers_path=answers,
+            export_dir=args.export_dir,
+            artifact_root=args.artifact_root,
+            output_path=args.output,
+            reviewer=args.reviewer,
+            review_date=args.review_date,
+        )
+        print(json.dumps(result, indent=2))
+        return 0
     report = build_jev_comparison(run_dir=args.run_dir, export_dir=args.export_dir)
     print(
         json.dumps(

@@ -1,7 +1,8 @@
 # Decision real-document pilot plan
 
-Status: approved 2026-11-09. Pilot 1 (v5) ran 2026-11-10; pilot 2 (v6) is
-next. See "Pilot 1 results and decisions" at the end.
+Status: approved 2026-11-09. Pilot 1 (v5) ran 2026-11-10 and pilot 2 (v6)
+ran 2026-11-11. Human labels for three questions are being collected. See
+the results sections at the end.
 
 Parent plan: [`2026-10-20-agent-reviewed-reference-expansion-plan.md`](2026-10-20-agent-reviewed-reference-expansion-plan.md), Slice 4 pilot.
 
@@ -239,3 +240,60 @@ reaccelerates, lower policy rates should compress credit spreads" changes to
 no reasoning bridge, since it names a driver without a mechanism. Both human
 reviewed labels still hold. Pilot 1 stays as the v5 record; pilot 2 reruns
 Jev and the reference models on the v3 units under the same $5 total cap.
+
+## Pilot 2 results
+
+Pilot 2 ran on 2026-11-11: v6 questions, exclusion rules v3, 42 units (the 8
+layout fragments are gone), $1.44. About $3.25 of the $5 cap is spent.
+
+- The v6 wording fixed the splits it targeted. `is_trade_or_action` split on
+  1 unit (12 in pilot 1) and Jev agrees on all 41 admitted labels.
+  `contains_reasoning_bridge` split on 5 (16 in pilot 1), but only 1 admitted
+  label is true, so it cannot be judged without more true examples.
+- Jev disagrees with both reference models most on `is_market_impact` (7 of
+  38 comparable), `is_risk_or_scenario` (7 of 38), `is_observation` (6 of 38)
+  and `is_comparative` (4 of 35). Almost every disagreement is Jev saying yes
+  where both models say no.
+
+## Human label queue
+
+`is_market_impact`, `is_risk_or_scenario` and `is_comparative` go to a human
+label queue (`human-queue-v6-20261111`, 31 sentences, 38 questions): the 18
+Jev disagreements, the 9 model splits, and 11 agreed controls. The queue file
+carries no model answers. An agent asks the questions at convenient times and
+appends answers to `answers.jsonl`.
+
+- `decision-agent-pilot human-score` scores Jev, each reference model, and the
+  admitted reference against the answers so far. Its output goes to the run
+  directory, which the queue agent does not read.
+- `decision-agent-pilot human-reviews` turns answers into agreed review
+  records with an approval trace that the release validator checks. A record
+  needs a human `statement_type`, which the queue does not ask yet, so no
+  records are written until it does.
+- The wording of these three questions stays frozen until the queue is done,
+  since the answers judge the v6 wording.
+
+## Jev repeatability
+
+`decision-agent-pilot jev-drift` compares Jev's answers between two exports.
+Two v6 exports of the same 42 units, sent as byte-identical batches, give:
+
+- Probabilities move on 239 of 504 answers: mean 0.008, 95th percentile
+  0.03, maximum 0.07. The variation is on Jev's side; our requests were
+  identical.
+- 7 answers change value, and every one moves into or out of the 0.45-0.55
+  uncertain band. None goes from yes to no.
+
+So run-to-run noise does not explain Jev's over-calling. All 18 queued
+disagreements have Jev probabilities of 0.57 or more, and 15 of them are more
+than 0.07 clear of the band.
+
+From v5 to v6 the answers moved much more (mean 0.064, 95th percentile 0.31),
+including on questions whose wording did not change: `is_observation` 8
+changes, `is_comparative` 6, `is_risk_or_scenario` 4. Every unit landed in a
+different batch, because the layout exclusions shifted batch boundaries, so
+two causes are mixed. Jev answers a whole batch at once, so neighbouring
+units can shift each other's answers. The rewording of other questions can
+do the same. Separating them would need one more Jev export with v6 and the
+pilot 1 batch layout. Until then, treat any Jev comparison across exports
+with different batches as including this movement.
