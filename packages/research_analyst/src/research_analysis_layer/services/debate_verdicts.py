@@ -67,8 +67,12 @@ def resolve_verdicts(
     ranked_scores: list[DebateScore],
     ranked_verdicts: list[DebateVerdict],
     ballots: list[JudgeBallot],
+    untested: bool = False,
 ) -> tuple[list[DebateScore], list[DebateVerdict]]:
-    """Return final scores and verdicts for every argument in the session."""
+    """Return final scores and verdicts for every argument in the session.
+
+    ``untested`` means the challenger failed, so surviving is not evidence.
+    """
     score_by_id = {score.argument_id: score for score in ranked_scores}
     ranked_by_id = {verdict.argument_id: verdict for verdict in ranked_verdicts}
     scores: list[DebateScore] = []
@@ -95,6 +99,9 @@ def resolve_verdicts(
             and ballot.votes[argument_id][0] != Label.ABSTAINED.value
         ]
         label, basis = _decide(score, ranked, votes)
+        if untested and label in _ACCEPT:
+            label = Label.NEEDS_MORE_EVIDENCE
+            basis = "Challenger failed, so it was never challenged."
         layers = [f"structure={ranked.verdict_label.value}"]
         for ballot in ballots:
             if argument_id in ballot.votes:

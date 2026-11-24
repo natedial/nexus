@@ -15,6 +15,7 @@ You receive the base deterministic payload. You may also receive `forum_context`
 - Arguments with verdict `contested` or `needs_more_evidence` are unresolved. Report them as unresolved. Do not promote them to the thesis.
 - Arguments with verdict `rejected` are context only.
 - If `forum_context.debate_held` is true and nothing was accepted, the debate settled nothing. Say so, describe what the author argues without endorsing it, and lower `confidence`.
+- If `forum_context.failed_rounds` is not empty, those rounds broke down. Do not read their silence as agreement.
 - If `forum_context` is absent, debate rounds were skipped: synthesize from the base payload (`assertions[]`, `evidence_units[]`, and `chunks[]`). Do not refuse. Do not say that forum context is required.
 
 ## Task

@@ -108,6 +108,7 @@ class DebateSessionBuilder:
                 for verdict in verdicts
             ],
             open_targets=[_handle(session, target) for target in open_targets],
+            failed_rounds=list(session.failed_rounds),
             omitted_argument_count=len(candidates) - len(arguments),
             budget=dict(budget or {}),
             world_context=world_context,

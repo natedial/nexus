@@ -393,6 +393,10 @@ class DebateSession(BaseModel):
     relations: list[DebateRelation] = Field(default_factory=list)
     scores: list[DebateScore] = Field(default_factory=list)
     verdicts: list[DebateVerdict] = Field(default_factory=list)
+    failed_rounds: list[str] = Field(
+        default_factory=list,
+        description="Rounds in which every agent failed, as opposed to abstaining",
+    )
     external_ref_keys: list[str] = Field(
         default_factory=list,
         description="Keys agents retrieved with tools, citable for the rest of the session",
@@ -444,6 +448,10 @@ class ForumContext(BaseModel):
     debate_held: bool = Field(
         default=True,
         description="True whenever a debate ran, even if no argument survived",
+    )
+    failed_rounds: list[str] = Field(
+        default_factory=list,
+        description="Rounds that produced nothing because every agent failed",
     )
     omitted_argument_count: int = Field(
         default=0,

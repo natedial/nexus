@@ -11,7 +11,12 @@ import pytest
 from research_analysis_layer.db.analysis_store import AnalysisStore
 from research_analysis_layer.services.agent_llm_client import AgentCallResult
 from research_analysis_layer.services.agent_registry import AgentConfig
-from research_analysis_layer.services.round_executor import AgentSpec, RoundConfig, RoundExecutor
+from research_analysis_layer.services.round_executor import (
+    AgentSpec,
+    DebateUnavailableError,
+    RoundConfig,
+    RoundExecutor,
+)
 
 SYNTHESIS = {
     "thesis": "t", "contrarian_view": "c", "recommended_positioning": "r", "confidence": 0.5,
@@ -208,5 +213,31 @@ def test_crash_mid_debate_marks_the_session_abandoned(tmp_path, monkeypatch):
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     with pytest.raises(RuntimeError):
         run(tmp_path)
+    store = AnalysisStore(tmp_path / "analysis.db")
+    assert store.load_debate_session("debate:7:h:v:1")["session"]["status"] == "abandoned"
+
+
+ACCEPT_BOTH = {
+    "adjudicator": ballot("accepted", "proposal:1"),
+    "adjudicator_independent": ballot("accepted", "proposal:1"),
+}
+
+
+@pytest.mark.parametrize("outage", [RuntimeError("401"), None])
+def test_challenger_outage_is_not_a_clean_bill_of_health(tmp_path, outage):
+    result = run(tmp_path, challenger=outage, **ACCEPT_BOTH)
+    assert labels(result) == {"proposal:1": "needs_more_evidence"}
+    assert "never challenged" in result.session["verdicts"][0]["reason"]
+    assert '"failed_rounds": ["challenge"]' in result.main.seen["synthesizer"]["messages"][0]["content"]
+
+
+def test_challenger_abstaining_is_different_from_an_outage(tmp_path):
+    result = run(tmp_path, challenger={"abstain": True, "abstain_reason": "sound"}, **ACCEPT_BOTH)
+    assert labels(result) == {"proposal:1": "accepted"}
+
+
+def test_debate_without_any_working_proposer_is_abandoned(tmp_path):
+    with pytest.raises(DebateUnavailableError):
+        run(tmp_path, proposer_thesis=RuntimeError("401"))
     store = AnalysisStore(tmp_path / "analysis.db")
     assert store.load_debate_session("debate:7:h:v:1")["session"]["status"] == "abandoned"

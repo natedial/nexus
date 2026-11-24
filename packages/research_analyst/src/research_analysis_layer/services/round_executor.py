@@ -60,6 +60,10 @@ _NO_TOOLS_NOTE = (
 )
 
 
+class DebateUnavailableError(RuntimeError):
+    """No proposer produced output, so there was no debate to hold."""
+
+
 @dataclass
 class RoundConfig:
     """Configuration for a round of agent execution."""
@@ -309,6 +313,11 @@ class RoundExecutor:
                     )
 
                 if debate_session is not None and round_config.writes_forum_state:
+                    if result.failed_count == len(result.agent_results):
+                        if round_config.name == "proposal":
+                            raise DebateUnavailableError("every proposer failed")
+                        logger.warning("Debate round %s failed", round_config.name)
+                        debate_session.failed_rounds.append(round_config.name)
                     debate_outputs = self._collect_debate_round_outputs(
                         round_config=round_config,
                         result=result,
@@ -1008,6 +1017,7 @@ class RoundExecutor:
                 )
                 for output in round_outputs
             ],
+            untested="challenge" in session.failed_rounds,
         )
         resolved = [
             output.model_copy(update={"scores": [], "verdicts": []})
