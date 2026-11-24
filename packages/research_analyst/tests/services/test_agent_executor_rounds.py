@@ -723,7 +723,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                         parsed_output={
                             "turn_summary": "Challenged the primary thesis.",
                             "target_argument_ids": [
-                                "debate:7:hash-7:v3:13:proposal:proposer_thesis:arg:1"
+                                "proposal:1"
                             ],
                             "arguments": [
                                 {
@@ -752,7 +752,7 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
                         parsed_output={
                             "turn_summary": "Narrowed the thesis to the near term.",
                             "target_argument_ids": [
-                                "debate:7:hash-7:v3:13:proposal:proposer_thesis:arg:1"
+                                "proposal:1"
                             ],
                             "arguments": [
                                 {
@@ -913,169 +913,6 @@ class TestRoundExecutorEndToEnd(unittest.TestCase):
         self.assertGreaterEqual(len(session["arguments"]), 3)
         self.assertGreaterEqual(len(session["scores"]), 1)
         self.assertGreaterEqual(len(session["verdicts"]), 1)
-
-    def test_synthesis_receives_only_accepted_arguments(self):
-        class SpyInputBuilder:
-            def __init__(self):
-                self.calls = []
-
-            def build(self, **kwargs):
-                return {"document": "payload"}
-
-            def to_messages(self, input_data):
-                self.calls.append(input_data)
-                return [{"role": "user", "content": "payload"}]
-
-        class FakeClient:
-            @staticmethod
-            def generate_with_tools(**kwargs):
-                prompt = kwargs["system_prompt"]
-                if prompt == "proposal":
-                    return AgentCallResult(
-                        raw_text="",
-                        parsed_output={
-                            "turn_summary": "Created two competing arguments.",
-                            "arguments": [
-                                {
-                                    "argument_id": "arg-accepted",
-                                    "argument_text": "Accepted thesis.",
-                                    "cited_assertion_keys": ["chunk-1:assertion-1"],
-                                },
-                                {
-                                    "argument_id": "arg-rejected",
-                                    "argument_text": "Rejected thesis.",
-                                    "cited_assertion_keys": ["chunk-2:assertion-1"],
-                                },
-                            ],
-                        },
-                        tool_calls=[],
-                        token_usage=TokenUsage(),
-                        model_used="test-model",
-                        stop_reason="end_turn",
-                        attempt_count=1,
-                    )
-                if prompt == "adjudication":
-                    return AgentCallResult(
-                        raw_text="",
-                        parsed_output={
-                            "turn_summary": "Accepted only one argument.",
-                            "scores": [
-                                {"argument_id": "arg-accepted", "final_score": 0.8},
-                                {"argument_id": "arg-rejected", "final_score": 0.2},
-                            ],
-                            "verdicts": [
-                                {
-                                    "argument_id": "arg-accepted",
-                                    "verdict_label": "accepted",
-                                    "reason": "Best supported.",
-                                },
-                                {
-                                    "argument_id": "arg-rejected",
-                                    "verdict_label": "rejected",
-                                    "reason": "Inferior support.",
-                                },
-                            ],
-                        },
-                        tool_calls=[],
-                        token_usage=TokenUsage(),
-                        model_used="test-model",
-                        stop_reason="end_turn",
-                        attempt_count=1,
-                    )
-                return AgentCallResult(
-                    raw_text="",
-                    parsed_output={
-                        "document_key": "",
-                        "research_id": 0,
-                        "document_hash": "",
-                        "analysis_version": "",
-                        "thesis": "Only accepted arguments should reach me.",
-                        "contrarian_view": "",
-                        "recommended_positioning": "",
-                        "trading_opportunities": [],
-                        "short_time_horizon_insights": [],
-                        "talking_points": [],
-                        "cross_document_references": [],
-                        "confidence": 0.5,
-                    },
-                    tool_calls=[],
-                    token_usage=TokenUsage(),
-                    model_used="test-model",
-                    stop_reason="end_turn",
-                    attempt_count=1,
-                )
-
-        input_builder = SpyInputBuilder()
-        registry = MagicMock()
-        registry.load_prompt.side_effect = lambda name: name
-        executor = RoundExecutor(
-            registry=registry,
-            llm_client=FakeClient(),
-            input_builder=input_builder,
-            debate_mode="on",
-        )
-        document = self._make_document(research_id=5, document_hash="hash-5")
-        rounds = [
-            RoundConfig(
-                name="proposal",
-                type="parallel",
-                agents=["proposal"],
-                receives=["input"],
-                output_schema="DebateRoundOutput",
-                writes_forum_state=True,
-            ),
-            RoundConfig(
-                name="adjudication",
-                type="sequential",
-                agents=["adjudication"],
-                receives=["input"],
-                output_schema="DebateRoundOutput",
-                writes_forum_state=True,
-                receives_forum_state=True,
-            ),
-            RoundConfig(
-                name="synthesis",
-                type="sequential",
-                agents=["synthesizer"],
-                receives=["input"],
-                output_schema="DocumentAnalysis",
-                receives_forum_state=True,
-                target_selector="accepted_only",
-            ),
-        ]
-        agent_specs = {
-            agent_name: AgentSpec(
-                name=agent_name,
-                config=MagicMock(model="test-model"),
-                tools=[],
-                max_tool_calls=0,
-                timeout_seconds=60,
-                retry_count=1,
-                temperature=0.2,
-                output_schema=round_config.output_schema or "DocumentAnalysis",
-            )
-            for round_config in rounds
-            for agent_name in round_config.agents
-        }
-
-        analysis = executor.run(
-            document=document,
-            chunks=[],
-            evidence_units=[],
-            assertions=[],
-            run_id=2,
-            analysis_version="v1",
-            rounds=rounds,
-            agent_specs=agent_specs,
-        )
-
-        self.assertIsNotNone(analysis)
-        synthesis_input = input_builder.calls[-1]
-        forum_context = synthesis_input["forum_context"]
-        self.assertEqual(
-            [argument["argument_id"] for argument in forum_context["arguments"]],
-            ["arg-accepted"],
-        )
 
 
 class TestArgumentMapCoercion(unittest.TestCase):

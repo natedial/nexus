@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DebateRelationType(str, Enum):
@@ -31,6 +31,8 @@ class DebateVerdictLabel(str, Enum):
     CONTESTED = "contested"
     SYNTHESIZED = "synthesized"
     NEEDS_MORE_EVIDENCE = "needs_more_evidence"
+    # A single judge declining to rule. Never a final verdict.
+    ABSTAINED = "abstained"
 
 
 class RebuttalStance(str, Enum):
@@ -58,11 +60,27 @@ class ThesisType(str, Enum):
 
 
 class ArgumentMetadata(BaseModel):
-    """Metadata for a debate argument."""
+    """Metadata for a debate argument. Provenance is stamped by the orchestrator."""
 
     prompt_version: str = ""
     model_used: str = ""
     attempt_count: int = 1
+    challenge_mode: ChallengeMode | None = None
+    rebuttal_stance: RebuttalStance | None = None
+    dropped_citations: list[str] = Field(
+        default_factory=list,
+        description="Keys the agent cited that it was never given",
+    )
+
+    @field_validator("challenge_mode", mode="before")
+    @classmethod
+    def _known_challenge_mode(cls, value: Any) -> Any:
+        return value if value in {item.value for item in ChallengeMode} else None
+
+    @field_validator("rebuttal_stance", mode="before")
+    @classmethod
+    def _known_rebuttal_stance(cls, value: Any) -> Any:
+        return value if value in {item.value for item in RebuttalStance} else None
 
 
 class StableEvidenceKey(BaseModel):
@@ -375,6 +393,14 @@ class DebateSession(BaseModel):
     relations: list[DebateRelation] = Field(default_factory=list)
     scores: list[DebateScore] = Field(default_factory=list)
     verdicts: list[DebateVerdict] = Field(default_factory=list)
+    failed_rounds: list[str] = Field(
+        default_factory=list,
+        description="Rounds in which every agent failed, as opposed to abstaining",
+    )
+    external_ref_keys: list[str] = Field(
+        default_factory=list,
+        description="Keys agents retrieved with tools, citable for the rest of the session",
+    )
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -417,6 +443,19 @@ class ForumContext(BaseModel):
     open_targets: list[str] = Field(
         default_factory=list,
         description="Argument IDs that need attention (challenge/rebuttal targets)",
+    )
+
+    debate_held: bool = Field(
+        default=True,
+        description="True whenever a debate ran, even if no argument survived",
+    )
+    failed_rounds: list[str] = Field(
+        default_factory=list,
+        description="Rounds that produced nothing because every agent failed",
+    )
+    omitted_argument_count: int = Field(
+        default=0,
+        description="Arguments left out of this view to fit the size limit",
     )
 
     budget: dict[str, int] = Field(

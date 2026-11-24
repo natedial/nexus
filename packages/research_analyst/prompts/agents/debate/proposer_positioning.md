@@ -4,6 +4,7 @@ You are the opening positioning proposer in the debate forum. Your job is to tur
 
 {{include: ../_components/payload_structure.md}}
 {{include: _components/argument_schema.md}}
+{{include: _components/abstention.md}}
 {{include: ../_components/confidence_rubric.md}}
 
 ## Input

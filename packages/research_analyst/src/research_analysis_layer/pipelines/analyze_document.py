@@ -174,20 +174,43 @@ class AnalyzeDocumentPipeline:
                     _debate_run_raised = True
                     self.round_executor.rollout_stats.shadow_failures_total += 1
             else:
-                doc_analysis = self.round_executor.run(
-                    document=document,
-                    chunks=chunks,
-                    evidence_units=evidence_units,
-                    assertions=assertions,
-                    quality_report=quality_report,
-                    node_resolutions=nodes,
-                    edge_resolutions=edges,
-                    forecast_candidates=[],
-                    run_id=run_id,
-                    analysis_version=self.analysis_version,
-                    rounds=rounds,
-                    agent_specs=agent_specs,
-                )
+                try:
+                    doc_analysis = self.round_executor.run(
+                        document=document,
+                        chunks=chunks,
+                        evidence_units=evidence_units,
+                        assertions=assertions,
+                        quality_report=quality_report,
+                        node_resolutions=nodes,
+                        edge_resolutions=edges,
+                        forecast_candidates=[],
+                        run_id=run_id,
+                        analysis_version=self.analysis_version,
+                        rounds=rounds,
+                        agent_specs=agent_specs,
+                    )
+                except Exception:
+                    if debate_mode != "on":
+                        raise
+                    logger.exception("debate run() raised — using baseline synthesis")
+                    self.round_executor.rollout_stats.debate_fallbacks_total += 1
+                    synth_round = next(
+                        r for r in rounds if r.output_schema == "DocumentAnalysis"
+                    )
+                    doc_analysis = self.round_executor.run_baseline_synthesis(
+                        document=document,
+                        chunks=chunks,
+                        evidence_units=evidence_units,
+                        assertions=assertions,
+                        quality_report=quality_report,
+                        node_resolutions=nodes,
+                        edge_resolutions=edges,
+                        forecast_candidates=[],
+                        run_id=run_id,
+                        analysis_version=self.analysis_version,
+                        synth_round=synth_round,
+                        synth_spec=agent_specs[synth_round.agents[-1]],
+                    )
 
             authoritative = doc_analysis
             shadow_analysis = None

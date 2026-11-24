@@ -211,5 +211,9 @@ class DocumentAnalysis(BaseModel):
     forecast_candidates: list[dict[str, Any]] = Field(
         default_factory=list, description="Forecast candidates extracted"
     )
+    open_disputes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Unsettled debate claims and standing challenges. Orchestrator-authoritative.",
+    )
     argument_map: list[ClaimNode] = Field(default_factory=list)
     argument_map_meta: ArgumentMapMeta | None = None

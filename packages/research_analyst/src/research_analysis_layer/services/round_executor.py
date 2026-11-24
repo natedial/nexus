@@ -25,14 +25,8 @@ from research_analysis_layer.models.agent_outputs import (
     TradingOpportunity,
 )
 from research_analysis_layer.models.debate_models import (
-    DebateArgument,
-    DebateRelation,
     DebateRoundOutput,
-    DebateScore,
     DebateSession,
-    DebateTurn,
-    DebateVerdict,
-    ThesisType,
 )
 from research_analysis_layer.parsed_payload import (
     identity_fields,
@@ -46,10 +40,28 @@ from research_analysis_layer.services.agent_llm_client import (
     TokenUsage,
 )
 from research_analysis_layer.services.agent_registry import AgentConfig, AgentRegistry
+from research_analysis_layer.services.debate_normalizer import DebateOutputNormalizer
 from research_analysis_layer.services.debate_ranker import DebateRanker
 from research_analysis_layer.services.debate_session_builder import DebateSessionBuilder
+from research_analysis_layer.services.debate_threads import select_thread_arguments
+from research_analysis_layer.services.debate_verdicts import (
+    JudgeBallot,
+    build_open_disputes,
+    resolve_verdicts,
+)
+from research_analysis_layer.services.model_family import model_family
+from research_analysis_layer.services.tools.as_of import AsOfScope, parse_day
 
 logger = logging.getLogger(__name__)
+
+_NO_TOOLS_NOTE = (
+    "Tools are unavailable in this run. Work only from the supplied payload and "
+    "do not claim to have searched anything."
+)
+
+
+class DebateUnavailableError(RuntimeError):
+    """No proposer produced output, so there was no debate to hold."""
 
 
 @dataclass
@@ -65,6 +77,15 @@ class RoundConfig:
     writes_forum_state: bool = False
     receives_forum_state: bool = False
     target_selector: str | None = None
+    # Agents see no authorship, scores or verdicts, and nothing from each other.
+    blind: bool = False
+
+    def __post_init__(self) -> None:
+        if self.blind and self.type != "parallel":
+            raise ValueError(
+                f"blind round {self.name!r} must be parallel: sequential rounds "
+                "pass one agent's output to the next"
+            )
 
 
 @dataclass
@@ -100,6 +121,7 @@ class RolloutStats:
     shadow_runs_total: int = 0
     shadow_failures_total: int = 0
     shadow_debate_truncated_total: int = 0
+    debate_fallbacks_total: int = 0
     baseline_input_tokens: int = 0
     baseline_output_tokens: int = 0
     debate_input_tokens: int = 0
@@ -132,6 +154,7 @@ class RoundExecutor:
         debate_mode: str = "off",
         debate_judge_model: str | None = None,
         max_debate_arguments: int = 8,
+        provider_clients: dict[str, Any] | None = None,
     ):
         self.registry = registry
         self.llm_client = llm_client
@@ -143,6 +166,7 @@ class RoundExecutor:
         self.debate_mode = debate_mode
         self.debate_judge_model = debate_judge_model
         self.max_debate_arguments = max_debate_arguments
+        self.provider_clients = dict(provider_clients or {})
         self.rollout_stats = RolloutStats()
         self._last_synthesizer_input: dict[str, Any] | None = None
 
@@ -190,9 +214,19 @@ class RoundExecutor:
         )
         session_truncated_flag: dict[str, bool] = {"v": False}
         agent_specs = self._apply_judge_model_override(agent_specs)
+        allowed_ref_keys: set[str] = set()
+        if debate_session is not None:
+            allowed_ref_keys = self._allowed_argument_ref_keys(
+                document=document,
+                chunks=chunks,
+                evidence_units=evidence_units,
+                assertions=assertions,
+                figure_keys=set(figures_for_document(document)),
+            )
 
         if self.tool_registry is not None:
             self.tool_registry.set_invocation_budget(max_total_tool_calls)
+            self.tool_registry.set_as_of_scope(self._as_of_scope(document))
 
         _debate_start = time.time() if self.debate_mode != "off" else None
         try:
@@ -221,6 +255,7 @@ class RoundExecutor:
                             node_resolutions=node_resolutions or [],
                             edge_resolutions=edge_resolutions or [],
                         ),
+                        blind=round_config.blind,
                     )
                     forum_context_raw = forum_context_model.model_dump()
                     forum_context_dict, truncated = self._apply_argument_cap(
@@ -278,16 +313,23 @@ class RoundExecutor:
                     )
 
                 if debate_session is not None and round_config.writes_forum_state:
+                    if result.failed_count == len(result.agent_results):
+                        if round_config.name == "proposal":
+                            raise DebateUnavailableError("every proposer failed")
+                        logger.warning("Debate round %s failed", round_config.name)
+                        debate_session.failed_rounds.append(round_config.name)
                     debate_outputs = self._collect_debate_round_outputs(
                         round_config=round_config,
                         result=result,
                         session=debate_session,
                         turn_order=turn_order,
+                        allowed_ref_keys=allowed_ref_keys,
                     )
                     if round_config.name == "adjudication":
                         debate_outputs = self._supplement_adjudication_outputs(
                             session=debate_session,
                             round_outputs=debate_outputs,
+                            result=result,
                         )
                     debate_session = self._persist_debate_round_outputs(
                         session=debate_session,
@@ -303,9 +345,16 @@ class RoundExecutor:
                             debate_session.session_id, "abandoned"
                         )
                     return None
+        except Exception:
+            if debate_session is not None and self.analysis_store is not None:
+                self.analysis_store.update_debate_session_status(
+                    debate_session.session_id, "abandoned"
+                )
+            raise
         finally:
             if self.tool_registry is not None:
                 self.tool_registry.clear_invocation_budget()
+                self.tool_registry.set_as_of_scope(None)
 
         if _debate_start is not None:
             self.rollout_stats.debate_duration_ms += int(
@@ -330,6 +379,16 @@ class RoundExecutor:
             run_id=run_id,
             analysis_version=analysis_version,
             round_traces=all_round_traces,
+            open_disputes=(
+                build_open_disputes(
+                    session_id=debate_session.session_id,
+                    arguments=debate_session.arguments,
+                    relations=debate_session.relations,
+                    verdicts=debate_session.verdicts,
+                )
+                if debate_session is not None
+                else []
+            ),
         )
 
     def run_baseline_synthesis(
@@ -359,21 +418,27 @@ class RoundExecutor:
             prior_outputs={},
             forum_context=None,
         )
-        result = self._execute_sequential_round(
-            round_config=RoundConfig(
-                name=synth_round.name,
-                type="sequential",
-                agents=[synth_spec.name],
-                receives=synth_round.receives,
-                output_schema=synth_round.output_schema,
-            ),
-            agent_specs={synth_spec.name: synth_spec},
-            merged_input=merged_input,
-            run_id=run_id,
-            analysis_version=analysis_version,
-            max_total_tool_calls=None,
-            total_tool_calls=0,
-        )
+        if self.tool_registry is not None:
+            self.tool_registry.set_as_of_scope(self._as_of_scope(document))
+        try:
+            result = self._execute_sequential_round(
+                round_config=RoundConfig(
+                    name=synth_round.name,
+                    type="sequential",
+                    agents=[synth_spec.name],
+                    receives=synth_round.receives,
+                    output_schema=synth_round.output_schema,
+                ),
+                agent_specs={synth_spec.name: synth_spec},
+                merged_input=merged_input,
+                run_id=run_id,
+                analysis_version=analysis_version,
+                max_total_tool_calls=None,
+                total_tool_calls=0,
+            )
+        finally:
+            if self.tool_registry is not None:
+                self.tool_registry.set_as_of_scope(None)
         duration_ms = int((time.time() - start) * 1000)
         self.rollout_stats.baseline_input_tokens += result.token_usage.input_tokens
         self.rollout_stats.baseline_output_tokens += result.token_usage.output_tokens
@@ -561,12 +626,25 @@ class RoundExecutor:
             error_result.agent_name = agent_name
             return error_result
 
+        client = self._client_for(spec)
+        if client is None:
+            error_result = self._create_error_result(
+                f"No client for provider {spec.config.provider!r}"
+            )
+            error_result.agent_name = agent_name
+            return error_result
+
         messages = self.input_builder.to_messages(merged_input)
+        if getattr(client, "supports_tools", True) is False:
+            tools, max_tool_calls = [], 0
+        configured_tools = getattr(spec.config, "tools", None)
+        if isinstance(configured_tools, list) and configured_tools and not tools:
+            messages = [*messages, {"role": "user", "content": _NO_TOOLS_NOTE}]
         last_error = None
 
         for attempt in range(spec.retry_count):
             try:
-                result = self.llm_client.generate_with_tools(
+                result = client.generate_with_tools(
                     system_prompt=prompt,
                     messages=messages,
                     tools=tools,
@@ -598,6 +676,26 @@ class RoundExecutor:
         )
         error_result.agent_name = agent_name
         return error_result
+
+    @staticmethod
+    def _as_of_scope(document: Any) -> AsOfScope:
+        return AsOfScope(
+            as_of=parse_day(
+                getattr(getattr(document, "document", None), "source_date", None)
+            ),
+            exclude_research_id=getattr(document, "research_id", None),
+        )
+
+    def _client_for(self, spec: AgentSpec) -> Any | None:
+        provider = getattr(spec.config, "provider", None)
+        if not isinstance(provider, str) or not provider:
+            return self.llm_client
+        client = self.provider_clients.get(provider)
+        if client is None:
+            logger.warning(
+                "Agent %s needs provider %s, which is not configured", spec.name, provider
+            )
+        return client
 
     def _extract_angle_from_result(self, result: AgentCallResult) -> DocumentAngle:
         """Extract a DocumentAngle from an agent result.
@@ -794,15 +892,30 @@ class RoundExecutor:
         args = forum_context.get("arguments") or []
         if len(args) <= self.max_debate_arguments:
             return forum_context, False
+        kept = select_thread_arguments(args, self.max_debate_arguments)
+        kept_ids = {a.get("argument_id") for a in kept}
         trimmed = dict(forum_context)
-        kept_ids = {a.get("argument_id") for a in args[: self.max_debate_arguments]}
-        trimmed["arguments"] = args[: self.max_debate_arguments]
+        trimmed["arguments"] = kept
         trimmed["relations"] = [
             r
             for r in (forum_context.get("relations") or [])
             if r.get("source_argument_id") in kept_ids
             and r.get("target_argument_id") in kept_ids
         ]
+        for name in ("scores", "verdicts"):
+            trimmed[name] = [
+                item
+                for item in (forum_context.get(name) or [])
+                if item.get("argument_id") in kept_ids
+            ]
+        trimmed["open_targets"] = [
+            target
+            for target in (forum_context.get("open_targets") or [])
+            if target in kept_ids
+        ]
+        trimmed["omitted_argument_count"] = (
+            forum_context.get("omitted_argument_count") or 0
+        ) + (len(args) - len(kept))
         return trimmed, True
 
     def _note_truncation(self, *, session_truncated_flag: dict[str, bool]) -> None:
@@ -851,248 +964,70 @@ class RoundExecutor:
         result: RoundResult,
         session: DebateSession,
         turn_order: int,
+        allowed_ref_keys: set[str],
     ) -> list[DebateRoundOutput]:
-        outputs: list[DebateRoundOutput] = []
-        for agent_result in result.agent_results:
-            outputs.append(
-                self._normalize_debate_round_output(
-                    round_name=round_config.name,
-                    output_schema=round_config.output_schema,
-                    session=session,
-                    agent_result=agent_result,
-                    turn_order=turn_order,
-                )
-            )
-        return outputs
-
-    def _normalize_debate_round_output(
-        self,
-        *,
-        round_name: str,
-        output_schema: str,
-        session: DebateSession,
-        agent_result: AgentCallResult,
-        turn_order: int,
-    ) -> DebateRoundOutput:
-        if output_schema != "DebateRoundOutput" or not isinstance(
-            agent_result.parsed_output, dict
-        ):
-            turn = DebateTurn(
-                turn_id=f"{session.session_id}:{round_name}:{turn_order}:{agent_result.agent_name or 'unknown'}",
-                session_id=session.session_id,
-                turn_name=round_name,  # type: ignore[arg-type]
-                turn_order=turn_order,
-                agent_name=agent_result.agent_name or "unknown",
-                target_argument_ids=[],
-                turn_summary="Round failed to emit structured debate output.",
-            )
-            return DebateRoundOutput(turn=turn, error="invalid_round_output")
-
-        payload = dict(agent_result.parsed_output)
-        target_argument_ids = list(payload.get("target_argument_ids") or [])
-        arguments = self._normalize_debate_arguments(
+        normalizer = DebateOutputNormalizer(
             session=session,
-            round_name=round_name,
-            agent_name=agent_result.agent_name or "unknown",
-            target_argument_ids=target_argument_ids,
-            raw_arguments=payload.get("arguments") or [],
-        )
-        relations = self._normalize_debate_relations(
-            session=session,
-            raw_relations=payload.get("relations") or [],
-            arguments=arguments,
-            target_argument_ids=target_argument_ids,
-        )
-        if not target_argument_ids:
-            target_argument_ids = self._collect_target_argument_ids(
-                relations, arguments
-            )
-        scores = self._normalize_debate_scores(
-            session=session,
-            raw_scores=payload.get("scores") or [],
-            target_argument_ids=target_argument_ids,
-        )
-        verdicts = self._normalize_debate_verdicts(
-            session=session,
-            raw_verdicts=payload.get("verdicts") or [],
-            target_argument_ids=target_argument_ids,
-        )
-        turn = DebateTurn(
-            turn_id=f"{session.session_id}:{round_name}:{turn_order}:{agent_result.agent_name or 'unknown'}",
-            session_id=session.session_id,
-            turn_name=round_name,  # type: ignore[arg-type]
+            round_name=round_config.name,
             turn_order=turn_order,
-            agent_name=agent_result.agent_name or "unknown",
-            target_argument_ids=target_argument_ids,
-            turn_summary=payload.get("turn_summary", ""),
+            output_schema=round_config.output_schema,
+            allowed_ref_keys=allowed_ref_keys,
+            prompt_version_for=self._prompt_version,
         )
-        return DebateRoundOutput(
-            turn=turn,
-            arguments=arguments,
-            relations=relations,
-            scores=scores,
-            verdicts=verdicts,
+        # Parallel agents finish in any order; config order keeps IDs stable.
+        order = {name: index for index, name in enumerate(round_config.agents)}
+        ordered = sorted(
+            result.agent_results,
+            key=lambda item: order.get(item.agent_name or "", len(order)),
         )
+        return [normalizer.normalize(agent_result) for agent_result in ordered]
 
-    def _normalize_debate_arguments(
-        self,
-        *,
-        session: DebateSession,
-        round_name: str,
-        agent_name: str,
-        target_argument_ids: list[str],
-        raw_arguments: list[dict[str, Any]],
-    ) -> list[DebateArgument]:
-        arguments: list[DebateArgument] = []
-        for index, raw_argument in enumerate(raw_arguments, start=1):
-            payload = dict(raw_argument)
-            payload.setdefault(
-                "argument_id",
-                f"{session.session_id}:{round_name}:{agent_name}:arg:{index}",
-            )
-            payload.setdefault("session_id", session.session_id)
-            payload.setdefault("turn_name", round_name)
-            payload.setdefault("agent_name", agent_name)
-            payload.setdefault(
-                "target_claim_id",
-                target_argument_ids[0]
-                if target_argument_ids
-                else payload.get("target_claim_id"),
-            )
-            payload.setdefault(
-                "thesis_type", self._infer_thesis_type(agent_name, round_name)
-            )
-            arguments.append(DebateArgument.model_validate(payload))
-        return arguments
-
-    def _normalize_debate_relations(
-        self,
-        *,
-        session: DebateSession,
-        raw_relations: list[dict[str, Any]],
-        arguments: list[DebateArgument],
-        target_argument_ids: list[str],
-    ) -> list[DebateRelation]:
-        relations: list[DebateRelation] = []
-        default_source_id = arguments[0].argument_id if arguments else None
-        default_target_id = target_argument_ids[0] if target_argument_ids else None
-        for index, raw_relation in enumerate(raw_relations, start=1):
-            payload = dict(raw_relation)
-            payload.setdefault(
-                "relation_id",
-                f"{session.session_id}:relation:{len(session.relations) + index}",
-            )
-            payload.setdefault("session_id", session.session_id)
-            payload.setdefault("source_argument_id", default_source_id)
-            payload.setdefault("target_argument_id", default_target_id)
-            relations.append(DebateRelation.model_validate(payload))
-        return relations
-
-    def _normalize_debate_scores(
-        self,
-        *,
-        session: DebateSession,
-        raw_scores: list[dict[str, Any]],
-        target_argument_ids: list[str],
-    ) -> list[DebateScore]:
-        scores: list[DebateScore] = []
-        for index, raw_score in enumerate(raw_scores, start=1):
-            payload = dict(raw_score)
-            payload.setdefault(
-                "score_id",
-                f"{session.session_id}:score:{payload.get('argument_id', index)}",
-            )
-            payload.setdefault("session_id", session.session_id)
-            payload.setdefault(
-                "argument_id",
-                target_argument_ids[0]
-                if target_argument_ids
-                else payload.get("argument_id"),
-            )
-            scores.append(DebateScore.model_validate(payload))
-        return scores
-
-    def _normalize_debate_verdicts(
-        self,
-        *,
-        session: DebateSession,
-        raw_verdicts: list[dict[str, Any]],
-        target_argument_ids: list[str],
-    ) -> list[DebateVerdict]:
-        verdicts: list[DebateVerdict] = []
-        for index, raw_verdict in enumerate(raw_verdicts, start=1):
-            payload = dict(raw_verdict)
-            payload.setdefault(
-                "verdict_id",
-                f"{session.session_id}:verdict:{payload.get('argument_id', index)}",
-            )
-            payload.setdefault("session_id", session.session_id)
-            payload.setdefault(
-                "argument_id",
-                target_argument_ids[0]
-                if target_argument_ids
-                else payload.get("argument_id"),
-            )
-            verdicts.append(DebateVerdict.model_validate(payload))
-        return verdicts
-
-    @staticmethod
-    def _collect_target_argument_ids(
-        relations: list[DebateRelation], arguments: list[DebateArgument]
-    ) -> list[str]:
-        target_ids = [relation.target_argument_id for relation in relations]
-        if target_ids:
-            return target_ids
-        return [
-            argument.target_claim_id
-            for argument in arguments
-            if argument.target_claim_id
-        ]
-
-    @staticmethod
-    def _infer_thesis_type(agent_name: str, round_name: str) -> ThesisType:
-        if "position" in agent_name:
-            return ThesisType.POSITIONING
-        if "challeng" in agent_name or "rebut" in round_name:
-            return ThesisType.CONTRARIAN
-        return ThesisType.THESIS
+    def _prompt_version(self, agent_name: str) -> str:
+        try:
+            prompt = self.registry.load_prompt(agent_name)
+        except Exception as exc:
+            logger.warning("Prompt could not be loaded for %s: %s", agent_name, exc)
+            return ""
+        if not isinstance(prompt, str) or not prompt:
+            return ""
+        return f"prompt:{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:16]}"
 
     def _supplement_adjudication_outputs(
         self,
         *,
         session: DebateSession,
         round_outputs: list[DebateRoundOutput],
+        result: RoundResult,
     ) -> list[DebateRoundOutput]:
+        """Replace raw judge rulings with resolved verdicts for every argument."""
         ranked_scores, ranked_verdicts = self.debate_ranker.rank_arguments(
             session_id=session.session_id,
             arguments=session.arguments,
             relations=session.relations,
         )
-
-        supplemented: list[DebateRoundOutput] = []
-        for round_output in round_outputs:
-            scores = list(round_output.scores)
-            verdicts = list(round_output.verdicts)
-            existing_score_ids = {score.argument_id for score in scores}
-            existing_verdict_ids = {verdict.argument_id for verdict in verdicts}
-
-            for score in ranked_scores:
-                if score.argument_id not in existing_score_ids:
-                    scores.append(score)
-            for verdict in ranked_verdicts:
-                if verdict.argument_id not in existing_verdict_ids:
-                    verdicts.append(verdict)
-            supplemented.append(
-                DebateRoundOutput(
-                    turn=round_output.turn,
-                    arguments=round_output.arguments,
-                    relations=round_output.relations,
-                    scores=scores,
-                    verdicts=verdicts,
-                    error=round_output.error,
+        model_by_agent = {item.agent_name: item.model_used for item in result.agent_results}
+        scores, verdicts = resolve_verdicts(
+            arguments=session.arguments,
+            relations=session.relations,
+            ranked_scores=ranked_scores,
+            ranked_verdicts=ranked_verdicts,
+            ballots=[
+                JudgeBallot.from_round_output(
+                    output, family=model_family(model_by_agent.get(output.turn.agent_name))
                 )
+                for output in round_outputs
+            ],
+            untested="challenge" in session.failed_rounds,
+        )
+        resolved = [
+            output.model_copy(update={"scores": [], "verdicts": []})
+            for output in round_outputs
+        ]
+        if resolved:
+            resolved[0] = resolved[0].model_copy(
+                update={"scores": scores, "verdicts": verdicts}
             )
-        return supplemented
+        return resolved
 
     def _persist_debate_round_outputs(
         self,
@@ -1171,6 +1106,7 @@ class RoundExecutor:
         run_id: int,
         analysis_version: str,
         round_traces: list[RoundTrace],
+        open_disputes: list[dict[str, Any]] | None = None,
     ) -> DocumentAnalysis | None:
         """Build DocumentAnalysis from final round results."""
         if not final_results:
@@ -1210,6 +1146,7 @@ class RoundExecutor:
                 document_hash=document.document_hash,
                 file_id=getattr(document, "file_id", None),
             )
+            parsed["open_disputes"] = list(open_disputes or [])
             parsed["round_traces"] = [rt.model_dump() for rt in round_traces]
             agent_name = (
                 result.agent_name
@@ -1243,6 +1180,7 @@ class RoundExecutor:
                 "cross_document_references": (
                     parsed.get("cross_document_references") or []
                 ),
+                "open_disputes": parsed["open_disputes"],
                 "quality": parsed.get("quality") or deterministic_payload["quality"],
                 "themes": parsed.get("themes") or deterministic_payload["themes"],
                 "trades": parsed.get("trades") or deterministic_payload["trades"],

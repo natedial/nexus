@@ -4,6 +4,7 @@ Each item in `arguments[]` must be a JSON object with this shape:
 
 ```json
 {
+  "local_id": "<your own short label, e.g. a1>",
   "argument_text": "<concise claim or defended position>",
   "thesis_type": "<thesis|contrarian|positioning>",
   "target_claim_id": "<argument_id you are attacking/defending or null>",
@@ -23,5 +24,7 @@ Rules:
 
 - Cite stable keys from the payload or forum context, not free-text references.
 - Keep `argument_text` claim-shaped. One argument, one core position.
+- The orchestrator assigns the real `argument_id`. Use `local_id` to refer to arguments you create in this response.
+- Keys you were not given are removed, and an argument left with no valid citation cannot be accepted.
 - Use `target_claim_id` only when the argument is reacting to an existing argument.
 - `uncertainty=0.0` means highly confident; `1.0` means highly uncertain.

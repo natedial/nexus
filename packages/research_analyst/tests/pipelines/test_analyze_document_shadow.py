@@ -220,3 +220,58 @@ def test_on_mode_unchanged(monkeypatch):
     store.write_shadow_document_analysis.assert_not_called()
     round_executor.run_baseline_synthesis.assert_not_called()
     store.write_document_analysis.assert_called_once()
+
+
+def _pipeline(round_executor, store):
+    return AnalyzeDocumentPipeline(
+        store=store,
+        chunker=MagicMock(chunk_document=MagicMock(return_value=[])),
+        evidence_builder=MagicMock(build_evidence=MagicMock(return_value=[])),
+        assertion_extractor=MagicMock(extract=MagicMock(return_value=[])),
+        resolver=MagicMock(
+            resolve_nodes=MagicMock(return_value=[]),
+            resolve_edges=MagicMock(return_value=[]),
+        ),
+        graph_updater=MagicMock(),
+        lifecycle_service=MagicMock(),
+        quality_reviewer=MagicMock(
+            review=MagicMock(
+                return_value=MagicMock(passed=True, score=0.9, blocking_issues=[])
+            ),
+            to_json=MagicMock(return_value="{}"),
+        ),
+        analysis_version="v1",
+        round_executor=round_executor,
+        eval_trigger=None,
+    )
+
+
+def test_on_mode_debate_crash_falls_back_to_baseline(monkeypatch):
+    _stub_registry(monkeypatch)
+    round_executor = MagicMock()
+    round_executor.debate_mode = "on"
+    round_executor.rollout_stats = MagicMock(debate_fallbacks_total=0)
+    round_executor.run.side_effect = RuntimeError("debate broke")
+    round_executor.run_baseline_synthesis.return_value = _doc_analysis("baseline", 0.7)
+    store = MagicMock()
+
+    result = _pipeline(round_executor, store).run(
+        run_id=42, parser_updated_at=None, document=_document()
+    )
+
+    assert result.status == "success"
+    assert store.write_document_analysis.call_args.kwargs["thesis"] == "baseline"
+    assert round_executor.rollout_stats.debate_fallbacks_total == 1
+
+
+def test_off_mode_crash_is_not_hidden_by_a_fallback(monkeypatch):
+    _stub_registry(monkeypatch)
+    round_executor = MagicMock()
+    round_executor.debate_mode = "off"
+    round_executor.run.side_effect = RuntimeError("synthesis broke")
+
+    with pytest.raises(RuntimeError):
+        _pipeline(round_executor, MagicMock()).run(
+            run_id=42, parser_updated_at=None, document=_document()
+        )
+    round_executor.run_baseline_synthesis.assert_not_called()

@@ -343,4 +343,5 @@ def test_list_argument_maps_for_consensus_joins_house_fields(tmp_path):
     assert rows[0]["source"] == "Citi"
     assert rows[0]["publisher"] is None
     assert rows[0]["research_id"] == 19
+    assert rows[0]["source_date"] == "2026-08-22"
     assert "argument_map" in rows[0]["payload_json"]

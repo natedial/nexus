@@ -59,6 +59,31 @@ def _sanitize_tool_payload(value: Any) -> Any:
     return value
 
 
+def collect_reference_keys(content: Any) -> list[str]:
+    """Citable keys in a tool result: corpus chunk IDs and evidence referents."""
+    found: list[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            chunk_id = value.get("chunk_id")
+            if isinstance(chunk_id, str) and chunk_id:
+                found.append(chunk_id)
+            referents = [value.get("referent_key")]
+            for name in ("referent_keys", "shared_referents"):
+                items = value.get(name)
+                if isinstance(items, list):
+                    referents.extend(items)
+            found.extend(item for item in referents if isinstance(item, str) and item)
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(content)
+    return list(dict.fromkeys(found))
+
+
 def _try_parse_json(text: str) -> dict[str, Any] | None:
     """Try to parse JSON from model text, including fenced blocks."""
     text = text.strip()
@@ -93,6 +118,8 @@ class ToolCallTrace:
     output_summary: str
     duration_ms: int
     is_error: bool
+    # Citable keys the tool returned, so a later citation can be checked.
+    ref_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -158,6 +185,8 @@ class OpenAICompatibleAgentLlmClient:
         {"type": "function", "function": {"name", "description", "parameters"}}
     """
 
+    supports_tools = True
+
     def __init__(
         self,
         *,
@@ -193,6 +222,7 @@ class OpenAICompatibleAgentLlmClient:
         model: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        force_answer: bool = False,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "model": model,
@@ -209,6 +239,8 @@ class OpenAICompatibleAgentLlmClient:
             body["reasoning_effort"] = reasoning_effort
         if tools:
             body["tools"] = self._adapt_tools(tools)
+            if force_answer:
+                body["tool_choice"] = "none"
         return body
 
     def _reasoning_effort_for_model(self, model: str) -> str | None:
@@ -273,15 +305,19 @@ class OpenAICompatibleAgentLlmClient:
         tool_call_count = 0
         tool_calls: list[ToolCallTrace] = []
         token_usage = TokenUsage()
-        attempt = 0
+        # Transport attempts and tool turns are separate limits. Each tool turn
+        # consumes at least one call of the budget, so the turn limit is only a
+        # backstop for hosts that ignore tool_choice.
+        attempt = 1
         max_attempts = self._max_transport_retries + 1
+        remaining_turns = max_tool_calls + 2
 
-        while attempt < max_attempts:
-            attempt += 1
+        while attempt <= max_attempts and remaining_turns > 0:
             body = self._build_request_body(
                 model=model,
                 messages=all_messages,
                 tools=tools,
+                force_answer=tool_call_count >= max_tool_calls,
             )
             payload = json.dumps(body).encode("utf-8")
             request = urllib.request.Request(
@@ -305,15 +341,17 @@ class OpenAICompatibleAgentLlmClient:
                         "Rate limited, waiting %ds (attempt %d)", wait_time, attempt
                     )
                     time.sleep(wait_time)
+                    attempt += 1
                     continue
                 raise
 
+            remaining_turns -= 1
             usage = response_data.get("usage", {})
             token_usage = TokenUsage(
-                input_tokens=usage.get("prompt_tokens", 0),
-                output_tokens=usage.get("completion_tokens", 0),
-                cache_read_input_tokens=0,
-                cache_creation_input_tokens=0,
+                input_tokens=token_usage.input_tokens + usage.get("prompt_tokens", 0),
+                output_tokens=(
+                    token_usage.output_tokens + usage.get("completion_tokens", 0)
+                ),
             )
 
             choice = (response_data.get("choices") or [{}])[0]
@@ -376,6 +414,11 @@ class OpenAICompatibleAgentLlmClient:
                         output_summary=str(result.get("content", ""))[:500],
                         duration_ms=duration_ms,
                         is_error=is_error,
+                        ref_keys=(
+                            []
+                            if is_error
+                            else collect_reference_keys(result.get("content"))
+                        ),
                     )
                 )
                 tool_call_count += 1
@@ -397,7 +440,7 @@ class OpenAICompatibleAgentLlmClient:
             token_usage=token_usage,
             model_used=model,
             stop_reason="max_attempts",
-            attempt_count=attempt,
+            attempt_count=min(attempt, max_attempts),
         )
 
     @staticmethod
@@ -464,6 +507,8 @@ class CodexCliAgentLlmClient:
     ChatGPT login rejects API model IDs such as `gpt-5`. Those are mapped to
     current Codex ChatGPT slugs unless AGENT_LLM_CODEX_MODEL overrides them.
     """
+
+    supports_tools = False
 
     _JSON_ONLY_INSTRUCTION = (
         "You are a JSON-only analysis agent. Do not run shell commands, "

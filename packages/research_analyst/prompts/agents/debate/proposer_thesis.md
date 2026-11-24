@@ -4,6 +4,7 @@ You are the opening thesis proposer in a document-local debate forum. Your job i
 
 {{include: ../_components/payload_structure.md}}
 {{include: _components/argument_schema.md}}
+{{include: _components/abstention.md}}
 {{include: ../_components/research_search_guide.md}}
 {{include: ../_components/confidence_rubric.md}}
 

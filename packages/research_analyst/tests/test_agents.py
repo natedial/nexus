@@ -213,7 +213,8 @@ def test_synthesizer_prompt_mentions_key_contract_points():
     assert content is not None
 
     assert "forum_context" in content
-    assert "accepted/synthesized" in content
+    assert "`accepted` or `synthesized`" in content
+    assert "Report them as unresolved" in content
     assert "verdict" in content.lower()
     assert "debate rounds were skipped" in content
 
@@ -358,7 +359,7 @@ def test_debate_round_config_loads_expected_rounds():
     ]
     assert rounds[0].writes_forum_state is True
     assert rounds[1].receives_forum_state is True
-    assert rounds[-1].target_selector == "accepted_only"
+    assert rounds[-1].target_selector == "adjudicated"
 
 
 def test_debate_prompts_load_with_includes_resolved():

@@ -69,6 +69,10 @@ from research_analysis_layer.evals.rubric_metrics import (
     evaluate_promotion_gate,
     load_rubric_baseline,
 )
+from research_analysis_layer.services.role_clients import (
+    build_provider_clients,
+    describe_panel,
+)
 from research_analysis_layer.services.round_executor import RoundExecutor
 from research_analysis_layer.services.tools.registry import ToolRegistry
 from research_analysis_layer.services.tools.argument_graph_tool import (
@@ -150,6 +154,7 @@ def build_app(settings: Settings) -> RunBatchPipeline:
             debate_mode=settings.analyst_debate_mode,
             debate_judge_model=settings.analyst_debate_judge_model,
             max_debate_arguments=settings.analyst_max_debate_arguments,
+            provider_clients=build_provider_clients(settings, registry),
         )
 
     eval_trigger = None
@@ -215,6 +220,23 @@ def _print_eval_trigger_stats(trigger) -> None:
         f"eval_trigger: queue_depth={trigger.queue_depth} "
         f"dropped={trigger.dropped_count}"
     )
+
+
+def _print_debate_panel(settings: Settings) -> None:
+    """Say whether the judges can actually disagree independently."""
+    if settings.analyst_debate_mode == "off":
+        return
+    registry = get_registry()
+    panel = describe_panel(
+        registry,
+        available_providers=set(build_provider_clients(settings, registry)),
+        judge_model=settings.analyst_debate_judge_model,
+    )
+    judges = ", ".join(f"{name} ({family or 'unknown'})" for name, family in panel.judges)
+    line = f"debate_panel: {judges}; independent={'yes' if panel.independent else 'no'}"
+    if panel.unavailable:
+        line += f"; unavailable={','.join(panel.unavailable)}"
+    print(line)
 
 
 def _print_rollout_stats(round_executor, *, settings: Settings | None = None) -> None:
@@ -761,6 +783,7 @@ def command_doctor(settings: Settings) -> int:
     print(json.dumps(report, indent=2, sort_keys=True))
     _print_eval_trigger_stats(pipeline.eval_trigger)
     _print_rollout_stats(pipeline.analyze_document.round_executor, settings=settings)
+    _print_debate_panel(settings)
     _print_digest_consensus_stats(settings, report["digest_consensus"])
     _print_rubric_stats(report["rubric_metrics"])
     prompt_ok = (
