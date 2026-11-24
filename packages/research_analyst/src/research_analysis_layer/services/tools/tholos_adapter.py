@@ -8,6 +8,12 @@ from typing import Any
 
 import httpx
 
+from research_analysis_layer.services.tools.as_of import (
+    AsOfScope,
+    as_of_aware,
+    bounded_search,
+)
+
 logger = logging.getLogger(__name__)
 _MAX_SEARCH_RESULTS = 8
 _MAX_EXCERPT_CHARS = 400
@@ -141,16 +147,21 @@ def create_tholos_handlers(
     """
     adapter = adapter or TholosAdapter()
 
-    def handle_search(input_data: dict[str, Any]) -> list[dict[str, Any]]:
+    @as_of_aware
+    def handle_search(input_data: dict[str, Any], as_of: AsOfScope | None = None) -> Any:
+        date_to = input_data.get("date_to")
         results = adapter.search(
             input_data.get("query", ""),
             date_from=input_data.get("date_from"),
-            date_to=input_data.get("date_to"),
+            date_to=as_of.clamp(date_to) if as_of else date_to,
             limit=input_data.get("limit", 10),
             keyword_weight=input_data.get("keyword_weight"),
             semantic_weight=input_data.get("semantic_weight"),
         )
-        return _sanitize_search_results(results)
+        bounded = bounded_search(results, as_of)
+        if isinstance(bounded, dict):
+            return {**bounded, "results": _sanitize_search_results(bounded["results"])}
+        return _sanitize_search_results(bounded)
 
     def handle_corpus_info(input_data: dict[str, Any]) -> dict[str, Any]:
         return adapter.corpus_info()

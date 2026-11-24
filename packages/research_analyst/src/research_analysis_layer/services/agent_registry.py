@@ -36,6 +36,8 @@ class AgentConfig:
     max_tool_calls: int = 0
     output_schema: str = ""
     temperature: float = 0.4
+    # None uses the default client; otherwise the named provider's client.
+    provider: str | None = None
 
 
 class AgentRegistry:
@@ -90,9 +92,11 @@ class AgentRegistry:
             model_config = config.get("model", {})
             if isinstance(model_config, dict):
                 model = model_config.get("primary", self._default_model)
+                provider = model_config.get("provider")
                 fallback_model = model_config.get("fallback", self._default_model)
             else:
                 model = model_config if model_config else self._default_model
+                provider = None
                 fallback_model = config.get("fallback_model", self._default_model)
 
             self._agents[name] = AgentConfig(
@@ -108,6 +112,7 @@ class AgentRegistry:
                 max_tool_calls=config.get("max_tool_calls", 0),
                 output_schema=config.get("output_schema", ""),
                 temperature=config.get("temperature", 0.4),
+                provider=provider,
             )
 
         rounds_data = data.get("rounds", [])
@@ -132,6 +137,7 @@ class AgentRegistry:
                             "receives_forum_state", False
                         ),
                         target_selector=round_data.get("target_selector"),
+                        blind=round_data.get("blind", False),
                     )
                 )
 

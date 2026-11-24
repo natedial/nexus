@@ -7,8 +7,11 @@ import logging
 import re
 import threading
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from contextlib import contextmanager
+
+from research_analysis_layer.services.tools.as_of import AsOfScope
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,7 @@ class ToolRegistry:
         self._rate_limiter = get_rate_limiter(rate_limit)
         self._budget_lock = threading.Lock()
         self._remaining_invocations: int | None = None
+        self._as_of_scope: AsOfScope | None = None
 
         if schema_path is not None:
             if not self._schema_path.exists():
@@ -152,6 +156,31 @@ class ToolRegistry:
     def clear_invocation_budget(self) -> None:
         """Clear any shared tool invocation budget."""
         self.set_invocation_budget(None)
+
+    @property
+    def active_scope(self) -> AsOfScope | None:
+        return self._as_of_scope
+
+    def set_as_of_scope(self, scope: AsOfScope | None) -> None:
+        """Limit every tool to a point in time for the current run."""
+        self._as_of_scope = scope
+
+    @contextmanager
+    def as_of_scope(self, scope: AsOfScope) -> Iterator[None]:
+        self.set_as_of_scope(scope)
+        try:
+            yield
+        finally:
+            self.set_as_of_scope(None)
+
+    def _as_of_refusal(self, handler: Callable, scope: AsOfScope | None) -> str | None:
+        if scope is None:
+            return None
+        if scope.as_of is None:
+            return "Tool refused: the document has no usable date for an as-of limit"
+        if getattr(handler, "as_of_aware", False) is not True:
+            return "Tool refused: it cannot honour the run's as-of limit"
+        return None
 
     def _consume_budget(self) -> tuple[bool, str]:
         """Atomically consume one tool invocation from the shared budget."""
@@ -272,6 +301,12 @@ class ToolRegistry:
                 "content": f"Input validation failed: {error_msg}",
             }
 
+        handler = self._handlers[name]
+        scope = self._as_of_scope
+        refusal = self._as_of_refusal(handler, scope)
+        if refusal is not None:
+            return {"is_error": True, "content": refusal}
+
         allowed, budget_error = self._consume_budget()
         if not allowed:
             return {
@@ -279,10 +314,11 @@ class ToolRegistry:
                 "content": budget_error,
             }
 
-        handler = self._handlers[name]
-
         with self._rate_limiter:
-            future = self._executor.submit(handler, input_data)
+            if scope is None:
+                future = self._executor.submit(handler, input_data)
+            else:
+                future = self._executor.submit(handler, input_data, as_of=scope)
             try:
                 result = future.result(timeout=timeout)
                 return {"is_error": False, "content": result}

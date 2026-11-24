@@ -13,6 +13,8 @@ from research_analysis_layer.models import (
     DebateVerdict,
     ForumContext,
 )
+from research_analysis_layer.models.debate_models import ArgumentMetadata
+from research_analysis_layer.services.debate_threads import select_thread_arguments
 
 
 @dataclass
@@ -31,6 +33,7 @@ class DebateSessionBuilder:
         budget: dict[str, int] | None = None,
         world_context: dict[str, Any] | None = None,
         target_selector: str | None = None,
+        blind: bool = False,
     ) -> ForumContext:
         """Build the round-specific forum context.
 
@@ -38,22 +41,27 @@ class DebateSessionBuilder:
         - `proposal_targets`/`challenge_targets`: top-level arguments
         - `rebuttal_targets`: challenged arguments plus their attackers
         - `accepted_only`: accepted/synthesized arguments
+        - `adjudicated`: every argument, rejected claims last, with its verdict
         - `all`/None: all arguments
+
+        Arguments are shown under short handles (`proposal:1`). `blind` hides who
+        wrote each argument and any earlier scores or verdicts.
         """
 
         target_selector = (target_selector or "all").strip().lower()
-        arguments = self._select_arguments(session, target_selector)
+        candidates = self._select_arguments(session, target_selector)
+        arguments = select_thread_arguments(candidates, self.max_arguments)
         allowed_ids = {argument.argument_id for argument in arguments}
         relations = [
             relation
             for relation in session.relations
             if relation.source_argument_id in allowed_ids
-            or relation.target_argument_id in allowed_ids
+            and relation.target_argument_id in allowed_ids
         ][: self.max_relations]
-        scores = [
+        scores = [] if blind else [
             score for score in session.scores if score.argument_id in allowed_ids
         ]
-        verdicts = [
+        verdicts = [] if blind else [
             verdict for verdict in session.verdicts if verdict.argument_id in allowed_ids
         ]
 
@@ -65,14 +73,65 @@ class DebateSessionBuilder:
             analysis_version=session.analysis_version,
             run_id=session.run_id,
             question_set=list(question_set or self._default_question_set(session)),
-            arguments=arguments,
-            relations=relations,
-            scores=scores,
-            verdicts=verdicts,
-            open_targets=open_targets,
+            arguments=[
+                self._presented_argument(session, argument, blind=blind)
+                for argument in arguments
+            ],
+            relations=[
+                relation.model_copy(
+                    update={
+                        "source_argument_id": _handle(
+                            session, relation.source_argument_id
+                        ),
+                        "target_argument_id": _handle(
+                            session, relation.target_argument_id
+                        ),
+                    }
+                )
+                for relation in relations
+            ],
+            scores=[
+                score.model_copy(
+                    update={"argument_id": _handle(session, score.argument_id)}
+                )
+                for score in scores
+            ],
+            verdicts=[
+                verdict.model_copy(
+                    update={
+                        "argument_id": _handle(session, verdict.argument_id),
+                        "synthesizes_from": [
+                            _handle(session, item) for item in verdict.synthesizes_from
+                        ],
+                    }
+                )
+                for verdict in verdicts
+            ],
+            open_targets=[_handle(session, target) for target in open_targets],
+            omitted_argument_count=len(candidates) - len(arguments),
             budget=dict(budget or {}),
             world_context=world_context,
         )
+
+    @staticmethod
+    def _presented_argument(
+        session: DebateSession, argument: DebateArgument, *, blind: bool
+    ) -> DebateArgument:
+        update: dict[str, Any] = {
+            "argument_id": _handle(session, argument.argument_id),
+            "target_claim_id": (
+                _handle(session, argument.target_claim_id)
+                if argument.target_claim_id
+                else None
+            ),
+        }
+        if blind:
+            update["agent_name"] = ""
+            update["metadata"] = ArgumentMetadata(
+                challenge_mode=argument.metadata.challenge_mode,
+                rebuttal_stance=argument.metadata.rebuttal_stance,
+            )
+        return argument.model_copy(update=update)
 
     def _select_arguments(
         self, session: DebateSession, target_selector: str
@@ -107,9 +166,17 @@ class DebateSessionBuilder:
                 for argument in arguments
                 if argument.argument_id in accepted_ids
             ]
-
-        arguments.sort(key=self._argument_sort_key)
-        return arguments[: self.max_arguments]
+        elif target_selector == "adjudicated":
+            rejected = {
+                verdict.argument_id
+                for verdict in session.verdicts
+                if verdict.verdict_label.value == "rejected"
+            }
+            arguments.sort(
+                key=lambda argument: argument.target_claim_id is None
+                and argument.argument_id in rejected
+            )
+        return arguments
 
     def _select_open_targets(
         self,
@@ -142,14 +209,6 @@ class DebateSessionBuilder:
                 deduped.append(target)
                 seen.add(target)
         return deduped[: self.max_open_targets]
-
-    @staticmethod
-    def _argument_sort_key(argument: DebateArgument) -> tuple[int, str, str]:
-        return (
-            0 if argument.target_claim_id is None else 1,
-            argument.turn_name,
-            argument.argument_id,
-        )
 
     @staticmethod
     def _default_question_set(session: DebateSession) -> list[str]:
@@ -216,3 +275,8 @@ class DebateSessionBuilder:
         for item in incoming:
             merged[getattr(item, key)] = item
         return list(merged.values())
+
+
+def _handle(session: DebateSession, argument_id: str) -> str:
+    """Short ID shown to models; the normalizer resolves it back."""
+    return argument_id.removeprefix(f"{session.session_id}:")

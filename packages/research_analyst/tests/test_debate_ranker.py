@@ -69,6 +69,7 @@ def test_ranker_marks_near_tie_as_contested():
             text="Rates stay restrictive for months.",
             assertions=["chunk-1:assertion-1"],
             chunks=["chunk-1", "chunk-2"],
+            instrument="Fed funds",
             time_horizon="months",
         ),
         _argument(
@@ -76,6 +77,7 @@ def test_ranker_marks_near_tie_as_contested():
             text="Rates stay restrictive over the coming months.",
             assertions=["chunk-3:assertion-1"],
             chunks=["chunk-3", "chunk-4"],
+            instrument="Fed funds",
             time_horizon="months",
         ),
     ]

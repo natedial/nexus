@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from research_analysis_layer.models.argument_graph_models import ArgumentGraphSnapshot
 from research_analysis_layer.services.argument_graph import ArgumentGraph
+from research_analysis_layer.services.tools.as_of import AsOfScope, as_of_aware
 
 ARGUMENT_GRAPH_TOOL_NAME = "argument_graph"
 _MAX_HITS = 8
@@ -102,7 +103,10 @@ class ArgumentGraphTool:
         self._maps = None if maps is None else tuple(maps)
         self._graph = graph or ArgumentGraph(min_publishers=min_publishers)
 
-    def handle(self, input_data: dict[str, Any]) -> dict[str, Any]:
+    @as_of_aware
+    def handle(
+        self, input_data: dict[str, Any], as_of: AsOfScope | None = None
+    ) -> dict[str, Any]:
         raw_query = input_data.get("query") or "all"
         if not isinstance(raw_query, str):
             raise ValueError("query must be a string")
@@ -123,7 +127,15 @@ class ArgumentGraphTool:
             raise ValueError("limit must be an integer")
         limit = max(1, min(limit, _MAX_HITS))
 
-        snapshot = self._graph.query_maps(self._load_maps(), claim_key=claim_key)
+        maps = self._load_maps()
+        if as_of is not None:
+            maps = [
+                item
+                for item in maps
+                if as_of.allows(item.get("source_date"))
+                and item.get("research_id") != as_of.exclude_research_id
+            ]
+        snapshot = self._graph.query_maps(maps, claim_key=claim_key)
         return _payload(snapshot, field=field, claim_key=claim_key, limit=limit)
 
     def _load_maps(self) -> Sequence[Mapping[str, Any]]:

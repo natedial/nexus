@@ -1990,6 +1990,7 @@ class AnalysisStore:
             SELECT
                 d.source,
                 d.publisher,
+                d.source_date,
                 a.research_id,
                 a.document_hash,
                 a.payload_json

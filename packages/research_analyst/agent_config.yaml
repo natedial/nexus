@@ -33,9 +33,12 @@ rounds:
       target_selector: rebuttal_targets
       fail_round_on_agent_error: false
 
+    # Judges run blind and in parallel, from two model families. Agreement across
+    # families can overrule the structural ranking; one judge cannot.
     - name: adjudication
-      type: sequential
-      agents: [adjudicator]
+      type: parallel
+      blind: true
+      agents: [adjudicator, adjudicator_independent]
       receives: [input]
       output_schema: DebateRoundOutput
       writes_forum_state: true
@@ -50,7 +53,7 @@ rounds:
       output_schema: DocumentAnalysis
       writes_forum_state: false
       receives_forum_state: true
-      target_selector: accepted_only
+      target_selector: adjudicated
       fail_round_on_agent_error: false
 
 agents:
@@ -157,6 +160,22 @@ agents:
         retry_count: 2
         temperature: 0.2
         priority: 80
+
+    # Needs ANTHROPIC_API_KEY. Without it the panel is not independent: the debate
+    # still runs, and `doctor` reports independent=no.
+    adjudicator_independent:
+        prompt_path: prompts/agents/debate/adjudicator.md
+        model:
+            provider: anthropic
+            primary: claude-sonnet-5-5
+            fallback: claude-sonnet-5-5
+        output_schema: DebateRoundOutput
+        tools: []
+        max_tool_calls: 0
+        timeout_seconds: 180
+        retry_count: 2
+        temperature: 0.2
+        priority: 81
 
     synthesizer:
         prompt_path: prompts/agents/debate/synthesizer.md

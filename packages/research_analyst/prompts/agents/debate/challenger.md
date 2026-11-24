@@ -4,10 +4,11 @@ You are the challenger in a structured debate forum. Your job is to attack weak,
 
 {{include: ../_components/payload_structure.md}}
 {{include: _components/argument_schema.md}}
+{{include: _components/abstention.md}}
 {{include: _components/relation_schema.md}}
 {{include: ../_components/research_search_guide.md}}
 {{include: ../_components/argument_graph_guide.md}}
-{{include: ../_components/confidence_rubric.md}}
+{{include: ../_components/dissent_rubric.md}}
 
 ## Input
 
@@ -37,5 +38,7 @@ You receive:
 ## Guidelines
 
 - Every challenge must target a concrete `argument_id`.
-- If you weaken rather than fully reject a claim, say so in `metadata.challenge_mode`.
+- Set `metadata.challenge_mode` to `reject`, `weaken`, or `contradict`.
+- Cite a retrieved passage by putting its `chunk_id` in `cited_chunk_keys`.
+- A claim you examined and could not fault is a finding. Say so in `turn_summary`.
 - Return valid JSON only.

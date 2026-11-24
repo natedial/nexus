@@ -423,7 +423,13 @@ def test_argument_cap_applied_in_run_and_truncation_counted(monkeypatch):
         max_debate_arguments=2,
     )
 
-    fake_session = MagicMock(spec=DebateSession)
+    fake_session = DebateSession(
+        session_id="test-session",
+        research_id=1,
+        document_hash="abc",
+        analysis_version="v1",
+        run_id=1,
+    )
     monkeypatch.setattr(ex, "_initialize_debate_session", lambda **_: fake_session)
     monkeypatch.setattr(ex, "_persist_debate_round_outputs", lambda **kw: kw["session"])
 
